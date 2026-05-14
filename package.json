@@ -1,0 +1,29 @@
+{
+  "name": "baby-feeding-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Workers MCP server that tracks baby milk feedings (time + amount).",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "db:create": "wrangler d1 create baby-feedings",
+    "db:migrate:local": "wrangler d1 migrations apply baby-feedings --local",
+    "db:migrate:remote": "wrangler d1 migrations apply baby-feedings --remote",
+    "inspect": "npx @modelcontextprotocol/inspector@latest"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.6.0",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "agents": "^0.0.95",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.7.2",
+    "wrangler": "^4.0.0"
+  }
+}
