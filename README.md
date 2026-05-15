@@ -17,22 +17,22 @@ in the `OAUTH_KV` namespace.
 | ------------------- | ----------------------------------------------------------------------- |
 | `set_profile`       | Set baby's `name`, `sex`, `date_of_birth` (any combination)             |
 | `get_profile`       | Read profile + computed age                                             |
-| `record_feeding`    | Log a feeding: `amount_ml` (required), `when` (ISO ts), `note`          |
+| `record_feeding`    | Log a feeding: `amount_ml` (required), `when` (ISO ts)                  |
 | `list_feedings`     | List feedings, newest first. Optional `since` / `until` / `limit`       |
 | `delete_feeding`    | Remove a feeding by `id`                                                |
-| `record_diaper`     | Log a diaper: `kind` ('pee' / 'poop' / 'both'), `when`, `note`          |
+| `record_diaper`     | Log a diaper: `kind` ('pee' / 'poop' / 'both'), `when`                  |
 | `list_diapers`      | List diapers, newest first. Optional `since` / `until` / `kind` / `limit` |
 | `delete_diaper`     | Remove a diaper event by `id`                                           |
-| `record_medication` | Log a med/supplement: `name` (e.g. 'Vitamin D'), `dose`, `when`, `note` |
+| `record_medication` | Log a med/supplement: `name` (e.g. 'Vitamin D'), `when`                 |
 | `list_medications`  | List doses, newest first. Optional `since` / `until` / `name` / `limit` |
 | `delete_medication` | Remove a dose by `id`                                                   |
 | `record_observation`| Log a free-form observation (e.g. 'pimples on face'): `text`, `category`, `when` |
 | `list_observations` | List observations. Optional `since` / `until` / `category` / `search` / `limit` |
 | `delete_observation`| Remove an observation by `id`                                           |
-| `record_weight`     | Log a weight in kg: `weight_kg`, `when`, `note` (reports delta vs prev) |
+| `record_weight`     | Log a weight in kg: `weight_kg`, `when` (reports delta vs prev)         |
 | `list_weights`      | List weight measurements. Optional `since` / `until` / `limit`          |
 | `delete_weight`     | Remove a weight measurement by `id`                                     |
-| `record_height`     | Log a length/height in cm: `height_cm`, `when`, `note` (reports delta)  |
+| `record_height`     | Log a length/height in cm: `height_cm`, `when` (reports delta)          |
 | `list_heights`      | List height measurements. Optional `since` / `until` / `limit`          |
 | `delete_height`     | Remove a height measurement by `id`                                     |
 | `add_indication`    | Define a daily target (e.g. '1 poop a day'): `label`, `metric`, `target`, `comparison`, `filter` |

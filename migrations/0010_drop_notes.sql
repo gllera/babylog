@@ -1,0 +1,6 @@
+ALTER TABLE feedings DROP COLUMN note;
+ALTER TABLE diapers DROP COLUMN note;
+ALTER TABLE medications DROP COLUMN note;
+ALTER TABLE indications DROP COLUMN note;
+ALTER TABLE weights DROP COLUMN note;
+ALTER TABLE heights DROP COLUMN note;
