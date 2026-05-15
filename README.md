@@ -43,6 +43,14 @@ in the `OAUTH_KV` namespace.
 
 All timestamps are ISO 8601 UTC strings (e.g. `2026-05-14T07:30:00Z`).
 
+## Web UI
+
+A browser-based view is served at `/app`. It lets you register and remove
+feedings, diapers, medications, observations, weights, and heights without
+an MCP client. Log in once with the `SHARED_SECRET` password and the
+session is remembered via an HttpOnly cookie. Visiting `/` redirects to
+`/app`.
+
 ## Setup
 
 ### 1. Install
