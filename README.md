@@ -23,30 +23,30 @@ in the `OAUTH_KV` namespace.
 | `record_diaper`     | Log a diaper: `kind` ('pee' / 'poop' / 'both'), `when`                  |
 | `list_diapers`      | List diapers, newest first. Optional `since` / `until` / `kind` / `limit` |
 | `delete_diaper`     | Remove a diaper event by `id`                                           |
-| `record_medication` | Log a med/supplement: `name` (e.g. 'Vitamin D'), `when`                 |
-| `list_medications`  | List doses, newest first. Optional `since` / `until` / `name` / `limit` |
-| `delete_medication` | Remove a dose by `id`                                                   |
-| `record_observation`| Log a free-form observation (e.g. 'pimples on face'): `text`, `category`, `when` |
-| `list_observations` | List observations. Optional `since` / `until` / `category` / `search` / `limit` |
-| `delete_observation`| Remove an observation by `id`                                           |
-| `record_weight`     | Log a weight in kg: `weight_kg`, `when` (reports delta vs prev)         |
+| `record_routine`    | Log a routine event, medication, or supplement: `name` (e.g. 'Vitamin D', 'Bath'), `when` |
+| `list_routines`     | List entries, newest first. Optional `since` / `until` / `name` / `limit` |
+| `delete_routine`    | Remove an entry by `id`                                                 |
+| `record_note`       | Log a free-form note (e.g. 'pimples on face'): `text`, `when`           |
+| `list_notes`        | List notes. Optional `since` / `until` / `search` / `limit`             |
+| `delete_note`       | Remove a note by `id`                                                   |
+| `record_weight`     | Log a weight in whole grams: `weight_g`, `when` (reports delta vs prev) |
 | `list_weights`      | List weight measurements. Optional `since` / `until` / `limit`          |
 | `delete_weight`     | Remove a weight measurement by `id`                                     |
 | `record_height`     | Log a length/height in cm: `height_cm`, `when` (reports delta)          |
 | `list_heights`      | List height measurements. Optional `since` / `until` / `limit`          |
 | `delete_height`     | Remove a height measurement by `id`                                     |
-| `add_indication`    | Define a daily target (e.g. '1 poop a day'): `label`, `metric`, `target`, `comparison`, `filter` |
+| `add_indication`    | Define a target over an N-day window (e.g. '1 poop a day', 'bath every 2 days'): `label`, `metric`, `target`, `comparison`, `period_days`, `filter` |
 | `list_indications`  | List defined indications (active by default)                            |
 | `delete_indication` | Remove an indication by `id`                                            |
 | `check_indications` | Evaluate all active indications against a day's actuals (today by default) |
-| `get_stats`         | Feedings + diapers + medications + observations summary + latest weight, over a window (default 24 h) |
+| `get_stats`         | Feedings + diapers + routines + notes summary + latest weight & height, over a window (default 24 h) |
 
 All timestamps are ISO 8601 UTC strings (e.g. `2026-05-14T07:30:00Z`).
 
 ## Web UI
 
 A browser-based view is served at `/app`. It lets you register and remove
-feedings, diapers, medications, observations, weights, and heights without
+feedings, diapers, routines, notes, weights, and heights without
 an MCP client. Log in once with the `SHARED_SECRET` password and the
 session is remembered via an HttpOnly cookie. Visiting `/` redirects to
 `/app`.
@@ -142,11 +142,9 @@ Then try:
 
 ```
 .
-├── src/index.ts                    # McpAgent + 7 tools (feedings, diapers, stats)
-├── migrations/
-│   ├── 0001_init.sql               # feedings table
-│   └── 0002_diapers.sql            # diapers table
-├── wrangler.jsonc                  # Worker + Durable Object + D1 bindings
+├── src/index.ts                    # McpAgent + tools + web UI (all inline)
+├── migrations/                     # 0001..NNNN sequential D1 schema migrations
+├── wrangler.jsonc                  # Worker + Durable Object + D1 + KV bindings
 ├── tsconfig.json
 └── package.json
 ```

@@ -29,23 +29,22 @@ type DiaperRow = {
   kind: DiaperKind;
 };
 
-type MedicationRow = {
+type RoutineRow = {
   id: number;
   ts: string;
   name: string;
 };
 
-type ObservationRow = {
+type NoteRow = {
   id: number;
   ts: string;
   text: string;
-  category: string | null;
 };
 
 type WeightRow = {
   id: number;
   ts: string;
-  weight_kg: number;
+  weight_g: number;
 };
 
 type HeightRow = {
@@ -102,8 +101,8 @@ type IndicationMetric =
   | "feeding_total_ml"
   | "feeding_count"
   | "diaper_count"
-  | "medication_count"
-  | "observation_count";
+  | "routine_count"
+  | "note_count";
 
 type IndicationRow = {
   id: number;
@@ -155,11 +154,11 @@ async function computeIndicationActual(
         .first<{ v: number }>();
       return r?.v ?? 0;
     }
-    case "medication_count": {
+    case "routine_count": {
       if (filter) {
         const r = await db
           .prepare(
-            "SELECT COUNT(*) AS v FROM medications WHERE ts >= ? AND ts < ? AND LOWER(name) LIKE ?"
+            "SELECT COUNT(*) AS v FROM routines WHERE ts >= ? AND ts < ? AND LOWER(name) LIKE ?"
           )
           .bind(start, end, `%${filter.toLowerCase()}%`)
           .first<{ v: number }>();
@@ -167,25 +166,16 @@ async function computeIndicationActual(
       }
       const r = await db
         .prepare(
-          "SELECT COUNT(*) AS v FROM medications WHERE ts >= ? AND ts < ?"
+          "SELECT COUNT(*) AS v FROM routines WHERE ts >= ? AND ts < ?"
         )
         .bind(start, end)
         .first<{ v: number }>();
       return r?.v ?? 0;
     }
-    case "observation_count": {
-      if (filter) {
-        const r = await db
-          .prepare(
-            "SELECT COUNT(*) AS v FROM observations WHERE ts >= ? AND ts < ? AND LOWER(category) = ?"
-          )
-          .bind(start, end, filter.toLowerCase())
-          .first<{ v: number }>();
-        return r?.v ?? 0;
-      }
+    case "note_count": {
       const r = await db
         .prepare(
-          "SELECT COUNT(*) AS v FROM observations WHERE ts >= ? AND ts < ?"
+          "SELECT COUNT(*) AS v FROM notes WHERE ts >= ? AND ts < ?"
         )
         .bind(start, end)
         .first<{ v: number }>();
@@ -599,29 +589,29 @@ export class BabyFeedingMCP extends McpAgent<Env> {
     );
 
     this.server.registerTool(
-      "record_medication",
+      "record_routine",
       {
         description:
-          "Record a medication or supplement dose given to the baby (e.g. Vitamin D, Acetaminophen). If the user does not specify a time, OMIT the `when` parameter — the server records the dose at the current time. Only pass `when` if the user gave an explicit past/future time.",
+          "Record a routine care event, medication, or supplement for the baby. This table is used for medication doses (e.g. 'Vitamin D', 'Acetaminophen') as well as routine events the user wants to track over time (e.g. 'Bath'). If the user does not specify a time, OMIT the `when` parameter — the server records the event at the current time. Only pass `when` if the user gave an explicit past/future time.",
         inputSchema: {
           name: z
             .string()
             .min(1)
             .max(100)
-            .describe("Medication name, e.g. 'Vitamin D', 'Acetaminophen'"),
+            .describe("Entry name, e.g. 'Vitamin D', 'Acetaminophen', 'Bath'"),
           when: z
             .string()
             .datetime()
             .optional()
             .describe(
-              "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z). OMIT this when the dose is happening now — the server fills in the current time."
+              "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z). OMIT this when the event is happening now — the server fills in the current time."
             ),
         },
       },
       async ({ name, when }) => {
         const ts = when ?? new Date().toISOString();
         const inserted = await this.env.DB.prepare(
-          "INSERT INTO medications (ts, name) VALUES (?, ?) RETURNING id"
+          "INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id"
         )
           .bind(ts, name)
           .first<{ id: number }>();
@@ -630,7 +620,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded medication #${inserted?.id}: ${name} at ${ts}.`,
+              text: `Recorded routine #${inserted?.id}: ${name} at ${ts}.`,
             },
           ],
         };
@@ -638,28 +628,28 @@ export class BabyFeedingMCP extends McpAgent<Env> {
     );
 
     this.server.registerTool(
-      "list_medications",
+      "list_routines",
       {
         description:
-          "List medication doses, most recent first. Optionally filter by time window and medication name (case-insensitive substring match).",
+          "List routine-care entries and medication doses (e.g. Vitamin D doses, baths), most recent first. Optionally filter by time window and entry name (case-insensitive substring match).",
         inputSchema: {
           since: z
             .string()
             .datetime()
             .optional()
-            .describe("Include doses on or after this ISO timestamp"),
+            .describe("Include entries on or after this ISO timestamp"),
           until: z
             .string()
             .datetime()
             .optional()
-            .describe("Include doses strictly before this ISO timestamp"),
+            .describe("Include entries strictly before this ISO timestamp"),
           name: z
             .string()
             .min(1)
             .max(100)
             .optional()
             .describe(
-              "Filter by medication name (case-insensitive substring match, e.g. 'vitamin')"
+              "Filter by entry name (case-insensitive substring match, e.g. 'vitamin')"
             ),
           limit: z
             .number()
@@ -689,15 +679,15 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         params.push(limit ?? 50);
 
         const { results } = await this.env.DB.prepare(
-          `SELECT id, ts, name FROM medications ${where} ORDER BY ts DESC LIMIT ?`
+          `SELECT id, ts, name FROM routines ${where} ORDER BY ts DESC LIMIT ?`
         )
           .bind(...params)
-          .all<MedicationRow>();
+          .all<RoutineRow>();
 
         if (results.length === 0) {
           return {
             content: [
-              { type: "text", text: "No medications recorded in that range." },
+              { type: "text", text: "No routines recorded in that range." },
             ],
           };
         }
@@ -712,20 +702,20 @@ export class BabyFeedingMCP extends McpAgent<Env> {
     );
 
     this.server.registerTool(
-      "delete_medication",
+      "delete_routine",
       {
-        description: "Delete a medication dose by its numeric id.",
+        description: "Delete a routines-table entry by its numeric id.",
         inputSchema: {
           id: z
             .number()
             .int()
             .positive()
-            .describe("Medication id to delete (from list_medications)"),
+            .describe("Routine id to delete (from list_routines)"),
         },
       },
       async ({ id }) => {
         const res = await this.env.DB.prepare(
-          "DELETE FROM medications WHERE id = ?"
+          "DELETE FROM routines WHERE id = ?"
         )
           .bind(id)
           .run();
@@ -736,8 +726,8 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               type: "text",
               text:
                 changes > 0
-                  ? `Deleted medication #${id}.`
-                  : `No medication with id #${id} found.`,
+                  ? `Deleted routine #${id}.`
+                  : `No routine with id #${id} found.`,
             },
           ],
         };
@@ -745,50 +735,40 @@ export class BabyFeedingMCP extends McpAgent<Env> {
     );
 
     this.server.registerTool(
-      "record_observation",
+      "record_note",
       {
         description:
-          "Record a free-form observation about the baby — anything that doesn't fit feedings, diapers, or medications. Examples: 'granitos en la cara' (pimples on the face), 'first smile', 'rash on left arm', 'fussy after nap'. If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
+          "Record a free-form note about the baby — anything that doesn't fit feedings, diapers, routines, weights, or heights. Examples: 'pimples on the face', 'first smile', 'rash on left arm', 'fussy after nap'. If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
         inputSchema: {
           text: z
             .string()
             .min(1)
             .max(2000)
             .describe(
-              "The observation itself, in the user's own words. Required."
-            ),
-          category: z
-            .string()
-            .min(1)
-            .max(50)
-            .optional()
-            .describe(
-              "Optional category for grouping, e.g. 'skin', 'mood', 'sleep', 'milestone'. Use lowercase, single word when possible."
+              "The note itself, in the user's own words. Required."
             ),
           when: z
             .string()
             .datetime()
             .optional()
             .describe(
-              "Optional ISO 8601 timestamp. OMIT this when the observation is happening now — the server fills in the current time."
+              "Optional ISO 8601 timestamp. OMIT this when the note is happening now — the server fills in the current time."
             ),
         },
       },
-      async ({ text, category, when }) => {
+      async ({ text, when }) => {
         const ts = when ?? new Date().toISOString();
         const inserted = await this.env.DB.prepare(
-          "INSERT INTO observations (ts, text, category) VALUES (?, ?, ?) RETURNING id"
+          "INSERT INTO notes (ts, text) VALUES (?, ?) RETURNING id"
         )
-          .bind(ts, text, category ?? null)
+          .bind(ts, text)
           .first<{ id: number }>();
 
         return {
           content: [
             {
               type: "text",
-              text: `Recorded observation #${inserted?.id}${
-                category ? ` [${category}]` : ""
-              } at ${ts}: ${text}`,
+              text: `Recorded note #${inserted?.id} at ${ts}: ${text}`,
             },
           ],
         };
@@ -796,34 +776,28 @@ export class BabyFeedingMCP extends McpAgent<Env> {
     );
 
     this.server.registerTool(
-      "list_observations",
+      "list_notes",
       {
         description:
-          "List observations, most recent first. Optionally filter by time window, category, or a substring of the text.",
+          "List notes, most recent first. Optionally filter by time window or a substring of the text.",
         inputSchema: {
           since: z
             .string()
             .datetime()
             .optional()
-            .describe("Include observations on or after this ISO timestamp"),
+            .describe("Include notes on or after this ISO timestamp"),
           until: z
             .string()
             .datetime()
             .optional()
-            .describe("Include observations strictly before this ISO timestamp"),
-          category: z
-            .string()
-            .min(1)
-            .max(50)
-            .optional()
-            .describe("Filter by exact category (case-insensitive)"),
+            .describe("Include notes strictly before this ISO timestamp"),
           search: z
             .string()
             .min(1)
             .max(200)
             .optional()
             .describe(
-              "Substring to search for inside the observation text (case-insensitive)"
+              "Substring to search for inside the note text (case-insensitive)"
             ),
           limit: z
             .number()
@@ -834,7 +808,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe("Maximum number of rows to return (default 50, max 500)"),
         },
       },
-      async ({ since, until, category, search, limit }) => {
+      async ({ since, until, search, limit }) => {
         const clauses: string[] = [];
         const params: (string | number)[] = [];
         if (since) {
@@ -845,10 +819,6 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           clauses.push("ts < ?");
           params.push(until);
         }
-        if (category) {
-          clauses.push("LOWER(category) = ?");
-          params.push(category.toLowerCase());
-        }
         if (search) {
           clauses.push("LOWER(text) LIKE ?");
           params.push(`%${search.toLowerCase()}%`);
@@ -857,24 +827,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         params.push(limit ?? 50);
 
         const { results } = await this.env.DB.prepare(
-          `SELECT id, ts, text, category FROM observations ${where} ORDER BY ts DESC LIMIT ?`
+          `SELECT id, ts, text FROM notes ${where} ORDER BY ts DESC LIMIT ?`
         )
           .bind(...params)
-          .all<ObservationRow>();
+          .all<NoteRow>();
 
         if (results.length === 0) {
           return {
             content: [
-              { type: "text", text: "No observations recorded in that range." },
+              { type: "text", text: "No notes recorded in that range." },
             ],
           };
         }
 
         const lines = results.map(
-          (r) =>
-            `#${r.id}  ${r.ts}${r.category ? `  [${r.category}]` : ""}  ${
-              r.text
-            }`
+          (r) => `#${r.id}  ${r.ts}  ${r.text}`
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -883,20 +850,20 @@ export class BabyFeedingMCP extends McpAgent<Env> {
     );
 
     this.server.registerTool(
-      "delete_observation",
+      "delete_note",
       {
-        description: "Delete an observation by its numeric id.",
+        description: "Delete a note by its numeric id.",
         inputSchema: {
           id: z
             .number()
             .int()
             .positive()
-            .describe("Observation id to delete (from list_observations)"),
+            .describe("Note id to delete (from list_notes)"),
         },
       },
       async ({ id }) => {
         const res = await this.env.DB.prepare(
-          "DELETE FROM observations WHERE id = ?"
+          "DELETE FROM notes WHERE id = ?"
         )
           .bind(id)
           .run();
@@ -907,8 +874,8 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               type: "text",
               text:
                 changes > 0
-                  ? `Deleted observation #${id}.`
-                  : `No observation with id #${id} found.`,
+                  ? `Deleted note #${id}.`
+                  : `No note with id #${id} found.`,
             },
           ],
         };
@@ -919,13 +886,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "record_weight",
       {
         description:
-          "Record a baby weight measurement in kilograms. If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
+          "Record a baby weight measurement in whole grams. If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
         inputSchema: {
-          weight_kg: z
+          weight_g: z
             .number()
+            .int()
             .positive()
             .describe(
-              "Weight in kilograms, e.g. 4.25. If the user gives grams or pounds, convert first."
+              "Weight in whole grams, e.g. 4250. If the user gives kilograms, pounds, or decimals, convert and round first (1 kg = 1000 g)."
             ),
           when: z
             .string()
@@ -936,33 +904,33 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             ),
         },
       },
-      async ({ weight_kg, when }) => {
+      async ({ weight_g, when }) => {
         const ts = when ?? new Date().toISOString();
         const inserted = await this.env.DB.prepare(
-          "INSERT INTO weights (ts, weight_kg) VALUES (?, ?) RETURNING id"
+          "INSERT INTO weights (ts, weight_g) VALUES (?, ?) RETURNING id"
         )
-          .bind(ts, weight_kg)
+          .bind(ts, weight_g)
           .first<{ id: number }>();
 
         // Compute delta vs previous measurement.
         const prev = await this.env.DB.prepare(
-          "SELECT ts, weight_kg FROM weights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+          "SELECT ts, weight_g FROM weights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
         )
           .bind(ts)
-          .first<{ ts: string; weight_kg: number }>();
+          .first<{ ts: string; weight_g: number }>();
 
         let delta = "";
         if (prev) {
-          const diff = weight_kg - prev.weight_kg;
+          const diff = weight_g - prev.weight_g;
           const sign = diff >= 0 ? "+" : "";
-          delta = `  (${sign}${diff.toFixed(3)} kg since ${prev.ts})`;
+          delta = `  (${sign}${diff} g since ${prev.ts})`;
         }
 
         return {
           content: [
             {
               type: "text",
-              text: `Recorded weight #${inserted?.id}: ${weight_kg} kg at ${ts}${delta}.`,
+              text: `Recorded weight #${inserted?.id}: ${weight_g} g at ${ts}${delta}.`,
             },
           ],
         };
@@ -1009,7 +977,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         params.push(limit ?? 50);
 
         const { results } = await this.env.DB.prepare(
-          `SELECT id, ts, weight_kg FROM weights ${where} ORDER BY ts DESC LIMIT ?`
+          `SELECT id, ts, weight_g FROM weights ${where} ORDER BY ts DESC LIMIT ?`
         )
           .bind(...params)
           .all<WeightRow>();
@@ -1024,7 +992,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
 
         const lines = results.map(
           (r) =>
-            `#${r.id}  ${r.ts}  ${r.weight_kg} kg`
+            `#${r.id}  ${r.ts}  ${r.weight_g} g`
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -1069,13 +1037,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "record_height",
       {
         description:
-          "Record a baby length/height measurement in centimeters (babies are measured lying down, so this is technically length). If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
+          "Record a baby length/height measurement in whole centimeters (babies are measured lying down, so this is technically length). If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
         inputSchema: {
           height_cm: z
             .number()
+            .int()
             .positive()
             .describe(
-              "Length/height in centimeters, e.g. 54.5. If given in inches or meters, convert first."
+              "Length/height in whole centimeters, e.g. 54. If given in inches, meters, or with decimals, convert and round first."
             ),
           when: z
             .string()
@@ -1104,7 +1073,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         if (prev) {
           const diff = height_cm - prev.height_cm;
           const sign = diff >= 0 ? "+" : "";
-          delta = `  (${sign}${diff.toFixed(1)} cm since ${prev.ts})`;
+          delta = `  (${sign}${diff} cm since ${prev.ts})`;
         }
 
         return {
@@ -1218,7 +1187,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "add_indication",
       {
         description:
-          "Define a target the baby's care should follow over a window of N days. Examples:\n  '1 poop a day' → metric='diaper_count', filter='poop', target=1\n  '500 ml of milk a day' → metric='feeding_total_ml', target=500\n  'Vitamin D once a day' → metric='medication_count', filter='vitamin d', target=1\n  'bath every 2 days' → metric='observation_count', filter='bath', target=1, period_days=2.",
+          "Define a target the baby's care should follow over a window of N days. Examples:\n  '1 poop a day' → metric='diaper_count', filter='poop', target=1\n  '500 ml of milk a day' → metric='feeding_total_ml', target=500\n  'Vitamin D once a day' → metric='routine_count', filter='vitamin d', target=1\n  'bath every 2 days' → metric='routine_count', filter='bath', target=1, period_days=2.",
         inputSchema: {
           label: z
             .string()
@@ -1232,11 +1201,11 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               "feeding_total_ml",
               "feeding_count",
               "diaper_count",
-              "medication_count",
-              "observation_count",
+              "routine_count",
+              "note_count",
             ])
             .describe(
-              "What to aggregate: feeding_total_ml (sum of feeding ml), feeding_count, diaper_count, medication_count, observation_count"
+              "What to aggregate: feeding_total_ml (sum of feeding ml), feeding_count, diaper_count, routine_count, note_count"
             ),
           target: z
             .number()
@@ -1262,7 +1231,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .max(100)
             .optional()
             .describe(
-              "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). medication_count: substring of medication name (e.g. 'vitamin d'). observation_count: exact observation category (e.g. 'bath'). Ignored for feeding metrics."
+              "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). Ignored for feeding and note metrics."
             ),
         },
       },
@@ -1488,7 +1457,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "get_stats",
       {
         description:
-          "Summarize feedings, diapers, medications, and observations within a time window. Defaults to the last 24 hours.",
+          "Summarize feedings, diapers, routines, and notes within a time window. Defaults to the last 24 hours.",
         inputSchema: {
           since: z
             .string()
@@ -1507,7 +1476,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         const start =
           since ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-        const [feedAgg, diaperAgg, medAgg, medBreakdown, obsAgg] =
+        const [feedAgg, diaperAgg, routineAgg, routineBreakdown, noteAgg] =
           await this.env.DB.batch([
             this.env.DB.prepare(
               `SELECT
@@ -1529,19 +1498,19 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             ).bind(start, end),
             this.env.DB.prepare(
               `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
-               FROM medications
+               FROM routines
                WHERE ts >= ? AND ts < ?`
             ).bind(start, end),
             this.env.DB.prepare(
               `SELECT name, COUNT(*) AS n
-               FROM medications
+               FROM routines
                WHERE ts >= ? AND ts < ?
                GROUP BY name
                ORDER BY n DESC`
             ).bind(start, end),
             this.env.DB.prepare(
               `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
-               FROM observations
+               FROM notes
                WHERE ts >= ? AND ts < ?`
             ).bind(start, end),
           ]);
@@ -1558,15 +1527,15 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           poop_count: number;
           last_ts: string | null;
         };
-        const meds = medAgg.results[0] as {
+        const routines = routineAgg.results[0] as {
           count: number;
           last_ts: string | null;
         };
-        const medsByName = medBreakdown.results as Array<{
+        const routinesByName = routineBreakdown.results as Array<{
           name: string;
           n: number;
         }>;
-        const obs = obsAgg.results[0] as {
+        const notes = noteAgg.results[0] as {
           count: number;
           last_ts: string | null;
         };
@@ -1607,28 +1576,28 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           );
         }
 
-        if (meds.count === 0) {
-          lines.push("Medications: none");
+        if (routines.count === 0) {
+          lines.push("Routines:    none");
         } else {
-          const breakdown = medsByName
+          const breakdown = routinesByName
             .map((m) => `${m.name}×${m.n}`)
             .join(", ");
           lines.push(
-            `Medications: ${meds.count}  (${breakdown}, last ${meds.last_ts})`
+            `Routines:    ${routines.count}  (${breakdown}, last ${routines.last_ts})`
           );
         }
 
-        if (obs.count === 0) {
-          lines.push("Observations: none");
+        if (notes.count === 0) {
+          lines.push("Notes:       none");
         } else {
-          lines.push(`Observations: ${obs.count}  (last ${obs.last_ts})`);
+          lines.push(`Notes:       ${notes.count}  (last ${notes.last_ts})`);
         }
 
         // Latest weight + height (independent of the window — current state).
         const [latestWeight, latestHeight] = await Promise.all([
           this.env.DB.prepare(
-            "SELECT ts, weight_kg FROM weights ORDER BY ts DESC LIMIT 1"
-          ).first<{ ts: string; weight_kg: number }>(),
+            "SELECT ts, weight_g FROM weights ORDER BY ts DESC LIMIT 1"
+          ).first<{ ts: string; weight_g: number }>(),
           this.env.DB.prepare(
             "SELECT ts, height_cm FROM heights ORDER BY ts DESC LIMIT 1"
           ).first<{ ts: string; height_cm: number }>(),
@@ -1638,7 +1607,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         }
         if (latestWeight) {
           lines.push(
-            `Latest weight: ${latestWeight.weight_kg} kg  (measured ${latestWeight.ts})`
+            `Latest weight: ${latestWeight.weight_g} g  (measured ${latestWeight.ts})`
           );
         }
         if (latestHeight) {
@@ -1674,11 +1643,11 @@ function renderConsent(
   error?: string
 ): Response {
   const html = `<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Autorizar ${escapeHtml(clientName)}</title>
+  <title>Authorize ${escapeHtml(clientName)}</title>
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          max-width:420px;margin:60px auto;padding:24px;line-height:1.5}
@@ -1696,14 +1665,14 @@ function renderConsent(
 </head>
 <body>
   <div class="card">
-    <h1>Autorizar <em>${escapeHtml(clientName)}</em></h1>
-    <p>Este cliente MCP quiere acceder al diario del bebé.</p>
+    <h1>Authorize <em>${escapeHtml(clientName)}</em></h1>
+    <p>This MCP client wants to access the baby diary.</p>
     <form method="POST" action="/authorize">
       <input type="hidden" name="state" value="${escapeHtml(state)}">
-      <label for="pw">Contraseña del servidor</label>
+      <label for="pw">Server password</label>
       <input id="pw" type="password" name="password" autocomplete="current-password" autofocus required>
       ${error ? `<div class="err">${escapeHtml(error)}</div>` : ""}
-      <button type="submit">Autorizar</button>
+      <button type="submit">Authorize</button>
     </form>
   </div>
 </body>
@@ -1763,7 +1732,7 @@ async function handleAuthorizePost(
     return renderConsent(
       client?.clientName ?? "MCP Client",
       state,
-      "Contraseña incorrecta."
+      "Incorrect password."
     );
   }
 
@@ -1857,11 +1826,11 @@ function clearSessionCookieHeader(isHttps: boolean): string {
 function renderAppLogin(error?: string, next?: string): Response {
   const nextAttr = next ? `<input type="hidden" name="next" value="${escapeHtml(next)}">` : "";
   const html = `<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Diario del bebé — Iniciar sesión</title>
+  <title>Baby diary — Log in</title>
   <link rel="icon" href="/icon.svg">
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -1881,14 +1850,14 @@ function renderAppLogin(error?: string, next?: string): Response {
 </head>
 <body>
   <div class="card">
-    <h1>Diario del bebé</h1>
-    <p>Inicia sesión para registrar tomas, pañales, medicamentos, observaciones, pesos y tallas.</p>
+    <h1>Baby diary</h1>
+    <p>Log in to record feedings, diapers, routines, weights, heights, and notes.</p>
     <form method="POST" action="/app/login">
       ${nextAttr}
-      <label for="pw">Contraseña</label>
+      <label for="pw">Password</label>
       <input id="pw" type="password" name="password" autocomplete="current-password" autofocus required>
       ${error ? `<div class="err">${escapeHtml(error)}</div>` : ""}
-      <button type="submit">Iniciar sesión</button>
+      <button type="submit">Log in</button>
     </form>
   </div>
 </body>
@@ -1924,10 +1893,10 @@ async function handleAppLoginPost(request: Request, env: Env): Promise<Response>
   const password = form.get("password");
   const next = safeNextPath(form.get("next") as string | null);
   if (typeof password !== "string") {
-    return renderAppLogin("Falta la contraseña.", next);
+    return renderAppLogin("Password is missing.", next);
   }
   if (password !== env.SHARED_SECRET) {
-    return renderAppLogin("Contraseña incorrecta.", next);
+    return renderAppLogin("Incorrect password.", next);
   }
   const token = await deriveSessionToken(env.SHARED_SECRET);
   const isHttps = new URL(request.url).protocol === "https:";
@@ -1952,22 +1921,22 @@ function handleAppLogout(request: Request): Response {
 }
 
 const WHEN_BLOCK = `          <input type="hidden" name="when" value="">
-          <div class="when-display" data-when-display>Ahora</div>
+          <div class="when-display" data-when-display>Now</div>
           <div class="when-quick">
             <button type="button" data-step="-60">&minus;1h</button>
             <button type="button" data-step="-15">&minus;15m</button>
             <button type="button" data-step="-5">&minus;5m</button>
-            <button type="button" data-now>Ahora</button>
+            <button type="button" data-now>Now</button>
             <button type="button" data-step="5">+5m</button>
             <button type="button" data-step="15">+15m</button>
           </div>`;
 
 const APP_HTML = `<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Diario del bebé</title>
+  <title>Baby diary</title>
   <link rel="icon" href="/icon.svg">
   <style>
     :root {
@@ -2020,6 +1989,11 @@ const APP_HTML = `<!DOCTYPE html>
       border-color: var(--primary);
     }
     nav button.active:hover { background: var(--primary-dark); }
+    /* Desktop default: More menu vanishes, its tabs flow inline as nav children. */
+    .more-menu,
+    .more-dropdown,
+    .more-dropdown[hidden] { display: contents; }
+    #more-btn { display: none; }
     main {
       max-width: 920px;
       margin: 24px auto;
@@ -2113,7 +2087,6 @@ const APP_HTML = `<!DOCTYPE html>
     }
     tbody tr:last-child td { border-bottom: 0; }
     tbody tr:hover { background: #fafafa; }
-    .id-col { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; width: 1px; white-space: nowrap; }
     .ts-col { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .num-col { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .actions-col { text-align: right; width: 1%; white-space: nowrap; }
@@ -2250,20 +2223,45 @@ const APP_HTML = `<!DOCTYPE html>
       background: var(--primary-dark);
       color: #fff;
     }
-    .when-display {
-      display: block;
-      padding: 10px 12px;
+    .choice-group {
+      display: flex;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .choice-btn {
+      flex: 1 1 0;
       background: #f7f7f8;
       border: 1px solid var(--border);
+      padding: 10px 8px;
       border-radius: 6px;
-      font-size: 15px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      text-transform: none;
+      letter-spacing: normal;
+      min-height: 40px;
+    }
+    .choice-btn:hover { background: #efeff1; color: var(--text); }
+    .choice-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .choice-btn.active:hover { background: var(--primary-dark); color: #fff; }
+    .when-display {
+      display: block;
+      padding: 6px 10px;
+      background: #f4f4f6;
+      border-radius: 4px;
+      font-size: 16px;
       font-family: inherit;
       color: var(--text);
       text-transform: none;
       letter-spacing: normal;
-      font-weight: 600;
+      font-weight: 400;
       text-align: center;
-      min-height: 40px;
     }
     .delete-btn.pending {
       background: var(--danger);
@@ -2276,6 +2274,26 @@ const APP_HTML = `<!DOCTYPE html>
       header { padding: 8px 10px; gap: 8px; }
       nav { gap: 3px; }
       nav button { padding: 5px 9px; font-size: 13px; border-radius: 5px; }
+      /* Mobile: restore the More dropdown — its tabs live behind the ⋯ button. */
+      .more-menu { display: inline-block; position: relative; }
+      #more-btn { display: inline-block; font-size: 18px; line-height: 1; padding: 5px 9px; }
+      .more-dropdown {
+        display: flex;
+        flex-direction: column;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 4px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,.08);
+        padding: 4px;
+        min-width: 140px;
+        z-index: 20;
+      }
+      .more-dropdown[hidden] { display: none; }
+      .more-dropdown button { text-align: left; width: 100%; }
       main { margin: 14px auto; padding: 0 10px 24px; }
       th, td { padding: 8px 10px; }
       .hide-sm { display: none; }
@@ -2299,7 +2317,7 @@ const APP_HTML = `<!DOCTYPE html>
       form.entry-form { padding: 12px; gap: 8px; margin-bottom: 14px; }
       form.entry-form label { font-size: 11px; flex: 1 1 100%; }
       form.entry-form button[type=submit] { width: 100%; padding: 11px; }
-      .when-display { padding: 8px 10px; font-size: 14px; min-height: 36px; }
+      .when-display { font-size: 15px; }
       .when-quick { gap: 3px; }
       .when-quick button { padding: 5px 7px; font-size: 12px; min-height: 30px; flex: 1 1 auto; }
     }
@@ -2308,13 +2326,18 @@ const APP_HTML = `<!DOCTYPE html>
 <body>
   <header>
     <nav id="nav">
-      <button data-tab="today" class="active">Hoy</button>
-      <button data-tab="feedings">Tomas</button>
-      <button data-tab="diapers">Pañales</button>
-      <button data-tab="medications">Medicamentos</button>
-      <button data-tab="observations">Observaciones</button>
-      <button data-tab="weights">Pesos</button>
-      <button data-tab="heights">Tallas</button>
+      <button data-tab="today" class="active">Today</button>
+      <button data-tab="feedings">Feeding</button>
+      <button data-tab="diapers">Diaper</button>
+      <button data-tab="routines">Routine</button>
+      <div class="more-menu">
+        <button type="button" id="more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More tabs" title="More">&#8943;</button>
+        <div class="more-dropdown" id="more-dropdown" hidden>
+          <button data-tab="weights">Weight</button>
+          <button data-tab="heights">Height</button>
+          <button data-tab="notes">Note</button>
+        </div>
+      </div>
     </nav>
   </header>
 
@@ -2322,134 +2345,135 @@ const APP_HTML = `<!DOCTYPE html>
     <section id="tab-today" class="tab active">
       <div class="dashboard-grid">
         <div class="card" id="card-today-totals">
-          <div class="card-title">Hoy</div>
-          <div class="card-empty">Cargando&hellip;</div>
+          <div class="card-title">Today</div>
+          <div class="card-empty">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-feeding">
-          <div class="card-title">Última toma</div>
-          <div class="card-empty">Cargando&hellip;</div>
+          <div class="card-title">Last feeding</div>
+          <div class="card-empty">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-diaper">
-          <div class="card-title">Último pañal</div>
-          <div class="card-empty">Cargando&hellip;</div>
+          <div class="card-title">Last diaper</div>
+          <div class="card-empty">Loading&hellip;</div>
         </div>
-        <div class="card" id="card-medication">
-          <div class="card-title">Medicamento</div>
-          <div class="card-empty">Cargando&hellip;</div>
+        <div class="card" id="card-vitamin-d">
+          <div class="card-title">Vitamin D</div>
+          <div class="card-empty">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-bath">
-          <div class="card-title">Último baño</div>
-          <div class="card-empty">Cargando&hellip;</div>
+          <div class="card-title">Last bath</div>
+          <div class="card-empty">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-weight">
-          <div class="card-title">Último peso</div>
-          <div class="card-empty">Cargando&hellip;</div>
+          <div class="card-title">Last weight</div>
+          <div class="card-empty">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-height">
-          <div class="card-title">Última talla</div>
-          <div class="card-empty">Cargando&hellip;</div>
+          <div class="card-title">Last height</div>
+          <div class="card-empty">Loading&hellip;</div>
         </div>
       </div>
     </section>
 
     <section id="tab-feedings" class="tab">
       <form class="entry-form" data-entity="feedings">
-        <label>Cantidad (ml)
+        <label>Amount (ml)
           <input type="number" name="amount_ml" step="0.1" min="0.1" inputmode="decimal" required placeholder="120">
         </label>
-        <label>Cuándo
+        <label>When
 ${WHEN_BLOCK}
         </label>
-        <button type="submit">Añadir toma</button>
+        <button type="submit">Add</button>
       </form>
-      <div class="list" id="list-feedings"><div class="list-loading">Cargando...</div></div>
+      <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
     </section>
 
     <section id="tab-diapers" class="tab">
       <form class="entry-form" data-entity="diapers">
-        <label>Tipo
-          <select name="kind" required>
-            <option value="pee">Pipí</option>
-            <option value="poop">Caca</option>
-            <option value="both">Ambos</option>
-          </select>
+        <label>Type
+          <input type="hidden" name="kind" value="pee">
+          <div class="choice-group">
+            <button type="button" class="choice-btn active" data-value="pee">Pee</button>
+            <button type="button" class="choice-btn" data-value="poop">Poop</button>
+            <button type="button" class="choice-btn" data-value="both">Both</button>
+          </div>
         </label>
-        <label>Cuándo
+        <label>When
 ${WHEN_BLOCK}
         </label>
-        <button type="submit">Añadir pañal</button>
+        <button type="submit">Add</button>
       </form>
-      <div class="list" id="list-diapers"><div class="list-loading">Cargando...</div></div>
+      <div class="list" id="list-diapers"><div class="list-loading">Loading...</div></div>
     </section>
 
-    <section id="tab-medications" class="tab">
-      <form class="entry-form" data-entity="medications">
-        <label>Nombre
-          <input type="hidden" name="name" value="Vitamina D">
-          <div class="when-display">Vitamina D</div>
+    <section id="tab-routines" class="tab">
+      <form class="entry-form" data-entity="routines">
+        <label>Type
+          <input type="hidden" name="name" value="Vitamin D">
+          <div class="choice-group">
+            <button type="button" class="choice-btn active" data-value="Vitamin D">Vitamin D</button>
+            <button type="button" class="choice-btn" data-value="Bath">Bath</button>
+          </div>
         </label>
-        <label>Cuándo
+        <label>When
 ${WHEN_BLOCK}
         </label>
-        <button type="submit">Añadir medicamento</button>
+        <button type="submit">Add</button>
       </form>
-      <div class="list" id="list-medications"><div class="list-loading">Cargando...</div></div>
-    </section>
-
-    <section id="tab-observations" class="tab">
-      <form class="entry-form" data-entity="observations">
-        <label>Texto
-          <input type="text" name="text" maxlength="2000" required placeholder="primera sonrisa, sarpullido en el brazo...">
-        </label>
-        <label>Categoría
-          <input type="text" name="category" maxlength="50" placeholder="piel, ánimo, hito...">
-        </label>
-        <label>Cuándo
-${WHEN_BLOCK}
-        </label>
-        <button type="submit">Añadir observación</button>
-      </form>
-      <div class="list" id="list-observations"><div class="list-loading">Cargando...</div></div>
+      <div class="list" id="list-routines"><div class="list-loading">Loading...</div></div>
     </section>
 
     <section id="tab-weights" class="tab">
       <form class="entry-form" data-entity="weights">
-        <label>Peso (kg)
-          <input type="number" name="weight_kg" step="0.001" min="0.001" inputmode="decimal" required placeholder="4.25">
+        <label>Weight (g)
+          <input type="number" name="weight_g" step="1" min="1" inputmode="numeric" required placeholder="4250">
         </label>
-        <label>Cuándo
+        <label>When
 ${WHEN_BLOCK}
         </label>
-        <button type="submit">Añadir peso</button>
+        <button type="submit">Add</button>
       </form>
-      <div class="list" id="list-weights"><div class="list-loading">Cargando...</div></div>
+      <div class="list" id="list-weights"><div class="list-loading">Loading...</div></div>
     </section>
 
     <section id="tab-heights" class="tab">
       <form class="entry-form" data-entity="heights">
-        <label>Talla (cm)
-          <input type="number" name="height_cm" step="0.1" min="0.1" inputmode="decimal" required placeholder="54.5">
+        <label>Height (cm)
+          <input type="number" name="height_cm" step="1" min="1" inputmode="numeric" required placeholder="54">
         </label>
-        <label>Cuándo
+        <label>When
 ${WHEN_BLOCK}
         </label>
-        <button type="submit">Añadir talla</button>
+        <button type="submit">Add</button>
       </form>
-      <div class="list" id="list-heights"><div class="list-loading">Cargando...</div></div>
+      <div class="list" id="list-heights"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-notes" class="tab">
+      <form class="entry-form" data-entity="notes">
+        <label>Note
+          <input type="text" name="text" maxlength="2000" required placeholder="first smile, rash, Bath...">
+        </label>
+        <label>When
+${WHEN_BLOCK}
+        </label>
+        <button type="submit">Add</button>
+      </form>
+      <div class="list" id="list-notes"><div class="list-loading">Loading...</div></div>
     </section>
   </main>
 
   <div class="toast" id="toast"></div>
 
   <script>
-    var NUMERIC_FIELDS = { amount_ml: true, weight_kg: true, height_cm: true };
+    var NUMERIC_FIELDS = { amount_ml: true, weight_g: true, height_cm: true };
 
     function fmtText(v) { return v == null ? "" : String(v); }
 
     function fmtKind(v) {
-      if (v === "pee") return "Pipí";
-      if (v === "poop") return "Caca";
-      if (v === "both") return "Ambos";
+      if (v === "pee") return "Pee";
+      if (v === "poop") return "Poop";
+      if (v === "both") return "Both";
       return v == null ? "" : String(v);
     }
 
@@ -2457,50 +2481,43 @@ ${WHEN_BLOCK}
       feedings: {
         endpoint: "/api/feedings",
         columns: [
-          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "Cuándo", cls: "ts-col" },
-          { key: "amount_ml", label: "Cantidad", cls: "num-col", fmt: function(v) { return v + " ml"; } }
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "amount_ml", label: "Amount", cls: "num-col", fmt: function(v) { return v + " ml"; } }
         ]
       },
       diapers: {
         endpoint: "/api/diapers",
         columns: [
-          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "Cuándo", cls: "ts-col" },
-          { key: "kind", label: "Tipo", fmt: fmtKind }
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "kind", label: "Type", fmt: fmtKind }
         ]
       },
-      medications: {
-        endpoint: "/api/medications",
+      routines: {
+        endpoint: "/api/routines",
         columns: [
-          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "Cuándo", cls: "ts-col" },
-          { key: "name", label: "Nombre", fmt: fmtText }
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "name", label: "Type", fmt: fmtText }
         ]
       },
-      observations: {
-        endpoint: "/api/observations",
+      notes: {
+        endpoint: "/api/notes",
         columns: [
-          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "Cuándo", cls: "ts-col" },
-          { key: "category", label: "Categoría", fmt: fmtText },
-          { key: "text", label: "Texto", fmt: fmtText }
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "text", label: "Note", fmt: fmtText }
         ]
       },
       weights: {
         endpoint: "/api/weights",
         columns: [
-          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "Cuándo", cls: "ts-col" },
-          { key: "weight_kg", label: "Peso", cls: "num-col", fmt: function(v) { return v + " kg"; } }
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "weight_g", label: "Weight", cls: "num-col", fmt: function(v) { return v + " g"; } }
         ]
       },
       heights: {
         endpoint: "/api/heights",
         columns: [
-          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "Cuándo", cls: "ts-col" },
-          { key: "height_cm", label: "Talla", cls: "num-col", fmt: function(v) { return v + " cm"; } }
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "height_cm", label: "Height", cls: "num-col", fmt: function(v) { return v + " cm"; } }
         ]
       }
     };
@@ -2510,9 +2527,9 @@ ${WHEN_BLOCK}
       var t = new Date(s).getTime();
       if (isNaN(t)) return String(s);
       var diff = Date.now() - t;
-      if (diff < 45 * 1000) return "ahora";
+      if (diff < 45 * 1000) return "now";
       if (diff >= 30 * 86400 * 1000) return new Date(s).toLocaleDateString();
-      return "hace " + durationLabel(diff);
+      return durationLabel(diff) + " ago";
     }
 
     function absoluteTs(s) {
@@ -2520,6 +2537,21 @@ ${WHEN_BLOCK}
       var d = new Date(s);
       if (isNaN(d.getTime())) return String(s);
       return d.toLocaleString();
+    }
+
+    function tableTs(s) {
+      if (!s) return "";
+      var d = new Date(s);
+      if (isNaN(d.getTime())) return String(s);
+      var pad = function(n) { return n < 10 ? "0" + n : String(n); };
+      var time = pad(d.getHours()) + ":" + pad(d.getMinutes());
+      var now = new Date();
+      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+        return time;
+      }
+      var datePart = pad(d.getDate()) + "/" + pad(d.getMonth() + 1);
+      if (d.getFullYear() !== now.getFullYear()) datePart += "/" + d.getFullYear();
+      return datePart + " " + time;
     }
 
     function escapeHtml(s) {
@@ -2588,7 +2620,7 @@ ${WHEN_BLOCK}
         renderList(entity, data.items || []);
       } catch (err) {
         if (err.message === "Unauthorized") return;
-        container.innerHTML = '<div class="list-empty">Error al cargar: ' + escapeHtml(err.message) + "</div>";
+        container.innerHTML = '<div class="list-empty">Error loading: ' + escapeHtml(err.message) + "</div>";
       }
     }
 
@@ -2596,7 +2628,7 @@ ${WHEN_BLOCK}
       var cfg = entities[entity];
       var container = document.getElementById("list-" + entity);
       if (!items.length) {
-        container.innerHTML = '<div class="list-empty">Sin registros aún.</div>';
+        container.innerHTML = '<div class="list-empty">No entries yet.</div>';
         return;
       }
       var head = "";
@@ -2614,21 +2646,19 @@ ${WHEN_BLOCK}
           var col = cfg.columns[k];
           var val = item[col.key];
           if (col.cls === "ts-col") {
-            row += '<td class="ts-col"><span title="' + escapeHtml(absoluteTs(val)) + '">' + escapeHtml(timeAgo(val)) + '</span></td>';
+            row += '<td class="ts-col">' + escapeHtml(tableTs(val)) + '</td>';
           } else {
             var rendered = col.fmt ? col.fmt(val) : (val == null ? "" : val);
             row += "<td" + (col.cls ? ' class="' + col.cls + '"' : "") + ">" + escapeHtml(rendered) + "</td>";
           }
         }
-        row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">Eliminar</button></td>';
+        row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">Delete</button></td>';
         body += "<tr>" + row + "</tr>";
       }
       container.innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
     }
 
     // --- Dashboard ---
-    var BATH_CATEGORY = "baño";
-
     async function loadDashboard() {
       var sinceToday = "since=" + encodeURIComponent(startOfDay().toISOString());
       try {
@@ -2637,46 +2667,46 @@ ${WHEN_BLOCK}
           fetchJson("/api/feedings?" + sinceToday),
           fetchJson("/api/diapers?limit=1"),
           fetchJson("/api/diapers?" + sinceToday),
-          fetchJson("/api/medications?limit=1"),
-          fetchJson("/api/observations?category=" + encodeURIComponent(BATH_CATEGORY) + "&limit=1"),
+          fetchJson("/api/routines?name=" + encodeURIComponent("Vitamin D") + "&limit=1"),
+          fetchJson("/api/routines?name=" + encodeURIComponent("Bath") + "&limit=1"),
           fetchJson("/api/weights?limit=1"),
           fetchJson("/api/heights?limit=1")
         ]);
         renderLastFeeding((results[0].items || [])[0]);
         renderLastDiaper((results[2].items || [])[0]);
         renderTodayTotals(results[1].items || [], results[3].items || []);
-        renderMedication((results[4].items || [])[0]);
+        renderVitaminD((results[4].items || [])[0]);
         renderLastBath((results[5].items || [])[0]);
-        renderLastMeasurement("card-last-weight", "Último peso", (results[6].items || [])[0], "weight_kg", "kg");
-        renderLastMeasurement("card-last-height", "Última talla", (results[7].items || [])[0], "height_cm", "cm");
+        renderLastMeasurement("card-last-weight", "Last weight", (results[6].items || [])[0], "weight_g", "g");
+        renderLastMeasurement("card-last-height", "Last height", (results[7].items || [])[0], "height_cm", "cm");
       } catch (err) {
-        if (err.message !== "Unauthorized") toast("Error al cargar el panel: " + err.message, true);
+        if (err.message !== "Unauthorized") toast("Error loading dashboard: " + err.message, true);
       }
     }
 
-    function renderMedication(item) {
-      var el = document.getElementById("card-medication");
-      var head = '<div class="card-title">Medicamento</div>';
+    function renderVitaminD(item) {
+      var el = document.getElementById("card-vitamin-d");
+      var head = '<div class="card-title">Vitamin D</div>';
       var isToday = item && new Date(item.ts).getTime() >= startOfDay().getTime();
       var body = isToday
-        ? '<div class="card-main">' + escapeHtml(item.name) + '</div>' +
-          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
-        : '<div class="card-empty">Aún no se ha dado hoy</div>';
+        ? '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
+          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
+        : '<div class="card-empty">Not given today yet</div>';
       var actions = '<div class="quick-row">' +
-        '<button class="quick-btn" data-quick="medication" data-name="Vitamina D">+ Vitamina D</button>' +
+        '<button class="quick-btn" data-quick="routine" data-name="Vitamin D">+ Vitamin D</button>' +
       '</div>';
       el.innerHTML = head + body + actions;
     }
 
     function renderLastBath(item) {
       var el = document.getElementById("card-last-bath");
-      var head = '<div class="card-title">Último baño</div>';
+      var head = '<div class="card-title">Last bath</div>';
       var body = item
         ? '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
           '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
-        : '<div class="card-empty">Sin baños aún</div>';
+        : '<div class="card-empty">No baths yet</div>';
       var actions = '<div class="quick-row">' +
-        '<button class="quick-btn" data-quick="bath">+ Baño</button>' +
+        '<button class="quick-btn" data-quick="routine" data-name="Bath">+ Bath</button>' +
       '</div>';
       el.innerHTML = head + body + actions;
     }
@@ -2696,14 +2726,14 @@ ${WHEN_BLOCK}
     function renderLastFeeding(item) {
       var el = document.getElementById("card-last-feeding");
       if (!item) {
-        el.innerHTML = '<div class="card-title">Última toma</div>' +
-          '<div class="card-empty">Sin tomas aún</div>' +
+        el.innerHTML = '<div class="card-title">Last feeding</div>' +
+          '<div class="card-empty">No feedings yet</div>' +
           feedingShortcutsHtml();
         return;
       }
       var amt = item.amount_ml;
       var sub = escapeHtml(timeAgo(item.ts));
-      el.innerHTML = '<div class="card-title">Última toma</div>' +
+      el.innerHTML = '<div class="card-title">Last feeding</div>' +
         '<div class="card-main">' + escapeHtml(amt + " ml") + '</div>' +
         '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + sub + '</div>' +
         feedingShortcutsHtml();
@@ -2711,24 +2741,24 @@ ${WHEN_BLOCK}
 
     function renderLastDiaper(item) {
       var el = document.getElementById("card-last-diaper");
-      var head = '<div class="card-title">Último pañal</div>';
+      var head = '<div class="card-title">Last diaper</div>';
       var body = item
         ? '<div class="card-main">' + escapeHtml(fmtKind(item.kind)) + '</div>' +
           '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
-        : '<div class="card-empty">Sin pañales aún</div>';
+        : '<div class="card-empty">No diapers yet</div>';
       var actions = '<div class="quick-row">' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="pee">+ Pipí</button>' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="poop">+ Caca</button>' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="both">+ Ambos</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="pee">+ Pee</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="poop">+ Poop</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="both">+ Both</button>' +
       '</div>';
       el.innerHTML = head + body + actions;
     }
 
     function renderTodayTotals(todayFeedings, todayDiapers) {
       var el = document.getElementById("card-today-totals");
-      var head = '<div class="card-title">Hoy</div>';
+      var head = '<div class="card-title">Today</div>';
       if (todayFeedings.length === 0 && todayDiapers.length === 0) {
-        el.innerHTML = head + '<div class="card-empty">Nada registrado hoy</div>';
+        el.innerHTML = head + '<div class="card-empty">Nothing recorded today</div>';
         return;
       }
       var totalMl = 0;
@@ -2745,12 +2775,12 @@ ${WHEN_BLOCK}
       }
       var mlStr = totalMl % 1 === 0 ? totalMl + " ml" : totalMl.toFixed(1) + " ml";
       var items = [
-        { num: todayFeedings.length, label: "Tomas" },
+        { num: todayFeedings.length, label: "Feedings" },
         { num: mlStr, label: "Total" },
-        { num: pee, label: "Pipí" },
-        { num: poop, label: "Caca" }
+        { num: pee, label: "Pee" },
+        { num: poop, label: "Poop" }
       ];
-      if (both > 0) items.push({ num: both, label: "Ambos" });
+      if (both > 0) items.push({ num: both, label: "Both" });
       var rows = "";
       for (var x = 0; x < items.length; x++) {
         rows += '<div class="totals-item"><div class="totals-num">' + escapeHtml(String(items[x].num)) + '</div><div class="totals-label">' + escapeHtml(items[x].label) + '</div></div>';
@@ -2762,7 +2792,7 @@ ${WHEN_BLOCK}
       var el = document.getElementById(cardId);
       var head = '<div class="card-title">' + escapeHtml(title) + '</div>';
       if (!item) {
-        el.innerHTML = head + '<div class="card-empty">Sin mediciones</div>';
+        el.innerHTML = head + '<div class="card-empty">No measurements</div>';
         return;
       }
       el.innerHTML = head +
@@ -2770,15 +2800,27 @@ ${WHEN_BLOCK}
         '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>';
     }
 
+    var MORE_TABS = { weights: true, heights: true, notes: true };
+
+    function closeMoreDropdown() {
+      var d = document.getElementById("more-dropdown");
+      var b = document.getElementById("more-btn");
+      if (d) d.hidden = true;
+      if (b) b.setAttribute("aria-expanded", "false");
+    }
+
     function showTab(name) {
-      var navBtns = document.querySelectorAll("#nav button");
+      var navBtns = document.querySelectorAll("#nav [data-tab]");
       for (var i = 0; i < navBtns.length; i++) {
         navBtns[i].classList.toggle("active", navBtns[i].getAttribute("data-tab") === name);
       }
+      var moreBtn = document.getElementById("more-btn");
+      if (moreBtn) moreBtn.classList.toggle("active", !!MORE_TABS[name]);
       var tabs = document.querySelectorAll(".tab");
       for (var j = 0; j < tabs.length; j++) {
         tabs[j].classList.toggle("active", tabs[j].id === "tab-" + name);
       }
+      closeMoreDropdown();
       if (name === "today") {
         loadDashboard();
       } else if (entities[name]) {
@@ -2788,9 +2830,25 @@ ${WHEN_BLOCK}
 
     document.getElementById("nav").addEventListener("click", function(e) {
       var t = e.target;
-      if (t && t.tagName === "BUTTON" && t.getAttribute("data-tab")) {
+      if (!t) return;
+      if (t.id === "more-btn") {
+        e.stopPropagation();
+        var d = document.getElementById("more-dropdown");
+        var willOpen = d.hidden;
+        d.hidden = !willOpen;
+        t.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        return;
+      }
+      if (t.tagName === "BUTTON" && t.getAttribute("data-tab")) {
         showTab(t.getAttribute("data-tab"));
       }
+    });
+
+    document.addEventListener("click", function(e) {
+      var d = document.getElementById("more-dropdown");
+      if (!d || d.hidden) return;
+      var menu = e.target && e.target.closest ? e.target.closest(".more-menu") : null;
+      if (!menu) closeMoreDropdown();
     });
 
     // --- "When" field: cumulative steppers + read-only display label ---
@@ -2801,7 +2859,7 @@ ${WHEN_BLOCK}
       var rem = mins % 60;
       if (hrs < 24) return rem ? (hrs + "h " + rem + "m") : (hrs + "h");
       var days = Math.floor(hrs / 24);
-      return days + (days === 1 ? " día" : " días");
+      return days + (days === 1 ? " day" : " days");
     }
 
     function formatTimeOfDay(d) {
@@ -2816,7 +2874,7 @@ ${WHEN_BLOCK}
       var yest = new Date(now);
       yest.setDate(yest.getDate() - 1);
       if (d.getFullYear() === yest.getFullYear() && d.getMonth() === yest.getMonth() && d.getDate() === yest.getDate()) {
-        return "ayer " + formatTimeOfDay(d);
+        return "yesterday " + formatTimeOfDay(d);
       }
       return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + formatTimeOfDay(d);
     }
@@ -2825,14 +2883,14 @@ ${WHEN_BLOCK}
       var label = input.closest("label");
       var display = label ? label.querySelector("[data-when-display]") : null;
       if (!display) return;
-      if (!input.value) { display.textContent = "Ahora"; return; }
+      if (!input.value) { display.textContent = "Now"; return; }
       var d = new Date(input.value);
       if (isNaN(d.getTime())) { display.textContent = ""; return; }
       var diff = d.getTime() - Date.now();
-      if (Math.abs(diff) < 30 * 1000) { display.textContent = "Ahora"; return; }
+      if (Math.abs(diff) < 30 * 1000) { display.textContent = "Now"; return; }
       var abs = formatWhenAbs(d);
-      if (diff < 0) display.textContent = "Hace " + durationLabel(-diff) + " · " + abs;
-      else display.textContent = "Dentro de " + durationLabel(diff) + " · " + abs;
+      if (diff < 0) display.textContent = durationLabel(-diff) + " ago · " + abs;
+      else display.textContent = "In " + durationLabel(diff) + " · " + abs;
     }
 
     function stepWhen(input, deltaMin) {
@@ -2873,6 +2931,35 @@ ${WHEN_BLOCK}
       for (var i = 0; i < whenInputs.length; i++) updateWhenDisplay(whenInputs[i]);
     }, 30 * 1000);
 
+    // --- Choice button groups (segmented selectors backed by a hidden input) ---
+    document.addEventListener("click", function(e) {
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains("choice-btn")) return;
+      e.preventDefault();
+      var group = t.parentElement;
+      if (!group || !group.classList.contains("choice-group")) return;
+      var label = t.closest("label");
+      var hidden = label ? label.querySelector('input[type="hidden"]') : null;
+      if (!hidden) return;
+      hidden.value = t.getAttribute("data-value") || "";
+      var btns = group.querySelectorAll(".choice-btn");
+      for (var i = 0; i < btns.length; i++) btns[i].classList.toggle("active", btns[i] === t);
+    });
+
+    function resetChoiceGroups(form) {
+      var groups = form.querySelectorAll(".choice-group");
+      for (var g = 0; g < groups.length; g++) {
+        var grp = groups[g];
+        var grpLabel = grp.closest("label");
+        var hidden = grpLabel ? grpLabel.querySelector('input[type="hidden"]') : null;
+        var defaultVal = hidden ? hidden.value : null;
+        var btns = grp.querySelectorAll(".choice-btn");
+        for (var b = 0; b < btns.length; b++) {
+          btns[b].classList.toggle("active", btns[b].getAttribute("data-value") === defaultVal);
+        }
+      }
+    }
+
     var entryForms = document.querySelectorAll("form.entry-form");
     for (var ef = 0; ef < entryForms.length; ef++) {
       entryForms[ef].addEventListener("reset", function(e) {
@@ -2880,6 +2967,7 @@ ${WHEN_BLOCK}
         setTimeout(function() {
           var inp = form.querySelector('input[name="when"]');
           if (inp) updateWhenDisplay(inp);
+          resetChoiceGroups(form);
         }, 0);
       });
     }
@@ -2911,7 +2999,7 @@ ${WHEN_BLOCK}
         try {
           await postJson(entities[entity].endpoint, body);
           form.reset();
-          toast("Guardado");
+          toast("Saved");
           loadList(entity);
         } catch (err) {
           if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
@@ -2929,16 +3017,15 @@ ${WHEN_BLOCK}
       if (which === "feeding") {
         var amt = parseFloat(t.getAttribute("data-amount"));
         if (!isFinite(amt) || amt <= 0) return;
-        quickPost(t, "/api/feedings", { amount_ml: amt }, "Registrado: " + amt + " ml");
+        quickPost(t, "/api/feedings", { amount_ml: amt }, "Recorded: " + amt + " ml");
       } else if (which === "diaper") {
         var kind = t.getAttribute("data-kind");
         if (!kind) return;
-        quickPost(t, "/api/diapers", { kind: kind }, "Pañal: " + fmtKind(kind));
-      } else if (which === "medication") {
-        var medName = t.getAttribute("data-name") || "Vitamina D";
-        quickPost(t, "/api/medications", { name: medName }, "Medicamento: " + medName);
-      } else if (which === "bath") {
-        quickPost(t, "/api/observations", { text: "Baño", category: BATH_CATEGORY }, "Baño registrado");
+        quickPost(t, "/api/diapers", { kind: kind }, "Diaper: " + fmtKind(kind));
+      } else if (which === "routine") {
+        var routineName = t.getAttribute("data-name");
+        if (!routineName) return;
+        quickPost(t, "/api/routines", { name: routineName }, "Routine: " + routineName);
       }
     });
 
@@ -2961,7 +3048,7 @@ ${WHEN_BLOCK}
       for (var i = 0; i < pending.length; i++) {
         if (pending[i] === except) continue;
         pending[i].classList.remove("pending");
-        pending[i].textContent = "Eliminar";
+        pending[i].textContent = "Delete";
       }
     }
 
@@ -2975,11 +3062,11 @@ ${WHEN_BLOCK}
       if (!t.classList.contains("pending")) {
         disarmAllDeletes(t);
         t.classList.add("pending");
-        t.textContent = "¿Confirmar?";
+        t.textContent = "Confirm?";
         setTimeout(function() {
           if (t.classList.contains("pending")) {
             t.classList.remove("pending");
-            t.textContent = "Eliminar";
+            t.textContent = "Delete";
           }
         }, 4000);
         return;
@@ -2990,11 +3077,11 @@ ${WHEN_BLOCK}
       try {
         var res = await fetch(entities[entity].endpoint + "/" + encodeURIComponent(id), { method: "DELETE" });
         if (res.status === 401) { gotoLogin(); return; }
-        if (!res.ok) { toast("Error al eliminar", true); return; }
-        toast("Eliminado");
+        if (!res.ok) { toast("Delete error", true); return; }
+        toast("Deleted");
         loadList(entity);
       } catch (err) {
-        toast("Error de red: " + err.message, true);
+        toast("Network error: " + err.message, true);
       } finally {
         t.disabled = false;
       }
@@ -3079,24 +3166,23 @@ const DiaperCreateSchema = z.object({
   when: z.string().datetime().optional(),
 });
 
-const MedicationCreateSchema = z.object({
+const RoutineCreateSchema = z.object({
   name: z.string().min(1).max(100),
   when: z.string().datetime().optional(),
 });
 
-const ObservationCreateSchema = z.object({
+const NoteCreateSchema = z.object({
   text: z.string().min(1).max(2000),
-  category: z.string().min(1).max(50).optional(),
   when: z.string().datetime().optional(),
 });
 
 const WeightCreateSchema = z.object({
-  weight_kg: z.number().positive(),
+  weight_g: z.number().int().positive(),
   when: z.string().datetime().optional(),
 });
 
 const HeightCreateSchema = z.object({
-  height_cm: z.number().positive(),
+  height_cm: z.number().int().positive(),
   when: z.string().datetime().optional(),
 });
 
@@ -3208,7 +3294,7 @@ async function apiDiapers(
   return jsonError(405, "Method not allowed.");
 }
 
-async function apiMedications(
+async function apiRoutines(
   method: string,
   url: URL,
   idStr: string | undefined,
@@ -3227,34 +3313,34 @@ async function apiMedications(
     if (name) { clauses.push("LOWER(name) LIKE ?"); params.push(`%${name.toLowerCase()}%`); }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     params.push(limit);
-    const items = await listRows<MedicationRow>(
+    const items = await listRows<RoutineRow>(
       env.DB,
-      `SELECT id, ts, name FROM medications ${where} ORDER BY ts DESC LIMIT ?`,
+      `SELECT id, ts, name FROM routines ${where} ORDER BY ts DESC LIMIT ?`,
       params
     );
     return jsonOk({ items });
   }
   if (method === "POST" && !idStr) {
-    const parsed = await readBody(request, MedicationCreateSchema);
+    const parsed = await readBody(request, RoutineCreateSchema);
     if (!parsed.ok) return jsonError(400, parsed.error);
     const ts = parsed.value.when ?? new Date().toISOString();
     const row = await env.DB
-      .prepare("INSERT INTO medications (ts, name) VALUES (?, ?) RETURNING id, ts, name")
+      .prepare("INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id, ts, name")
       .bind(ts, parsed.value.name)
-      .first<MedicationRow>();
+      .first<RoutineRow>();
     return jsonOk(row, 201);
   }
   if (method === "DELETE" && idStr) {
     const id = parseIdParam(idStr);
     if (id === null) return jsonError(400, "Invalid id.");
-    const ok = await deleteRow(env.DB, "medications", id);
+    const ok = await deleteRow(env.DB, "routines", id);
     if (!ok) return jsonError(404, "Not found.");
     return jsonOk({ deleted: id });
   }
   return jsonError(405, "Method not allowed.");
 }
 
-async function apiObservations(
+async function apiNotes(
   method: string,
   url: URL,
   idStr: string | undefined,
@@ -3264,38 +3350,36 @@ async function apiObservations(
   if (method === "GET" && !idStr) {
     const since = url.searchParams.get("since");
     const until = url.searchParams.get("until");
-    const category = url.searchParams.get("category");
     const search = url.searchParams.get("search");
     const limit = parseLimit(url.searchParams.get("limit"));
     const clauses: string[] = [];
     const params: (string | number)[] = [];
     if (since) { clauses.push("ts >= ?"); params.push(since); }
     if (until) { clauses.push("ts < ?"); params.push(until); }
-    if (category) { clauses.push("LOWER(category) = ?"); params.push(category.toLowerCase()); }
     if (search) { clauses.push("LOWER(text) LIKE ?"); params.push(`%${search.toLowerCase()}%`); }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     params.push(limit);
-    const items = await listRows<ObservationRow>(
+    const items = await listRows<NoteRow>(
       env.DB,
-      `SELECT id, ts, text, category FROM observations ${where} ORDER BY ts DESC LIMIT ?`,
+      `SELECT id, ts, text FROM notes ${where} ORDER BY ts DESC LIMIT ?`,
       params
     );
     return jsonOk({ items });
   }
   if (method === "POST" && !idStr) {
-    const parsed = await readBody(request, ObservationCreateSchema);
+    const parsed = await readBody(request, NoteCreateSchema);
     if (!parsed.ok) return jsonError(400, parsed.error);
     const ts = parsed.value.when ?? new Date().toISOString();
     const row = await env.DB
-      .prepare("INSERT INTO observations (ts, text, category) VALUES (?, ?, ?) RETURNING id, ts, text, category")
-      .bind(ts, parsed.value.text, parsed.value.category ?? null)
-      .first<ObservationRow>();
+      .prepare("INSERT INTO notes (ts, text) VALUES (?, ?) RETURNING id, ts, text")
+      .bind(ts, parsed.value.text)
+      .first<NoteRow>();
     return jsonOk(row, 201);
   }
   if (method === "DELETE" && idStr) {
     const id = parseIdParam(idStr);
     if (id === null) return jsonError(400, "Invalid id.");
-    const ok = await deleteRow(env.DB, "observations", id);
+    const ok = await deleteRow(env.DB, "notes", id);
     if (!ok) return jsonError(404, "Not found.");
     return jsonOk({ deleted: id });
   }
@@ -3321,7 +3405,7 @@ async function apiWeights(
     params.push(limit);
     const items = await listRows<WeightRow>(
       env.DB,
-      `SELECT id, ts, weight_kg FROM weights ${where} ORDER BY ts DESC LIMIT ?`,
+      `SELECT id, ts, weight_g FROM weights ${where} ORDER BY ts DESC LIMIT ?`,
       params
     );
     return jsonOk({ items });
@@ -3331,8 +3415,8 @@ async function apiWeights(
     if (!parsed.ok) return jsonError(400, parsed.error);
     const ts = parsed.value.when ?? new Date().toISOString();
     const row = await env.DB
-      .prepare("INSERT INTO weights (ts, weight_kg) VALUES (?, ?) RETURNING id, ts, weight_kg")
-      .bind(ts, parsed.value.weight_kg)
+      .prepare("INSERT INTO weights (ts, weight_g) VALUES (?, ?) RETURNING id, ts, weight_g")
+      .bind(ts, parsed.value.weight_g)
       .first<WeightRow>();
     return jsonOk(row, 201);
   }
@@ -3405,13 +3489,13 @@ async function handleApi(
   const idStr = parts[2];
   const method = request.method.toUpperCase();
   switch (entity) {
-    case "feedings":     return apiFeedings(method, url, idStr, request, env);
-    case "diapers":      return apiDiapers(method, url, idStr, request, env);
-    case "medications":  return apiMedications(method, url, idStr, request, env);
-    case "observations": return apiObservations(method, url, idStr, request, env);
-    case "weights":      return apiWeights(method, url, idStr, request, env);
-    case "heights":      return apiHeights(method, url, idStr, request, env);
-    default:             return jsonError(404, "Unknown entity.");
+    case "feedings": return apiFeedings(method, url, idStr, request, env);
+    case "diapers":  return apiDiapers(method, url, idStr, request, env);
+    case "routines": return apiRoutines(method, url, idStr, request, env);
+    case "notes":    return apiNotes(method, url, idStr, request, env);
+    case "weights":  return apiWeights(method, url, idStr, request, env);
+    case "heights":  return apiHeights(method, url, idStr, request, env);
+    default:         return jsonError(404, "Unknown entity.");
   }
 }
 
