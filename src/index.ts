@@ -592,13 +592,13 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "record_routine",
       {
         description:
-          "Record a routine care event, medication, or supplement for the baby. This table is used for medication doses (e.g. 'Vitamin D', 'Acetaminophen') as well as routine events the user wants to track over time (e.g. 'Bath'). If the user does not specify a time, OMIT the `when` parameter — the server records the event at the current time. Only pass `when` if the user gave an explicit past/future time.",
+          "Record a routine care event, medication, or supplement for the baby. This table is used for medication doses (e.g. 'Vitamin D', 'Acetaminophen') as well as routine events the user wants to track over time (e.g. 'Bath', 'Tummy' for tummy time). If the user does not specify a time, OMIT the `when` parameter — the server records the event at the current time. Only pass `when` if the user gave an explicit past/future time.",
         inputSchema: {
           name: z
             .string()
             .min(1)
             .max(100)
-            .describe("Entry name, e.g. 'Vitamin D', 'Acetaminophen', 'Bath'"),
+            .describe("Entry name, e.g. 'Vitamin D', 'Acetaminophen', 'Bath', 'Tummy'"),
           when: z
             .string()
             .datetime()
@@ -2368,6 +2368,10 @@ const APP_HTML = `<!DOCTYPE html>
           <div class="card-title">Vitamin D</div>
           <div class="card-empty">Loading&hellip;</div>
         </div>
+        <div class="card" id="card-last-tummy">
+          <div class="card-title">Last tummy time</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
         <div class="card" id="card-last-bath">
           <div class="card-title">Last bath</div>
           <div class="card-empty">Loading&hellip;</div>
@@ -2421,6 +2425,7 @@ ${WHEN_BLOCK}
           <div class="choice-group">
             <button type="button" class="choice-btn active" data-value="Vitamin D">Vitamin D</button>
             <button type="button" class="choice-btn" data-value="Bath">Bath</button>
+            <button type="button" class="choice-btn" data-value="Tummy">Tummy</button>
           </div>
         </label>
         <label>When
@@ -2677,6 +2682,7 @@ ${WHEN_BLOCK}
           fetchJson("/api/diapers?" + sinceToday),
           fetchJson("/api/routines?name=" + encodeURIComponent("Vitamin D") + "&limit=1"),
           fetchJson("/api/routines?name=" + encodeURIComponent("Bath") + "&limit=1"),
+          fetchJson("/api/routines?name=" + encodeURIComponent("Tummy") + "&limit=1"),
           fetchJson("/api/weights?limit=1"),
           fetchJson("/api/heights?limit=1")
         ]);
@@ -2685,8 +2691,9 @@ ${WHEN_BLOCK}
         renderTodayTotals(results[1].items || [], results[3].items || []);
         renderVitaminD((results[4].items || [])[0]);
         renderLastBath((results[5].items || [])[0]);
-        renderLastMeasurement("card-last-weight", "Last weight", (results[6].items || [])[0], "weight_g", "g");
-        renderLastMeasurement("card-last-height", "Last height", (results[7].items || [])[0], "height_cm", "cm");
+        renderLastTummy((results[6].items || [])[0]);
+        renderLastMeasurement("card-last-weight", "Last weight", (results[7].items || [])[0], "weight_g", "g");
+        renderLastMeasurement("card-last-height", "Last height", (results[8].items || [])[0], "height_cm", "cm");
       } catch (err) {
         if (err.message !== "Unauthorized") toast("Error loading dashboard: " + err.message, true);
       }
@@ -2715,6 +2722,19 @@ ${WHEN_BLOCK}
         : '<div class="card-empty">No baths yet</div>';
       var actions = '<div class="quick-row">' +
         '<button class="quick-btn" data-quick="routine" data-name="Bath">+ Bath</button>' +
+      '</div>';
+      el.innerHTML = head + body + actions;
+    }
+
+    function renderLastTummy(item) {
+      var el = document.getElementById("card-last-tummy");
+      var head = '<div class="card-title">Last tummy time</div>';
+      var body = item
+        ? '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
+          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
+        : '<div class="card-empty">No tummy time yet</div>';
+      var actions = '<div class="quick-row">' +
+        '<button class="quick-btn" data-quick="routine" data-name="Tummy">+ Tummy</button>' +
       '</div>';
       el.innerHTML = head + body + actions;
     }
