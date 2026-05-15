@@ -1844,6 +1844,1153 @@ async function handleAuthorizePost(
   return Response.redirect(redirectTo, 302);
 }
 
+// -----------------------------------------------------------------------------
+// Web app: a browser-based UI for registering and removing entries.
+// Auth is a single-password login (the same SHARED_SECRET) that issues an
+// HttpOnly session cookie. The cookie value is HMAC-SHA256(SHARED_SECRET, "v1")
+// so the server can verify it by recomputing — no session store needed.
+// -----------------------------------------------------------------------------
+
+const SESSION_COOKIE = "bf_session";
+const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+
+async function deriveSessionToken(secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode("bf-app-session-v1")
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+}
+
+function parseCookies(header: string | null): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!header) return out;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    out.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
+  }
+  return out;
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
+async function isWebAuthorized(request: Request, env: Env): Promise<boolean> {
+  if (!env.SHARED_SECRET) return false;
+  const cookies = parseCookies(request.headers.get("Cookie"));
+  const token = cookies.get(SESSION_COOKIE);
+  if (!token) return false;
+  const expected = await deriveSessionToken(env.SHARED_SECRET);
+  return constantTimeEqual(token, expected);
+}
+
+function sessionCookieHeader(token: string, isHttps: boolean): string {
+  const parts = [
+    `${SESSION_COOKIE}=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${SESSION_MAX_AGE}`,
+  ];
+  if (isHttps) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function clearSessionCookieHeader(isHttps: boolean): string {
+  const parts = [
+    `${SESSION_COOKIE}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+  ];
+  if (isHttps) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function renderAppLogin(error?: string, next?: string): Response {
+  const nextAttr = next ? `<input type="hidden" name="next" value="${escapeHtml(next)}">` : "";
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baby Tracker — Log in</title>
+  <link rel="icon" href="/icon.svg">
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         max-width:420px;margin:60px auto;padding:24px;line-height:1.5;color:#222}
+    .card{border:1px solid #ddd;border-radius:8px;padding:28px;
+          box-shadow:0 2px 8px rgba(0,0,0,.06);background:#fff}
+    h1{margin:0 0 12px;font-size:1.25rem}
+    label{display:block;margin:18px 0 6px;font-weight:600}
+    input[type=password]{width:100%;padding:10px;border:1px solid #ccc;
+          border-radius:4px;font-size:16px;box-sizing:border-box}
+    button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:4px;
+           background:#0070f3;color:#fff;font-size:16px;cursor:pointer}
+    .err{background:#fee;border:1px solid #fcc;color:#900;padding:10px;
+         border-radius:4px;margin-top:14px;font-size:14px}
+    p{color:#666;font-size:14px;margin:6px 0 0}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Baby Tracker</h1>
+    <p>Log in to register feedings, diapers, medications, observations, weights, and heights.</p>
+    <form method="POST" action="/app/login">
+      ${nextAttr}
+      <label for="pw">Password</label>
+      <input id="pw" type="password" name="password" autocomplete="current-password" autofocus required>
+      ${error ? `<div class="err">${escapeHtml(error)}</div>` : ""}
+      <button type="submit">Log in</button>
+    </form>
+  </div>
+</body>
+</html>`;
+  return new Response(html, {
+    status: error ? 401 : 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+function safeNextPath(raw: string | null | undefined): string {
+  if (!raw) return "/app";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/app";
+  return raw;
+}
+
+async function handleAppLoginGet(request: Request): Promise<Response> {
+  const next = new URL(request.url).searchParams.get("next");
+  return renderAppLogin(undefined, safeNextPath(next));
+}
+
+async function handleAppLoginPost(request: Request, env: Env): Promise<Response> {
+  if (!env.SHARED_SECRET) {
+    return new Response(
+      "Server not configured: run `wrangler secret put SHARED_SECRET`.",
+      { status: 500, headers: { "Content-Type": "text/plain" } }
+    );
+  }
+  const form = await request.formData();
+  const password = form.get("password");
+  const next = safeNextPath(form.get("next") as string | null);
+  if (typeof password !== "string") {
+    return renderAppLogin("Missing password.", next);
+  }
+  if (password !== env.SHARED_SECRET) {
+    return renderAppLogin("Incorrect password.", next);
+  }
+  const token = await deriveSessionToken(env.SHARED_SECRET);
+  const isHttps = new URL(request.url).protocol === "https:";
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: next,
+      "Set-Cookie": sessionCookieHeader(token, isHttps),
+    },
+  });
+}
+
+function handleAppLogout(request: Request): Response {
+  const isHttps = new URL(request.url).protocol === "https:";
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: "/app/login",
+      "Set-Cookie": clearSessionCookieHeader(isHttps),
+    },
+  });
+}
+
+const APP_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baby Tracker</title>
+  <link rel="icon" href="/icon.svg">
+  <style>
+    :root {
+      --primary: #0070f3;
+      --primary-dark: #0058c4;
+      --bg: #fafafa;
+      --card: #fff;
+      --border: #e2e2e2;
+      --text: #1a1a1a;
+      --muted: #666;
+      --danger: #d33;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    nav {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+    nav button {
+      background: transparent;
+      border: 1px solid transparent;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      color: var(--muted);
+      font-family: inherit;
+    }
+    nav button:hover { background: #f0f0f0; }
+    nav button.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    nav button.active:hover { background: var(--primary-dark); }
+    .logout-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--muted);
+      font-family: inherit;
+    }
+    .logout-btn:hover { background: #f0f0f0; }
+    main {
+      max-width: 920px;
+      margin: 24px auto;
+      padding: 0 16px 40px;
+    }
+    .tab { display: none; }
+    .tab.active { display: block; }
+    form.entry-form {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    form.entry-form label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      flex: 1 1 140px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    form.entry-form input,
+    form.entry-form select {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 400;
+    }
+    form.entry-form input:focus,
+    form.entry-form select:focus {
+      outline: 2px solid var(--primary);
+      outline-offset: -1px;
+      border-color: var(--primary);
+    }
+    form.entry-form button[type=submit] {
+      background: var(--primary);
+      color: white;
+      border: 0;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      align-self: flex-end;
+    }
+    form.entry-form button[type=submit]:hover { background: var(--primary-dark); }
+    form.entry-form button[type=submit]:disabled { opacity: 0.5; cursor: not-allowed; }
+    .list {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .list-empty,
+    .list-loading {
+      padding: 28px 16px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      vertical-align: top;
+    }
+    th {
+      background: #f7f7f8;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #fafafa; }
+    .id-col { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; width: 1px; white-space: nowrap; }
+    .ts-col { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .num-col { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .actions-col { text-align: right; width: 1%; white-space: nowrap; }
+    .delete-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--danger);
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .delete-btn:hover { background: #fee; border-color: var(--danger); }
+    .toast {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #222;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.2);
+      opacity: 0;
+      transition: opacity .2s;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .toast.show { opacity: 1; }
+    .toast.error { background: var(--danger); }
+    @media (max-width: 640px) {
+      header { padding: 10px 12px; }
+      header h1 { font-size: 1rem; }
+      nav button { padding: 5px 9px; font-size: 13px; }
+      th, td { padding: 8px 10px; }
+      .hide-sm { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Baby Tracker</h1>
+    <nav id="nav">
+      <button data-tab="feedings" class="active">Feedings</button>
+      <button data-tab="diapers">Diapers</button>
+      <button data-tab="medications">Medications</button>
+      <button data-tab="observations">Observations</button>
+      <button data-tab="weights">Weights</button>
+      <button data-tab="heights">Heights</button>
+    </nav>
+    <form method="POST" action="/app/logout" style="margin:0">
+      <button class="logout-btn" type="submit">Log out</button>
+    </form>
+  </header>
+
+  <main>
+    <section id="tab-feedings" class="tab active">
+      <form class="entry-form" data-entity="feedings">
+        <label>Amount (ml)
+          <input type="number" name="amount_ml" step="0.1" min="0.1" required placeholder="120">
+        </label>
+        <label>When (optional)
+          <input type="datetime-local" name="when">
+        </label>
+        <label>Note
+          <input type="text" name="note" maxlength="500" placeholder="formula, breast milk...">
+        </label>
+        <button type="submit">Add feeding</button>
+      </form>
+      <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-diapers" class="tab">
+      <form class="entry-form" data-entity="diapers">
+        <label>Kind
+          <select name="kind" required>
+            <option value="pee">Pee</option>
+            <option value="poop">Poop</option>
+            <option value="both">Both</option>
+          </select>
+        </label>
+        <label>When (optional)
+          <input type="datetime-local" name="when">
+        </label>
+        <label>Note
+          <input type="text" name="note" maxlength="500" placeholder="color, consistency...">
+        </label>
+        <button type="submit">Add diaper</button>
+      </form>
+      <div class="list" id="list-diapers"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-medications" class="tab">
+      <form class="entry-form" data-entity="medications">
+        <label>Name
+          <input type="text" name="name" maxlength="100" required placeholder="Vitamin D">
+        </label>
+        <label>Dose
+          <input type="text" name="dose" maxlength="50" placeholder="400 IU">
+        </label>
+        <label>When (optional)
+          <input type="datetime-local" name="when">
+        </label>
+        <label>Note
+          <input type="text" name="note" maxlength="500">
+        </label>
+        <button type="submit">Add medication</button>
+      </form>
+      <div class="list" id="list-medications"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-observations" class="tab">
+      <form class="entry-form" data-entity="observations">
+        <label>Text
+          <input type="text" name="text" maxlength="2000" required placeholder="first smile, rash on left arm...">
+        </label>
+        <label>Category
+          <input type="text" name="category" maxlength="50" placeholder="skin, mood, milestone...">
+        </label>
+        <label>When (optional)
+          <input type="datetime-local" name="when">
+        </label>
+        <button type="submit">Add observation</button>
+      </form>
+      <div class="list" id="list-observations"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-weights" class="tab">
+      <form class="entry-form" data-entity="weights">
+        <label>Weight (kg)
+          <input type="number" name="weight_kg" step="0.001" min="0.001" required placeholder="4.25">
+        </label>
+        <label>When (optional)
+          <input type="datetime-local" name="when">
+        </label>
+        <label>Note
+          <input type="text" name="note" maxlength="500" placeholder="pediatrician visit...">
+        </label>
+        <button type="submit">Add weight</button>
+      </form>
+      <div class="list" id="list-weights"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-heights" class="tab">
+      <form class="entry-form" data-entity="heights">
+        <label>Height (cm)
+          <input type="number" name="height_cm" step="0.1" min="0.1" required placeholder="54.5">
+        </label>
+        <label>When (optional)
+          <input type="datetime-local" name="when">
+        </label>
+        <label>Note
+          <input type="text" name="note" maxlength="500">
+        </label>
+        <button type="submit">Add height</button>
+      </form>
+      <div class="list" id="list-heights"><div class="list-loading">Loading...</div></div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    var NUMERIC_FIELDS = { amount_ml: true, weight_kg: true, height_cm: true };
+
+    var entities = {
+      feedings: {
+        endpoint: "/api/feedings",
+        columns: [
+          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
+          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
+          { key: "amount_ml", label: "Amount", cls: "num-col", fmt: function(v) { return v + " ml"; } },
+          { key: "note", label: "Note", fmt: fmtText }
+        ]
+      },
+      diapers: {
+        endpoint: "/api/diapers",
+        columns: [
+          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
+          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
+          { key: "kind", label: "Kind", fmt: fmtText },
+          { key: "note", label: "Note", fmt: fmtText }
+        ]
+      },
+      medications: {
+        endpoint: "/api/medications",
+        columns: [
+          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
+          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
+          { key: "name", label: "Name", fmt: fmtText },
+          { key: "dose", label: "Dose", fmt: fmtText },
+          { key: "note", label: "Note", fmt: fmtText }
+        ]
+      },
+      observations: {
+        endpoint: "/api/observations",
+        columns: [
+          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
+          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
+          { key: "category", label: "Category", fmt: fmtText },
+          { key: "text", label: "Text", fmt: fmtText }
+        ]
+      },
+      weights: {
+        endpoint: "/api/weights",
+        columns: [
+          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
+          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
+          { key: "weight_kg", label: "Weight", cls: "num-col", fmt: function(v) { return v + " kg"; } },
+          { key: "note", label: "Note", fmt: fmtText }
+        ]
+      },
+      heights: {
+        endpoint: "/api/heights",
+        columns: [
+          { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
+          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
+          { key: "height_cm", label: "Height", cls: "num-col", fmt: function(v) { return v + " cm"; } },
+          { key: "note", label: "Note", fmt: fmtText }
+        ]
+      }
+    };
+
+    function fmtTs(s) {
+      if (!s) return "";
+      var d = new Date(s);
+      if (isNaN(d.getTime())) return s;
+      return d.toLocaleString();
+    }
+    function fmtText(v) { return v == null ? "" : String(v); }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    var toastEl = document.getElementById("toast");
+    var toastTimer = null;
+    function toast(msg, isError) {
+      toastEl.textContent = msg;
+      toastEl.className = "toast show" + (isError ? " error" : "");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function() {
+        toastEl.className = "toast" + (isError ? " error" : "");
+      }, 2400);
+    }
+
+    async function loadList(entity) {
+      var cfg = entities[entity];
+      var container = document.getElementById("list-" + entity);
+      try {
+        var res = await fetch(cfg.endpoint, { headers: { Accept: "application/json" } });
+        if (res.status === 401) { location.href = "/app/login?next=" + encodeURIComponent(location.pathname); return; }
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        var data = await res.json();
+        renderList(entity, data.items || []);
+      } catch (err) {
+        container.innerHTML = '<div class="list-empty">Failed to load: ' + escapeHtml(err.message) + "</div>";
+      }
+    }
+
+    function renderList(entity, items) {
+      var cfg = entities[entity];
+      var container = document.getElementById("list-" + entity);
+      if (!items.length) {
+        container.innerHTML = '<div class="list-empty">No entries yet.</div>';
+        return;
+      }
+      var head = "";
+      for (var i = 0; i < cfg.columns.length; i++) {
+        var c = cfg.columns[i];
+        head += "<th" + (c.cls ? ' class="' + c.cls + '"' : "") + ">" + escapeHtml(c.label) + "</th>";
+      }
+      head += '<th class="actions-col"></th>';
+
+      var body = "";
+      for (var j = 0; j < items.length; j++) {
+        var item = items[j];
+        var row = "";
+        for (var k = 0; k < cfg.columns.length; k++) {
+          var col = cfg.columns[k];
+          var val = item[col.key];
+          var rendered = col.fmt ? col.fmt(val) : (val == null ? "" : val);
+          row += "<td" + (col.cls ? ' class="' + col.cls + '"' : "") + ">" + escapeHtml(rendered) + "</td>";
+        }
+        row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">Delete</button></td>';
+        body += "<tr>" + row + "</tr>";
+      }
+      container.innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+    }
+
+    function showTab(name) {
+      var navBtns = document.querySelectorAll("#nav button");
+      for (var i = 0; i < navBtns.length; i++) {
+        navBtns[i].classList.toggle("active", navBtns[i].getAttribute("data-tab") === name);
+      }
+      var tabs = document.querySelectorAll(".tab");
+      for (var j = 0; j < tabs.length; j++) {
+        tabs[j].classList.toggle("active", tabs[j].id === "tab-" + name);
+      }
+      loadList(name);
+    }
+
+    document.getElementById("nav").addEventListener("click", function(e) {
+      var t = e.target;
+      if (t && t.tagName === "BUTTON" && t.getAttribute("data-tab")) {
+        showTab(t.getAttribute("data-tab"));
+      }
+    });
+
+    var forms = document.querySelectorAll("form.entry-form");
+    for (var f = 0; f < forms.length; f++) {
+      forms[f].addEventListener("submit", async function(e) {
+        e.preventDefault();
+        var form = e.currentTarget;
+        var entity = form.getAttribute("data-entity");
+        var fd = new FormData(form);
+        var body = {};
+        fd.forEach(function(v, k) {
+          var s = String(v).trim();
+          if (!s) return;
+          if (k === "when") {
+            var d = new Date(s);
+            if (!isNaN(d.getTime())) body[k] = d.toISOString();
+          } else if (NUMERIC_FIELDS[k]) {
+            var n = parseFloat(s);
+            if (!isNaN(n)) body[k] = n;
+          } else {
+            body[k] = s;
+          }
+        });
+        var submitBtn = form.querySelector('button[type=submit]');
+        submitBtn.disabled = true;
+        try {
+          var res = await fetch(entities[entity].endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(body)
+          });
+          if (res.status === 401) { location.href = "/app/login?next=" + encodeURIComponent(location.pathname); return; }
+          if (!res.ok) {
+            var errText = await res.text();
+            toast("Error: " + errText, true);
+            return;
+          }
+          form.reset();
+          toast("Saved");
+          loadList(entity);
+        } catch (err) {
+          toast("Network error: " + err.message, true);
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    }
+
+    document.addEventListener("click", async function(e) {
+      var t = e.target;
+      if (t && t.classList && t.classList.contains("delete-btn")) {
+        if (!confirm("Delete this entry?")) return;
+        var id = t.getAttribute("data-id");
+        var entity = t.getAttribute("data-entity");
+        t.disabled = true;
+        try {
+          var res = await fetch(entities[entity].endpoint + "/" + encodeURIComponent(id), { method: "DELETE" });
+          if (res.status === 401) { location.href = "/app/login?next=" + encodeURIComponent(location.pathname); return; }
+          if (!res.ok) {
+            toast("Delete failed", true);
+            return;
+          }
+          toast("Deleted");
+          loadList(entity);
+        } catch (err) {
+          toast("Network error: " + err.message, true);
+        }
+      }
+    });
+
+    showTab("feedings");
+  </script>
+</body>
+</html>`;
+
+async function handleAppHome(request: Request, env: Env): Promise<Response> {
+  if (!(await isWebAuthorized(request, env))) {
+    return new Response(null, {
+      status: 303,
+      headers: { Location: "/app/login?next=/app" },
+    });
+  }
+  return new Response(APP_HTML, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+// -----------------------------------------------------------------------------
+// JSON API for the web app. All routes require a valid session cookie.
+// -----------------------------------------------------------------------------
+
+function jsonOk(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+}
+
+function jsonError(status: number, message: string): Response {
+  return new Response(message, {
+    status,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+function parseLimit(raw: string | null): number {
+  if (!raw) return 50;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return 50;
+  return Math.min(n, 500);
+}
+
+function parseIdParam(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+async function readBody<T extends z.ZodTypeAny>(
+  request: Request,
+  schema: T
+): Promise<{ ok: true; value: z.infer<T> } | { ok: false; error: string }> {
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return { ok: false, error: "Invalid JSON body." };
+  }
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ") };
+  }
+  return { ok: true, value: parsed.data };
+}
+
+const FeedingCreateSchema = z.object({
+  amount_ml: z.number().positive(),
+  when: z.string().datetime().optional(),
+  note: z.string().max(500).optional(),
+});
+
+const DiaperCreateSchema = z.object({
+  kind: z.enum(["pee", "poop", "both"]),
+  when: z.string().datetime().optional(),
+  note: z.string().max(500).optional(),
+});
+
+const MedicationCreateSchema = z.object({
+  name: z.string().min(1).max(100),
+  dose: z.string().max(50).optional(),
+  when: z.string().datetime().optional(),
+  note: z.string().max(500).optional(),
+});
+
+const ObservationCreateSchema = z.object({
+  text: z.string().min(1).max(2000),
+  category: z.string().min(1).max(50).optional(),
+  when: z.string().datetime().optional(),
+});
+
+const WeightCreateSchema = z.object({
+  weight_kg: z.number().positive(),
+  when: z.string().datetime().optional(),
+  note: z.string().max(500).optional(),
+});
+
+const HeightCreateSchema = z.object({
+  height_cm: z.number().positive(),
+  when: z.string().datetime().optional(),
+  note: z.string().max(500).optional(),
+});
+
+async function listRows<T>(
+  db: D1Database,
+  sql: string,
+  params: (string | number)[]
+): Promise<T[]> {
+  const { results } = await db.prepare(sql).bind(...params).all<T>();
+  return results;
+}
+
+async function deleteRow(
+  db: D1Database,
+  table: string,
+  id: number
+): Promise<boolean> {
+  const res = await db.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(id).run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+async function apiFeedings(
+  method: string,
+  url: URL,
+  idStr: string | undefined,
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (method === "GET" && !idStr) {
+    const since = url.searchParams.get("since");
+    const until = url.searchParams.get("until");
+    const limit = parseLimit(url.searchParams.get("limit"));
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (since) { clauses.push("ts >= ?"); params.push(since); }
+    if (until) { clauses.push("ts < ?"); params.push(until); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(limit);
+    const items = await listRows<FeedingRow>(
+      env.DB,
+      `SELECT id, ts, amount_ml, note FROM feedings ${where} ORDER BY ts DESC LIMIT ?`,
+      params
+    );
+    return jsonOk({ items });
+  }
+  if (method === "POST" && !idStr) {
+    const parsed = await readBody(request, FeedingCreateSchema);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const ts = parsed.value.when ?? new Date().toISOString();
+    const row = await env.DB
+      .prepare("INSERT INTO feedings (ts, amount_ml, note) VALUES (?, ?, ?) RETURNING id, ts, amount_ml, note")
+      .bind(ts, parsed.value.amount_ml, parsed.value.note ?? null)
+      .first<FeedingRow>();
+    return jsonOk(row, 201);
+  }
+  if (method === "DELETE" && idStr) {
+    const id = parseIdParam(idStr);
+    if (id === null) return jsonError(400, "Invalid id.");
+    const ok = await deleteRow(env.DB, "feedings", id);
+    if (!ok) return jsonError(404, "Not found.");
+    return jsonOk({ deleted: id });
+  }
+  return jsonError(405, "Method not allowed.");
+}
+
+async function apiDiapers(
+  method: string,
+  url: URL,
+  idStr: string | undefined,
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (method === "GET" && !idStr) {
+    const since = url.searchParams.get("since");
+    const until = url.searchParams.get("until");
+    const kind = url.searchParams.get("kind");
+    const limit = parseLimit(url.searchParams.get("limit"));
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (since) { clauses.push("ts >= ?"); params.push(since); }
+    if (until) { clauses.push("ts < ?"); params.push(until); }
+    if (kind && ["pee", "poop", "both"].includes(kind)) { clauses.push("kind = ?"); params.push(kind); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(limit);
+    const items = await listRows<DiaperRow>(
+      env.DB,
+      `SELECT id, ts, kind, note FROM diapers ${where} ORDER BY ts DESC LIMIT ?`,
+      params
+    );
+    return jsonOk({ items });
+  }
+  if (method === "POST" && !idStr) {
+    const parsed = await readBody(request, DiaperCreateSchema);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const ts = parsed.value.when ?? new Date().toISOString();
+    const row = await env.DB
+      .prepare("INSERT INTO diapers (ts, kind, note) VALUES (?, ?, ?) RETURNING id, ts, kind, note")
+      .bind(ts, parsed.value.kind, parsed.value.note ?? null)
+      .first<DiaperRow>();
+    return jsonOk(row, 201);
+  }
+  if (method === "DELETE" && idStr) {
+    const id = parseIdParam(idStr);
+    if (id === null) return jsonError(400, "Invalid id.");
+    const ok = await deleteRow(env.DB, "diapers", id);
+    if (!ok) return jsonError(404, "Not found.");
+    return jsonOk({ deleted: id });
+  }
+  return jsonError(405, "Method not allowed.");
+}
+
+async function apiMedications(
+  method: string,
+  url: URL,
+  idStr: string | undefined,
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (method === "GET" && !idStr) {
+    const since = url.searchParams.get("since");
+    const until = url.searchParams.get("until");
+    const name = url.searchParams.get("name");
+    const limit = parseLimit(url.searchParams.get("limit"));
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (since) { clauses.push("ts >= ?"); params.push(since); }
+    if (until) { clauses.push("ts < ?"); params.push(until); }
+    if (name) { clauses.push("LOWER(name) LIKE ?"); params.push(`%${name.toLowerCase()}%`); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(limit);
+    const items = await listRows<MedicationRow>(
+      env.DB,
+      `SELECT id, ts, name, dose, note FROM medications ${where} ORDER BY ts DESC LIMIT ?`,
+      params
+    );
+    return jsonOk({ items });
+  }
+  if (method === "POST" && !idStr) {
+    const parsed = await readBody(request, MedicationCreateSchema);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const ts = parsed.value.when ?? new Date().toISOString();
+    const row = await env.DB
+      .prepare("INSERT INTO medications (ts, name, dose, note) VALUES (?, ?, ?, ?) RETURNING id, ts, name, dose, note")
+      .bind(ts, parsed.value.name, parsed.value.dose ?? null, parsed.value.note ?? null)
+      .first<MedicationRow>();
+    return jsonOk(row, 201);
+  }
+  if (method === "DELETE" && idStr) {
+    const id = parseIdParam(idStr);
+    if (id === null) return jsonError(400, "Invalid id.");
+    const ok = await deleteRow(env.DB, "medications", id);
+    if (!ok) return jsonError(404, "Not found.");
+    return jsonOk({ deleted: id });
+  }
+  return jsonError(405, "Method not allowed.");
+}
+
+async function apiObservations(
+  method: string,
+  url: URL,
+  idStr: string | undefined,
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (method === "GET" && !idStr) {
+    const since = url.searchParams.get("since");
+    const until = url.searchParams.get("until");
+    const category = url.searchParams.get("category");
+    const search = url.searchParams.get("search");
+    const limit = parseLimit(url.searchParams.get("limit"));
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (since) { clauses.push("ts >= ?"); params.push(since); }
+    if (until) { clauses.push("ts < ?"); params.push(until); }
+    if (category) { clauses.push("LOWER(category) = ?"); params.push(category.toLowerCase()); }
+    if (search) { clauses.push("LOWER(text) LIKE ?"); params.push(`%${search.toLowerCase()}%`); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(limit);
+    const items = await listRows<ObservationRow>(
+      env.DB,
+      `SELECT id, ts, text, category FROM observations ${where} ORDER BY ts DESC LIMIT ?`,
+      params
+    );
+    return jsonOk({ items });
+  }
+  if (method === "POST" && !idStr) {
+    const parsed = await readBody(request, ObservationCreateSchema);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const ts = parsed.value.when ?? new Date().toISOString();
+    const row = await env.DB
+      .prepare("INSERT INTO observations (ts, text, category) VALUES (?, ?, ?) RETURNING id, ts, text, category")
+      .bind(ts, parsed.value.text, parsed.value.category ?? null)
+      .first<ObservationRow>();
+    return jsonOk(row, 201);
+  }
+  if (method === "DELETE" && idStr) {
+    const id = parseIdParam(idStr);
+    if (id === null) return jsonError(400, "Invalid id.");
+    const ok = await deleteRow(env.DB, "observations", id);
+    if (!ok) return jsonError(404, "Not found.");
+    return jsonOk({ deleted: id });
+  }
+  return jsonError(405, "Method not allowed.");
+}
+
+async function apiWeights(
+  method: string,
+  url: URL,
+  idStr: string | undefined,
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (method === "GET" && !idStr) {
+    const since = url.searchParams.get("since");
+    const until = url.searchParams.get("until");
+    const limit = parseLimit(url.searchParams.get("limit"));
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (since) { clauses.push("ts >= ?"); params.push(since); }
+    if (until) { clauses.push("ts < ?"); params.push(until); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(limit);
+    const items = await listRows<WeightRow>(
+      env.DB,
+      `SELECT id, ts, weight_kg, note FROM weights ${where} ORDER BY ts DESC LIMIT ?`,
+      params
+    );
+    return jsonOk({ items });
+  }
+  if (method === "POST" && !idStr) {
+    const parsed = await readBody(request, WeightCreateSchema);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const ts = parsed.value.when ?? new Date().toISOString();
+    const row = await env.DB
+      .prepare("INSERT INTO weights (ts, weight_kg, note) VALUES (?, ?, ?) RETURNING id, ts, weight_kg, note")
+      .bind(ts, parsed.value.weight_kg, parsed.value.note ?? null)
+      .first<WeightRow>();
+    return jsonOk(row, 201);
+  }
+  if (method === "DELETE" && idStr) {
+    const id = parseIdParam(idStr);
+    if (id === null) return jsonError(400, "Invalid id.");
+    const ok = await deleteRow(env.DB, "weights", id);
+    if (!ok) return jsonError(404, "Not found.");
+    return jsonOk({ deleted: id });
+  }
+  return jsonError(405, "Method not allowed.");
+}
+
+async function apiHeights(
+  method: string,
+  url: URL,
+  idStr: string | undefined,
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (method === "GET" && !idStr) {
+    const since = url.searchParams.get("since");
+    const until = url.searchParams.get("until");
+    const limit = parseLimit(url.searchParams.get("limit"));
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (since) { clauses.push("ts >= ?"); params.push(since); }
+    if (until) { clauses.push("ts < ?"); params.push(until); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(limit);
+    const items = await listRows<HeightRow>(
+      env.DB,
+      `SELECT id, ts, height_cm, note FROM heights ${where} ORDER BY ts DESC LIMIT ?`,
+      params
+    );
+    return jsonOk({ items });
+  }
+  if (method === "POST" && !idStr) {
+    const parsed = await readBody(request, HeightCreateSchema);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const ts = parsed.value.when ?? new Date().toISOString();
+    const row = await env.DB
+      .prepare("INSERT INTO heights (ts, height_cm, note) VALUES (?, ?, ?) RETURNING id, ts, height_cm, note")
+      .bind(ts, parsed.value.height_cm, parsed.value.note ?? null)
+      .first<HeightRow>();
+    return jsonOk(row, 201);
+  }
+  if (method === "DELETE" && idStr) {
+    const id = parseIdParam(idStr);
+    if (id === null) return jsonError(400, "Invalid id.");
+    const ok = await deleteRow(env.DB, "heights", id);
+    if (!ok) return jsonError(404, "Not found.");
+    return jsonOk({ deleted: id });
+  }
+  return jsonError(405, "Method not allowed.");
+}
+
+async function handleApi(
+  request: Request,
+  env: Env,
+  url: URL
+): Promise<Response> {
+  if (!(await isWebAuthorized(request, env))) {
+    return jsonError(401, "Unauthorized.");
+  }
+  // /api/<entity>[/<id>]
+  const parts = url.pathname.split("/").filter(Boolean); // ["api", "<entity>", "<id>?"]
+  if (parts.length < 2 || parts.length > 3) return jsonError(404, "Not found.");
+  const entity = parts[1];
+  const idStr = parts[2];
+  const method = request.method.toUpperCase();
+  switch (entity) {
+    case "feedings":     return apiFeedings(method, url, idStr, request, env);
+    case "diapers":      return apiDiapers(method, url, idStr, request, env);
+    case "medications":  return apiMedications(method, url, idStr, request, env);
+    case "observations": return apiObservations(method, url, idStr, request, env);
+    case "weights":      return apiWeights(method, url, idStr, request, env);
+    case "heights":      return apiHeights(method, url, idStr, request, env);
+    default:             return jsonError(404, "Unknown entity.");
+  }
+}
+
 const defaultHandler = {
   async fetch(
     request: Request,
@@ -1865,11 +3012,26 @@ const defaultHandler = {
         },
       });
     }
+    if (url.pathname === "/app" || url.pathname === "/app/") {
+      return handleAppHome(request, env);
+    }
+    if (url.pathname === "/app/login" && request.method === "GET") {
+      return handleAppLoginGet(request);
+    }
+    if (url.pathname === "/app/login" && request.method === "POST") {
+      return handleAppLoginPost(request, env);
+    }
+    if (url.pathname === "/app/logout" && request.method === "POST") {
+      return handleAppLogout(request);
+    }
+    if (url.pathname.startsWith("/api/")) {
+      return handleApi(request, env, url);
+    }
     if (url.pathname === "/") {
-      return new Response(
-        "Baby feeding MCP server — protected by OAuth. Connect via /mcp.\n",
-        { headers: { "Content-Type": "text/plain" } }
-      );
+      return new Response(null, {
+        status: 303,
+        headers: { Location: "/app" },
+      });
     }
     return new Response("Not found", { status: 404 });
   },
