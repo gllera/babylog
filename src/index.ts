@@ -59,10 +59,10 @@ type ProfileRow = {
   date_of_birth: string | null;
 };
 
-function computeAge(dob: string): string {
+function computeAge(dob: string, at?: Date): string {
   const birth = new Date(`${dob}T00:00:00Z`);
-  const now = new Date();
-  const days = Math.floor((now.getTime() - birth.getTime()) / 86400000);
+  const ref = at ?? new Date();
+  const days = Math.floor((ref.getTime() - birth.getTime()) / 86400000);
   if (days < 0) return "not yet born";
   if (days < 60) {
     const weeks = Math.floor(days / 7);
@@ -70,9 +70,9 @@ function computeAge(dob: string): string {
     if (weeks === 0) return `${days} day${days === 1 ? "" : "s"} old`;
     return `${days} days old (${weeks}w${rem > 0 ? ` ${rem}d` : ""})`;
   }
-  let years = now.getUTCFullYear() - birth.getUTCFullYear();
-  let months = now.getUTCMonth() - birth.getUTCMonth();
-  if (now.getUTCDate() < birth.getUTCDate()) months--;
+  let years = ref.getUTCFullYear() - birth.getUTCFullYear();
+  let months = ref.getUTCMonth() - birth.getUTCMonth();
+  if (ref.getUTCDate() < birth.getUTCDate()) months--;
   if (months < 0) {
     years--;
     months += 12;
@@ -704,7 +704,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
     this.server.registerTool(
       "delete_routine",
       {
-        description: "Delete a routines-table entry by its numeric id.",
+        description: "Delete a routine entry by its numeric id.",
         inputSchema: {
           id: z
             .number()
@@ -1398,7 +1398,8 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       },
       async ({ date }) => {
         const day = date ?? new Date().toISOString().slice(0, 10);
-        const endDate = new Date(`${day}T00:00:00.000Z`);
+        const dayStart = new Date(`${day}T00:00:00.000Z`);
+        const endDate = new Date(dayStart);
         endDate.setUTCDate(endDate.getUTCDate() + 1);
         const end = endDate.toISOString();
 
@@ -1419,10 +1420,17 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           };
         }
 
-        const lines: string[] = [`Indications evaluated as of ${day} (UTC):`];
+        const profile = await this.env.DB.prepare(
+          "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
+        ).first<ProfileRow>();
+        const ageS = profile?.date_of_birth
+          ? `, ${computeAge(profile.date_of_birth, dayStart)}`
+          : "";
+
+        const lines: string[] = [`Indications evaluated as of ${day} (UTC${ageS}):`];
         let met = 0;
         for (const ind of indications) {
-          const startDate = new Date(`${day}T00:00:00.000Z`);
+          const startDate = new Date(dayStart);
           startDate.setUTCDate(startDate.getUTCDate() - (ind.period_days - 1));
           const start = startDate.toISOString();
 
@@ -1457,7 +1465,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "get_stats",
       {
         description:
-          "Summarize feedings, diapers, routines, and notes within a time window. Defaults to the last 24 hours.",
+          "Summarize feedings, diapers, routines, and notes within a time window, plus the latest weight (g) and height (cm). Defaults to the last 24 hours.",
         inputSchema: {
           since: z
             .string()
