@@ -19,7 +19,6 @@ type FeedingRow = {
   id: number;
   ts: string;
   amount_ml: number;
-  note: string | null;
 };
 
 type DiaperKind = "pee" | "poop" | "both";
@@ -28,15 +27,12 @@ type DiaperRow = {
   id: number;
   ts: string;
   kind: DiaperKind;
-  note: string | null;
 };
 
 type MedicationRow = {
   id: number;
   ts: string;
   name: string;
-  dose: string | null;
-  note: string | null;
 };
 
 type ObservationRow = {
@@ -50,14 +46,12 @@ type WeightRow = {
   id: number;
   ts: string;
   weight_kg: number;
-  note: string | null;
 };
 
 type HeightRow = {
   id: number;
   ts: string;
   height_cm: number;
-  note: string | null;
 };
 
 type ProfileRow = {
@@ -120,7 +114,6 @@ type IndicationRow = {
   comparison: ">=" | "<=";
   period_days: number;
   active: number;
-  note: string | null;
 };
 
 async function computeIndicationActual(
@@ -346,21 +339,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z). OMIT this when the feeding is happening now — the server fills in the current time. Only pass this if the user explicitly gave a different time."
             ),
-          note: z
-            .string()
-            .max(500)
-            .optional()
-            .describe(
-              "Optional note, e.g. 'formula', 'breast milk', 'fussy', 'spit up'"
-            ),
         },
       },
-      async ({ amount_ml, when, note }) => {
+      async ({ amount_ml, when }) => {
         const ts = when ?? new Date().toISOString();
         const inserted = await this.env.DB.prepare(
-          "INSERT INTO feedings (ts, amount_ml, note) VALUES (?, ?, ?) RETURNING id"
+          "INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id"
         )
-          .bind(ts, amount_ml, note ?? null)
+          .bind(ts, amount_ml)
           .first<{ id: number }>();
 
         const id = inserted?.id;
@@ -368,9 +354,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded feeding #${id}: ${amount_ml} ml at ${ts}${
-                note ? ` — ${note}` : ""
-              }.`,
+              text: `Recorded feeding #${id}: ${amount_ml} ml at ${ts}.`,
             },
           ],
         };
@@ -417,7 +401,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         params.push(limit ?? 50);
 
         const { results } = await this.env.DB.prepare(
-          `SELECT id, ts, amount_ml, note FROM feedings ${where} ORDER BY ts DESC LIMIT ?`
+          `SELECT id, ts, amount_ml FROM feedings ${where} ORDER BY ts DESC LIMIT ?`
         )
           .bind(...params)
           .all<FeedingRow>();
@@ -431,10 +415,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         }
 
         const lines = results.map(
-          (r) =>
-            `#${r.id}  ${r.ts}  ${r.amount_ml} ml${
-              r.note ? `  — ${r.note}` : ""
-            }`
+          (r) => `#${r.id}  ${r.ts}  ${r.amount_ml} ml`
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -493,30 +474,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z). OMIT this when the change is happening now — the server fills in the current time. Only pass this if the user explicitly gave a different time."
             ),
-          note: z
-            .string()
-            .max(500)
-            .optional()
-            .describe(
-              "Optional note, e.g. consistency, color, or 'blowout'"
-            ),
         },
       },
-      async ({ kind, when, note }) => {
+      async ({ kind, when }) => {
         const ts = when ?? new Date().toISOString();
         const inserted = await this.env.DB.prepare(
-          "INSERT INTO diapers (ts, kind, note) VALUES (?, ?, ?) RETURNING id"
+          "INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id"
         )
-          .bind(ts, kind, note ?? null)
+          .bind(ts, kind)
           .first<{ id: number }>();
 
         return {
           content: [
             {
               type: "text",
-              text: `Recorded diaper #${inserted?.id}: ${kind} at ${ts}${
-                note ? ` — ${note}` : ""
-              }.`,
+              text: `Recorded diaper #${inserted?.id}: ${kind} at ${ts}.`,
             },
           ],
         };
@@ -571,7 +543,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         params.push(limit ?? 50);
 
         const { results } = await this.env.DB.prepare(
-          `SELECT id, ts, kind, note FROM diapers ${where} ORDER BY ts DESC LIMIT ?`
+          `SELECT id, ts, kind FROM diapers ${where} ORDER BY ts DESC LIMIT ?`
         )
           .bind(...params)
           .all<DiaperRow>();
@@ -585,8 +557,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         }
 
         const lines = results.map(
-          (r) =>
-            `#${r.id}  ${r.ts}  ${r.kind}${r.note ? `  — ${r.note}` : ""}`
+          (r) => `#${r.id}  ${r.ts}  ${r.kind}`
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -638,13 +609,6 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .min(1)
             .max(100)
             .describe("Medication name, e.g. 'Vitamin D', 'Acetaminophen'"),
-          dose: z
-            .string()
-            .max(50)
-            .optional()
-            .describe(
-              "Free-form dose, e.g. '400 IU', '1 drop', '2.5 ml'. Omit if unknown."
-            ),
           when: z
             .string()
             .datetime()
@@ -652,28 +616,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z). OMIT this when the dose is happening now — the server fills in the current time."
             ),
-          note: z
-            .string()
-            .max(500)
-            .optional()
-            .describe("Optional note, e.g. 'with food', 'spit out half'"),
         },
       },
-      async ({ name, dose, when, note }) => {
+      async ({ name, when }) => {
         const ts = when ?? new Date().toISOString();
         const inserted = await this.env.DB.prepare(
-          "INSERT INTO medications (ts, name, dose, note) VALUES (?, ?, ?, ?) RETURNING id"
+          "INSERT INTO medications (ts, name) VALUES (?, ?) RETURNING id"
         )
-          .bind(ts, name, dose ?? null, note ?? null)
+          .bind(ts, name)
           .first<{ id: number }>();
 
         return {
           content: [
             {
               type: "text",
-              text: `Recorded medication #${inserted?.id}: ${name}${
-                dose ? ` ${dose}` : ""
-              } at ${ts}${note ? ` — ${note}` : ""}.`,
+              text: `Recorded medication #${inserted?.id}: ${name} at ${ts}.`,
             },
           ],
         };
@@ -732,7 +689,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         params.push(limit ?? 50);
 
         const { results } = await this.env.DB.prepare(
-          `SELECT id, ts, name, dose, note FROM medications ${where} ORDER BY ts DESC LIMIT ?`
+          `SELECT id, ts, name FROM medications ${where} ORDER BY ts DESC LIMIT ?`
         )
           .bind(...params)
           .all<MedicationRow>();
@@ -746,10 +703,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         }
 
         const lines = results.map(
-          (r) =>
-            `#${r.id}  ${r.ts}  ${r.name}${r.dose ? ` (${r.dose})` : ""}${
-              r.note ? `  — ${r.note}` : ""
-            }`
+          (r) => `#${r.id}  ${r.ts}  ${r.name}`
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -980,21 +934,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Optional ISO 8601 timestamp. OMIT this when the measurement is happening now."
             ),
-          note: z
-            .string()
-            .max(500)
-            .optional()
-            .describe(
-              "Optional note, e.g. 'pediatrician visit', 'at home, naked'"
-            ),
         },
       },
-      async ({ weight_kg, when, note }) => {
+      async ({ weight_kg, when }) => {
         const ts = when ?? new Date().toISOString();
         const inserted = await this.env.DB.prepare(
-          "INSERT INTO weights (ts, weight_kg, note) VALUES (?, ?, ?) RETURNING id"
+          "INSERT INTO weights (ts, weight_kg) VALUES (?, ?) RETURNING id"
         )
-          .bind(ts, weight_kg, note ?? null)
+          .bind(ts, weight_kg)
           .first<{ id: number }>();
 
         // Compute delta vs previous measurement.
@@ -1015,9 +962,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded weight #${inserted?.id}: ${weight_kg} kg at ${ts}${delta}${
-                note ? ` — ${note}` : ""
-              }.`,
+              text: `Recorded weight #${inserted?.id}: ${weight_kg} kg at ${ts}${delta}.`,
             },
           ],
         };
@@ -1064,7 +1009,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         params.push(limit ?? 50);
 
         const { results } = await this.env.DB.prepare(
-          `SELECT id, ts, weight_kg, note FROM weights ${where} ORDER BY ts DESC LIMIT ?`
+          `SELECT id, ts, weight_kg FROM weights ${where} ORDER BY ts DESC LIMIT ?`
         )
           .bind(...params)
           .all<WeightRow>();
@@ -1079,7 +1024,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
 
         const lines = results.map(
           (r) =>
-            `#${r.id}  ${r.ts}  ${r.weight_kg} kg${r.note ? `  — ${r.note}` : ""}`
+            `#${r.id}  ${r.ts}  ${r.weight_kg} kg`
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -1139,19 +1084,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Optional ISO 8601 timestamp. OMIT this when the measurement is happening now."
             ),
-          note: z
-            .string()
-            .max(500)
-            .optional()
-            .describe("Optional note, e.g. 'pediatrician visit'"),
         },
       },
-      async ({ height_cm, when, note }) => {
+      async ({ height_cm, when }) => {
         const ts = when ?? new Date().toISOString();
         const inserted = await this.env.DB.prepare(
-          "INSERT INTO heights (ts, height_cm, note) VALUES (?, ?, ?) RETURNING id"
+          "INSERT INTO heights (ts, height_cm) VALUES (?, ?) RETURNING id"
         )
-          .bind(ts, height_cm, note ?? null)
+          .bind(ts, height_cm)
           .first<{ id: number }>();
 
         const prev = await this.env.DB.prepare(
@@ -1171,9 +1111,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded height #${inserted?.id}: ${height_cm} cm at ${ts}${delta}${
-                note ? ` — ${note}` : ""
-              }.`,
+              text: `Recorded height #${inserted?.id}: ${height_cm} cm at ${ts}${delta}.`,
             },
           ],
         };
@@ -1220,7 +1158,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         params.push(limit ?? 50);
 
         const { results } = await this.env.DB.prepare(
-          `SELECT id, ts, height_cm, note FROM heights ${where} ORDER BY ts DESC LIMIT ?`
+          `SELECT id, ts, height_cm FROM heights ${where} ORDER BY ts DESC LIMIT ?`
         )
           .bind(...params)
           .all<HeightRow>();
@@ -1235,7 +1173,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
 
         const lines = results.map(
           (r) =>
-            `#${r.id}  ${r.ts}  ${r.height_cm} cm${r.note ? `  — ${r.note}` : ""}`
+            `#${r.id}  ${r.ts}  ${r.height_cm} cm`
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -1326,7 +1264,6 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). medication_count: substring of medication name (e.g. 'vitamin d'). observation_count: exact observation category (e.g. 'bath'). Ignored for feeding metrics."
             ),
-          note: z.string().max(500).optional().describe("Optional free text"),
         },
       },
       async ({
@@ -1336,7 +1273,6 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         comparison,
         period_days,
         filter,
-        note,
       }) => {
         if (metric === "diaper_count" && filter) {
           if (!["pee", "poop", "both"].includes(filter)) {
@@ -1367,8 +1303,8 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         }
 
         const inserted = await this.env.DB.prepare(
-          `INSERT INTO indications (label, metric, filter, target, comparison, period_days, note)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO indications (label, metric, filter, target, comparison, period_days)
+           VALUES (?, ?, ?, ?, ?, ?)
            RETURNING id`
         )
           .bind(
@@ -1377,8 +1313,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             filter ?? null,
             target,
             comparison ?? ">=",
-            period_days ?? 1,
-            note ?? null
+            period_days ?? 1
           )
           .first<{ id: number }>();
 
@@ -1413,7 +1348,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       async ({ include_inactive }) => {
         const where = include_inactive ? "" : "WHERE active = 1";
         const { results } = await this.env.DB.prepare(
-          `SELECT id, label, metric, filter, target, comparison, period_days, active, note
+          `SELECT id, label, metric, filter, target, comparison, period_days, active
            FROM indications ${where}
            ORDER BY active DESC, id`
         ).all<IndicationRow>();
@@ -1436,9 +1371,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           const periodS = r.period_days === 1 ? "/d" : `/${r.period_days}d`;
           return `#${r.id}  ${r.active ? " " : "[off]"} ${r.label}  →  ${r.metric}${
             r.filter ? `:${r.filter}` : ""
-          } ${r.comparison} ${r.target}${unit ? " " + unit : ""}${periodS}${
-            r.note ? `  — ${r.note}` : ""
-          }`;
+          } ${r.comparison} ${r.target}${unit ? " " + unit : ""}${periodS}`;
         });
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -1501,7 +1434,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         const end = endDate.toISOString();
 
         const { results: indications } = await this.env.DB.prepare(
-          `SELECT id, label, metric, filter, target, comparison, period_days, active, note
+          `SELECT id, label, metric, filter, target, comparison, period_days, active
            FROM indications WHERE active = 1 ORDER BY id`
         ).all<IndicationRow>();
 
@@ -1741,11 +1674,11 @@ function renderConsent(
   error?: string
 ): Response {
   const html = `<!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authorize ${escapeHtml(clientName)}</title>
+  <title>Autorizar ${escapeHtml(clientName)}</title>
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          max-width:420px;margin:60px auto;padding:24px;line-height:1.5}
@@ -1763,14 +1696,14 @@ function renderConsent(
 </head>
 <body>
   <div class="card">
-    <h1>Authorize <em>${escapeHtml(clientName)}</em></h1>
-    <p>This MCP client wants access to the baby feeding tracker.</p>
+    <h1>Autorizar <em>${escapeHtml(clientName)}</em></h1>
+    <p>Este cliente MCP quiere acceder al diario del bebé.</p>
     <form method="POST" action="/authorize">
       <input type="hidden" name="state" value="${escapeHtml(state)}">
-      <label for="pw">Server password</label>
+      <label for="pw">Contraseña del servidor</label>
       <input id="pw" type="password" name="password" autocomplete="current-password" autofocus required>
       ${error ? `<div class="err">${escapeHtml(error)}</div>` : ""}
-      <button type="submit">Authorize</button>
+      <button type="submit">Autorizar</button>
     </form>
   </div>
 </body>
@@ -1830,7 +1763,7 @@ async function handleAuthorizePost(
     return renderConsent(
       client?.clientName ?? "MCP Client",
       state,
-      "Incorrect password."
+      "Contraseña incorrecta."
     );
   }
 
@@ -1924,11 +1857,11 @@ function clearSessionCookieHeader(isHttps: boolean): string {
 function renderAppLogin(error?: string, next?: string): Response {
   const nextAttr = next ? `<input type="hidden" name="next" value="${escapeHtml(next)}">` : "";
   const html = `<!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Baby Tracker — Log in</title>
+  <title>Diario del bebé — Iniciar sesión</title>
   <link rel="icon" href="/icon.svg">
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -1948,14 +1881,14 @@ function renderAppLogin(error?: string, next?: string): Response {
 </head>
 <body>
   <div class="card">
-    <h1>Baby Tracker</h1>
-    <p>Log in to register feedings, diapers, medications, observations, weights, and heights.</p>
+    <h1>Diario del bebé</h1>
+    <p>Inicia sesión para registrar tomas, pañales, medicamentos, observaciones, pesos y tallas.</p>
     <form method="POST" action="/app/login">
       ${nextAttr}
-      <label for="pw">Password</label>
+      <label for="pw">Contraseña</label>
       <input id="pw" type="password" name="password" autocomplete="current-password" autofocus required>
       ${error ? `<div class="err">${escapeHtml(error)}</div>` : ""}
-      <button type="submit">Log in</button>
+      <button type="submit">Iniciar sesión</button>
     </form>
   </div>
 </body>
@@ -1991,10 +1924,10 @@ async function handleAppLoginPost(request: Request, env: Env): Promise<Response>
   const password = form.get("password");
   const next = safeNextPath(form.get("next") as string | null);
   if (typeof password !== "string") {
-    return renderAppLogin("Missing password.", next);
+    return renderAppLogin("Falta la contraseña.", next);
   }
   if (password !== env.SHARED_SECRET) {
-    return renderAppLogin("Incorrect password.", next);
+    return renderAppLogin("Contraseña incorrecta.", next);
   }
   const token = await deriveSessionToken(env.SHARED_SECRET);
   const isHttps = new URL(request.url).protocol === "https:";
@@ -2018,12 +1951,23 @@ function handleAppLogout(request: Request): Response {
   });
 }
 
+const WHEN_BLOCK = `          <input type="hidden" name="when" value="">
+          <div class="when-display" data-when-display>Ahora</div>
+          <div class="when-quick">
+            <button type="button" data-step="-60">&minus;1h</button>
+            <button type="button" data-step="-15">&minus;15m</button>
+            <button type="button" data-step="-5">&minus;5m</button>
+            <button type="button" data-now>Ahora</button>
+            <button type="button" data-step="5">+5m</button>
+            <button type="button" data-step="15">+15m</button>
+          </div>`;
+
 const APP_HTML = `<!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Baby Tracker</title>
+  <title>Diario del bebé</title>
   <link rel="icon" href="/icon.svg">
   <style>
     :root {
@@ -2053,11 +1997,6 @@ const APP_HTML = `<!DOCTYPE html>
       gap: 12px;
       flex-wrap: wrap;
     }
-    header h1 {
-      margin: 0;
-      font-size: 1.05rem;
-      font-weight: 700;
-    }
     nav {
       display: flex;
       gap: 4px;
@@ -2081,17 +2020,6 @@ const APP_HTML = `<!DOCTYPE html>
       border-color: var(--primary);
     }
     nav button.active:hover { background: var(--primary-dark); }
-    .logout-btn {
-      background: transparent;
-      border: 1px solid var(--border);
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      color: var(--muted);
-      font-family: inherit;
-    }
-    .logout-btn:hover { background: #f0f0f0; }
     main {
       max-width: 920px;
       margin: 24px auto;
@@ -2218,133 +2146,296 @@ const APP_HTML = `<!DOCTYPE html>
     }
     .toast.show { opacity: 1; }
     .toast.error { background: var(--danger); }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    .card-main {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .card-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .card-empty {
+      font-size: 14px;
+      color: var(--muted);
+      font-style: italic;
+    }
+    .quick-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .quick-btn {
+      background: var(--primary);
+      color: #fff;
+      border: 0;
+      padding: 9px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      min-height: 38px;
+    }
+    .quick-btn:hover { background: var(--primary-dark); }
+    .quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .totals-row {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .totals-item .totals-num {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .totals-item .totals-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-top: 2px;
+    }
+    .when-quick {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .when-quick button {
+      background: #f0f0f0;
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      color: var(--muted);
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 500;
+    }
+    .when-quick button:hover { background: #e5e5e5; color: var(--text); }
+    .when-quick button[data-now] {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    .when-quick button[data-now]:hover {
+      background: var(--primary-dark);
+      color: #fff;
+    }
+    .when-display {
+      display: block;
+      padding: 10px 12px;
+      background: #f7f7f8;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 15px;
+      font-family: inherit;
+      color: var(--text);
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 600;
+      text-align: center;
+      min-height: 40px;
+    }
+    .delete-btn.pending {
+      background: var(--danger);
+      color: #fff;
+      border-color: var(--danger);
+      font-weight: 600;
+    }
+    .delete-btn.pending:hover { background: #b22; }
     @media (max-width: 640px) {
-      header { padding: 10px 12px; }
-      header h1 { font-size: 1rem; }
-      nav button { padding: 5px 9px; font-size: 13px; }
+      header { padding: 8px 10px; gap: 8px; }
+      nav { gap: 3px; }
+      nav button { padding: 5px 9px; font-size: 13px; border-radius: 5px; }
+      main { margin: 14px auto; padding: 0 10px 24px; }
       th, td { padding: 8px 10px; }
       .hide-sm { display: none; }
+
+      .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      #card-today-totals { grid-column: 1 / -1; }
+      .card { padding: 10px 12px; }
+      .card-title { margin-bottom: 4px; font-size: 10px; }
+      .card-main { font-size: 16px; }
+      .card-sub { font-size: 12px; }
+      .card-empty { font-size: 13px; }
+      .quick-row { gap: 6px; margin-top: 8px; }
+      .quick-btn { padding: 7px 10px; font-size: 13px; min-height: 32px; }
+      .totals-row { gap: 12px; }
+      .totals-item .totals-num { font-size: 17px; }
+      .totals-item .totals-label { font-size: 10px; }
+
+      form.entry-form { padding: 12px; gap: 8px; margin-bottom: 14px; }
+      form.entry-form label { font-size: 11px; flex: 1 1 100%; }
+      form.entry-form button[type=submit] { width: 100%; padding: 11px; }
+      .when-display { padding: 8px 10px; font-size: 14px; min-height: 36px; }
+      .when-quick { gap: 3px; }
+      .when-quick button { padding: 5px 7px; font-size: 12px; min-height: 30px; flex: 1 1 auto; }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>Baby Tracker</h1>
     <nav id="nav">
-      <button data-tab="feedings" class="active">Feedings</button>
-      <button data-tab="diapers">Diapers</button>
-      <button data-tab="medications">Medications</button>
-      <button data-tab="observations">Observations</button>
-      <button data-tab="weights">Weights</button>
-      <button data-tab="heights">Heights</button>
+      <button data-tab="today" class="active">Hoy</button>
+      <button data-tab="feedings">Tomas</button>
+      <button data-tab="diapers">Pañales</button>
+      <button data-tab="medications">Medicamentos</button>
+      <button data-tab="observations">Observaciones</button>
+      <button data-tab="weights">Pesos</button>
+      <button data-tab="heights">Tallas</button>
     </nav>
-    <form method="POST" action="/app/logout" style="margin:0">
-      <button class="logout-btn" type="submit">Log out</button>
-    </form>
   </header>
 
   <main>
-    <section id="tab-feedings" class="tab active">
+    <section id="tab-today" class="tab active">
+      <div class="dashboard-grid">
+        <div class="card" id="card-today-totals">
+          <div class="card-title">Hoy</div>
+          <div class="card-empty">Cargando&hellip;</div>
+        </div>
+        <div class="card" id="card-last-feeding">
+          <div class="card-title">Última toma</div>
+          <div class="card-empty">Cargando&hellip;</div>
+        </div>
+        <div class="card" id="card-last-diaper">
+          <div class="card-title">Último pañal</div>
+          <div class="card-empty">Cargando&hellip;</div>
+        </div>
+        <div class="card" id="card-medication">
+          <div class="card-title">Medicamento</div>
+          <div class="card-empty">Cargando&hellip;</div>
+        </div>
+        <div class="card" id="card-last-bath">
+          <div class="card-title">Último baño</div>
+          <div class="card-empty">Cargando&hellip;</div>
+        </div>
+        <div class="card" id="card-last-weight">
+          <div class="card-title">Último peso</div>
+          <div class="card-empty">Cargando&hellip;</div>
+        </div>
+        <div class="card" id="card-last-height">
+          <div class="card-title">Última talla</div>
+          <div class="card-empty">Cargando&hellip;</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-feedings" class="tab">
       <form class="entry-form" data-entity="feedings">
-        <label>Amount (ml)
-          <input type="number" name="amount_ml" step="0.1" min="0.1" required placeholder="120">
+        <label>Cantidad (ml)
+          <input type="number" name="amount_ml" step="0.1" min="0.1" inputmode="decimal" required placeholder="120">
         </label>
-        <label>When (optional)
-          <input type="datetime-local" name="when">
+        <label>Cuándo
+${WHEN_BLOCK}
         </label>
-        <label>Note
-          <input type="text" name="note" maxlength="500" placeholder="formula, breast milk...">
-        </label>
-        <button type="submit">Add feeding</button>
+        <button type="submit">Añadir toma</button>
       </form>
-      <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-feedings"><div class="list-loading">Cargando...</div></div>
     </section>
 
     <section id="tab-diapers" class="tab">
       <form class="entry-form" data-entity="diapers">
-        <label>Kind
+        <label>Tipo
           <select name="kind" required>
-            <option value="pee">Pee</option>
-            <option value="poop">Poop</option>
-            <option value="both">Both</option>
+            <option value="pee">Pipí</option>
+            <option value="poop">Caca</option>
+            <option value="both">Ambos</option>
           </select>
         </label>
-        <label>When (optional)
-          <input type="datetime-local" name="when">
+        <label>Cuándo
+${WHEN_BLOCK}
         </label>
-        <label>Note
-          <input type="text" name="note" maxlength="500" placeholder="color, consistency...">
-        </label>
-        <button type="submit">Add diaper</button>
+        <button type="submit">Añadir pañal</button>
       </form>
-      <div class="list" id="list-diapers"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-diapers"><div class="list-loading">Cargando...</div></div>
     </section>
 
     <section id="tab-medications" class="tab">
       <form class="entry-form" data-entity="medications">
-        <label>Name
-          <input type="text" name="name" maxlength="100" required placeholder="Vitamin D">
+        <label>Nombre
+          <input type="hidden" name="name" value="Vitamina D">
+          <div class="when-display">Vitamina D</div>
         </label>
-        <label>Dose
-          <input type="text" name="dose" maxlength="50" placeholder="400 IU">
+        <label>Cuándo
+${WHEN_BLOCK}
         </label>
-        <label>When (optional)
-          <input type="datetime-local" name="when">
-        </label>
-        <label>Note
-          <input type="text" name="note" maxlength="500">
-        </label>
-        <button type="submit">Add medication</button>
+        <button type="submit">Añadir medicamento</button>
       </form>
-      <div class="list" id="list-medications"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-medications"><div class="list-loading">Cargando...</div></div>
     </section>
 
     <section id="tab-observations" class="tab">
       <form class="entry-form" data-entity="observations">
-        <label>Text
-          <input type="text" name="text" maxlength="2000" required placeholder="first smile, rash on left arm...">
+        <label>Texto
+          <input type="text" name="text" maxlength="2000" required placeholder="primera sonrisa, sarpullido en el brazo...">
         </label>
-        <label>Category
-          <input type="text" name="category" maxlength="50" placeholder="skin, mood, milestone...">
+        <label>Categoría
+          <input type="text" name="category" maxlength="50" placeholder="piel, ánimo, hito...">
         </label>
-        <label>When (optional)
-          <input type="datetime-local" name="when">
+        <label>Cuándo
+${WHEN_BLOCK}
         </label>
-        <button type="submit">Add observation</button>
+        <button type="submit">Añadir observación</button>
       </form>
-      <div class="list" id="list-observations"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-observations"><div class="list-loading">Cargando...</div></div>
     </section>
 
     <section id="tab-weights" class="tab">
       <form class="entry-form" data-entity="weights">
-        <label>Weight (kg)
-          <input type="number" name="weight_kg" step="0.001" min="0.001" required placeholder="4.25">
+        <label>Peso (kg)
+          <input type="number" name="weight_kg" step="0.001" min="0.001" inputmode="decimal" required placeholder="4.25">
         </label>
-        <label>When (optional)
-          <input type="datetime-local" name="when">
+        <label>Cuándo
+${WHEN_BLOCK}
         </label>
-        <label>Note
-          <input type="text" name="note" maxlength="500" placeholder="pediatrician visit...">
-        </label>
-        <button type="submit">Add weight</button>
+        <button type="submit">Añadir peso</button>
       </form>
-      <div class="list" id="list-weights"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-weights"><div class="list-loading">Cargando...</div></div>
     </section>
 
     <section id="tab-heights" class="tab">
       <form class="entry-form" data-entity="heights">
-        <label>Height (cm)
-          <input type="number" name="height_cm" step="0.1" min="0.1" required placeholder="54.5">
+        <label>Talla (cm)
+          <input type="number" name="height_cm" step="0.1" min="0.1" inputmode="decimal" required placeholder="54.5">
         </label>
-        <label>When (optional)
-          <input type="datetime-local" name="when">
+        <label>Cuándo
+${WHEN_BLOCK}
         </label>
-        <label>Note
-          <input type="text" name="note" maxlength="500">
-        </label>
-        <button type="submit">Add height</button>
+        <button type="submit">Añadir talla</button>
       </form>
-      <div class="list" id="list-heights"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-heights"><div class="list-loading">Cargando...</div></div>
     </section>
   </main>
 
@@ -2353,71 +2444,83 @@ const APP_HTML = `<!DOCTYPE html>
   <script>
     var NUMERIC_FIELDS = { amount_ml: true, weight_kg: true, height_cm: true };
 
+    function fmtText(v) { return v == null ? "" : String(v); }
+
+    function fmtKind(v) {
+      if (v === "pee") return "Pipí";
+      if (v === "poop") return "Caca";
+      if (v === "both") return "Ambos";
+      return v == null ? "" : String(v);
+    }
+
     var entities = {
       feedings: {
         endpoint: "/api/feedings",
         columns: [
           { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
-          { key: "amount_ml", label: "Amount", cls: "num-col", fmt: function(v) { return v + " ml"; } },
-          { key: "note", label: "Note", fmt: fmtText }
+          { key: "ts", label: "Cuándo", cls: "ts-col" },
+          { key: "amount_ml", label: "Cantidad", cls: "num-col", fmt: function(v) { return v + " ml"; } }
         ]
       },
       diapers: {
         endpoint: "/api/diapers",
         columns: [
           { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
-          { key: "kind", label: "Kind", fmt: fmtText },
-          { key: "note", label: "Note", fmt: fmtText }
+          { key: "ts", label: "Cuándo", cls: "ts-col" },
+          { key: "kind", label: "Tipo", fmt: fmtKind }
         ]
       },
       medications: {
         endpoint: "/api/medications",
         columns: [
           { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
-          { key: "name", label: "Name", fmt: fmtText },
-          { key: "dose", label: "Dose", fmt: fmtText },
-          { key: "note", label: "Note", fmt: fmtText }
+          { key: "ts", label: "Cuándo", cls: "ts-col" },
+          { key: "name", label: "Nombre", fmt: fmtText }
         ]
       },
       observations: {
         endpoint: "/api/observations",
         columns: [
           { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
-          { key: "category", label: "Category", fmt: fmtText },
-          { key: "text", label: "Text", fmt: fmtText }
+          { key: "ts", label: "Cuándo", cls: "ts-col" },
+          { key: "category", label: "Categoría", fmt: fmtText },
+          { key: "text", label: "Texto", fmt: fmtText }
         ]
       },
       weights: {
         endpoint: "/api/weights",
         columns: [
           { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
-          { key: "weight_kg", label: "Weight", cls: "num-col", fmt: function(v) { return v + " kg"; } },
-          { key: "note", label: "Note", fmt: fmtText }
+          { key: "ts", label: "Cuándo", cls: "ts-col" },
+          { key: "weight_kg", label: "Peso", cls: "num-col", fmt: function(v) { return v + " kg"; } }
         ]
       },
       heights: {
         endpoint: "/api/heights",
         columns: [
           { key: "id", label: "#", cls: "id-col", fmt: function(v) { return "#" + v; } },
-          { key: "ts", label: "When", cls: "ts-col", fmt: fmtTs },
-          { key: "height_cm", label: "Height", cls: "num-col", fmt: function(v) { return v + " cm"; } },
-          { key: "note", label: "Note", fmt: fmtText }
+          { key: "ts", label: "Cuándo", cls: "ts-col" },
+          { key: "height_cm", label: "Talla", cls: "num-col", fmt: function(v) { return v + " cm"; } }
         ]
       }
     };
 
-    function fmtTs(s) {
+    function timeAgo(s) {
+      if (!s) return "";
+      var t = new Date(s).getTime();
+      if (isNaN(t)) return String(s);
+      var diff = Date.now() - t;
+      if (diff < 45 * 1000) return "ahora";
+      if (diff >= 30 * 86400 * 1000) return new Date(s).toLocaleDateString();
+      return "hace " + durationLabel(diff);
+    }
+
+    function absoluteTs(s) {
       if (!s) return "";
       var d = new Date(s);
-      if (isNaN(d.getTime())) return s;
+      if (isNaN(d.getTime())) return String(s);
       return d.toLocaleString();
     }
-    function fmtText(v) { return v == null ? "" : String(v); }
 
     function escapeHtml(s) {
       return String(s)
@@ -2426,6 +2529,18 @@ const APP_HTML = `<!DOCTYPE html>
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+    }
+
+    function startOfDay() {
+      var d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+
+    function toLocalDatetimeString(d) {
+      function pad(n) { return n < 10 ? "0" + n : String(n); }
+      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+        "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
     }
 
     var toastEl = document.getElementById("toast");
@@ -2439,17 +2554,41 @@ const APP_HTML = `<!DOCTYPE html>
       }, 2400);
     }
 
+    function gotoLogin() {
+      location.href = "/app/login?next=" + encodeURIComponent(location.pathname);
+    }
+
+    async function fetchJson(url) {
+      var res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (res.status === 401) { gotoLogin(); throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    async function postJson(url, body) {
+      var res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (res.status === 401) { gotoLogin(); throw new Error("Unauthorized"); }
+      if (!res.ok) {
+        var msg = "";
+        try { msg = await res.text(); } catch (_) {}
+        throw new Error(msg || ("HTTP " + res.status));
+      }
+      return await res.json();
+    }
+
     async function loadList(entity) {
       var cfg = entities[entity];
       var container = document.getElementById("list-" + entity);
       try {
-        var res = await fetch(cfg.endpoint, { headers: { Accept: "application/json" } });
-        if (res.status === 401) { location.href = "/app/login?next=" + encodeURIComponent(location.pathname); return; }
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        var data = await res.json();
+        var data = await fetchJson(cfg.endpoint);
         renderList(entity, data.items || []);
       } catch (err) {
-        container.innerHTML = '<div class="list-empty">Failed to load: ' + escapeHtml(err.message) + "</div>";
+        if (err.message === "Unauthorized") return;
+        container.innerHTML = '<div class="list-empty">Error al cargar: ' + escapeHtml(err.message) + "</div>";
       }
     }
 
@@ -2457,7 +2596,7 @@ const APP_HTML = `<!DOCTYPE html>
       var cfg = entities[entity];
       var container = document.getElementById("list-" + entity);
       if (!items.length) {
-        container.innerHTML = '<div class="list-empty">No entries yet.</div>';
+        container.innerHTML = '<div class="list-empty">Sin registros aún.</div>';
         return;
       }
       var head = "";
@@ -2474,13 +2613,161 @@ const APP_HTML = `<!DOCTYPE html>
         for (var k = 0; k < cfg.columns.length; k++) {
           var col = cfg.columns[k];
           var val = item[col.key];
-          var rendered = col.fmt ? col.fmt(val) : (val == null ? "" : val);
-          row += "<td" + (col.cls ? ' class="' + col.cls + '"' : "") + ">" + escapeHtml(rendered) + "</td>";
+          if (col.cls === "ts-col") {
+            row += '<td class="ts-col"><span title="' + escapeHtml(absoluteTs(val)) + '">' + escapeHtml(timeAgo(val)) + '</span></td>';
+          } else {
+            var rendered = col.fmt ? col.fmt(val) : (val == null ? "" : val);
+            row += "<td" + (col.cls ? ' class="' + col.cls + '"' : "") + ">" + escapeHtml(rendered) + "</td>";
+          }
         }
-        row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">Delete</button></td>';
+        row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">Eliminar</button></td>';
         body += "<tr>" + row + "</tr>";
       }
       container.innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+    }
+
+    // --- Dashboard ---
+    var BATH_CATEGORY = "baño";
+
+    async function loadDashboard() {
+      var sinceToday = "since=" + encodeURIComponent(startOfDay().toISOString());
+      try {
+        var results = await Promise.all([
+          fetchJson("/api/feedings?limit=1"),
+          fetchJson("/api/feedings?" + sinceToday),
+          fetchJson("/api/diapers?limit=1"),
+          fetchJson("/api/diapers?" + sinceToday),
+          fetchJson("/api/medications?limit=1"),
+          fetchJson("/api/observations?category=" + encodeURIComponent(BATH_CATEGORY) + "&limit=1"),
+          fetchJson("/api/weights?limit=1"),
+          fetchJson("/api/heights?limit=1")
+        ]);
+        renderLastFeeding((results[0].items || [])[0]);
+        renderLastDiaper((results[2].items || [])[0]);
+        renderTodayTotals(results[1].items || [], results[3].items || []);
+        renderMedication((results[4].items || [])[0]);
+        renderLastBath((results[5].items || [])[0]);
+        renderLastMeasurement("card-last-weight", "Último peso", (results[6].items || [])[0], "weight_kg", "kg");
+        renderLastMeasurement("card-last-height", "Última talla", (results[7].items || [])[0], "height_cm", "cm");
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast("Error al cargar el panel: " + err.message, true);
+      }
+    }
+
+    function renderMedication(item) {
+      var el = document.getElementById("card-medication");
+      var head = '<div class="card-title">Medicamento</div>';
+      var isToday = item && new Date(item.ts).getTime() >= startOfDay().getTime();
+      var body = isToday
+        ? '<div class="card-main">' + escapeHtml(item.name) + '</div>' +
+          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
+        : '<div class="card-empty">Aún no se ha dado hoy</div>';
+      var actions = '<div class="quick-row">' +
+        '<button class="quick-btn" data-quick="medication" data-name="Vitamina D">+ Vitamina D</button>' +
+      '</div>';
+      el.innerHTML = head + body + actions;
+    }
+
+    function renderLastBath(item) {
+      var el = document.getElementById("card-last-bath");
+      var head = '<div class="card-title">Último baño</div>';
+      var body = item
+        ? '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
+          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
+        : '<div class="card-empty">Sin baños aún</div>';
+      var actions = '<div class="quick-row">' +
+        '<button class="quick-btn" data-quick="bath">+ Baño</button>' +
+      '</div>';
+      el.innerHTML = head + body + actions;
+    }
+
+    var FEEDING_SHORTCUTS = [30, 60, 90];
+
+    function feedingShortcutsHtml() {
+      var html = '<div class="quick-row">';
+      for (var i = 0; i < FEEDING_SHORTCUTS.length; i++) {
+        var amt = FEEDING_SHORTCUTS[i];
+        html += '<button class="quick-btn" data-quick="feeding" data-amount="' + amt + '">+ ' + amt + ' ml</button>';
+      }
+      html += '</div>';
+      return html;
+    }
+
+    function renderLastFeeding(item) {
+      var el = document.getElementById("card-last-feeding");
+      if (!item) {
+        el.innerHTML = '<div class="card-title">Última toma</div>' +
+          '<div class="card-empty">Sin tomas aún</div>' +
+          feedingShortcutsHtml();
+        return;
+      }
+      var amt = item.amount_ml;
+      var sub = escapeHtml(timeAgo(item.ts));
+      el.innerHTML = '<div class="card-title">Última toma</div>' +
+        '<div class="card-main">' + escapeHtml(amt + " ml") + '</div>' +
+        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + sub + '</div>' +
+        feedingShortcutsHtml();
+    }
+
+    function renderLastDiaper(item) {
+      var el = document.getElementById("card-last-diaper");
+      var head = '<div class="card-title">Último pañal</div>';
+      var body = item
+        ? '<div class="card-main">' + escapeHtml(fmtKind(item.kind)) + '</div>' +
+          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
+        : '<div class="card-empty">Sin pañales aún</div>';
+      var actions = '<div class="quick-row">' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="pee">+ Pipí</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="poop">+ Caca</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="both">+ Ambos</button>' +
+      '</div>';
+      el.innerHTML = head + body + actions;
+    }
+
+    function renderTodayTotals(todayFeedings, todayDiapers) {
+      var el = document.getElementById("card-today-totals");
+      var head = '<div class="card-title">Hoy</div>';
+      if (todayFeedings.length === 0 && todayDiapers.length === 0) {
+        el.innerHTML = head + '<div class="card-empty">Nada registrado hoy</div>';
+        return;
+      }
+      var totalMl = 0;
+      for (var i = 0; i < todayFeedings.length; i++) {
+        var n = Number(todayFeedings[i].amount_ml);
+        if (isFinite(n)) totalMl += n;
+      }
+      var pee = 0, poop = 0, both = 0;
+      for (var j = 0; j < todayDiapers.length; j++) {
+        var k = todayDiapers[j].kind;
+        if (k === "pee") pee++;
+        else if (k === "poop") poop++;
+        else if (k === "both") both++;
+      }
+      var mlStr = totalMl % 1 === 0 ? totalMl + " ml" : totalMl.toFixed(1) + " ml";
+      var items = [
+        { num: todayFeedings.length, label: "Tomas" },
+        { num: mlStr, label: "Total" },
+        { num: pee, label: "Pipí" },
+        { num: poop, label: "Caca" }
+      ];
+      if (both > 0) items.push({ num: both, label: "Ambos" });
+      var rows = "";
+      for (var x = 0; x < items.length; x++) {
+        rows += '<div class="totals-item"><div class="totals-num">' + escapeHtml(String(items[x].num)) + '</div><div class="totals-label">' + escapeHtml(items[x].label) + '</div></div>';
+      }
+      el.innerHTML = head + '<div class="totals-row">' + rows + '</div>';
+    }
+
+    function renderLastMeasurement(cardId, title, item, valueKey, unit) {
+      var el = document.getElementById(cardId);
+      var head = '<div class="card-title">' + escapeHtml(title) + '</div>';
+      if (!item) {
+        el.innerHTML = head + '<div class="card-empty">Sin mediciones</div>';
+        return;
+      }
+      el.innerHTML = head +
+        '<div class="card-main">' + escapeHtml(item[valueKey] + " " + unit) + '</div>' +
+        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>';
     }
 
     function showTab(name) {
@@ -2492,7 +2779,11 @@ const APP_HTML = `<!DOCTYPE html>
       for (var j = 0; j < tabs.length; j++) {
         tabs[j].classList.toggle("active", tabs[j].id === "tab-" + name);
       }
-      loadList(name);
+      if (name === "today") {
+        loadDashboard();
+      } else if (entities[name]) {
+        loadList(name);
+      }
     }
 
     document.getElementById("nav").addEventListener("click", function(e) {
@@ -2502,6 +2793,98 @@ const APP_HTML = `<!DOCTYPE html>
       }
     });
 
+    // --- "When" field: cumulative steppers + read-only display label ---
+    function durationLabel(absMs) {
+      var mins = Math.round(absMs / 60000);
+      if (mins < 60) return mins + " min";
+      var hrs = Math.floor(mins / 60);
+      var rem = mins % 60;
+      if (hrs < 24) return rem ? (hrs + "h " + rem + "m") : (hrs + "h");
+      var days = Math.floor(hrs / 24);
+      return days + (days === 1 ? " día" : " días");
+    }
+
+    function formatTimeOfDay(d) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    }
+
+    function formatWhenAbs(d) {
+      var now = new Date();
+      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+        return formatTimeOfDay(d);
+      }
+      var yest = new Date(now);
+      yest.setDate(yest.getDate() - 1);
+      if (d.getFullYear() === yest.getFullYear() && d.getMonth() === yest.getMonth() && d.getDate() === yest.getDate()) {
+        return "ayer " + formatTimeOfDay(d);
+      }
+      return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + formatTimeOfDay(d);
+    }
+
+    function updateWhenDisplay(input) {
+      var label = input.closest("label");
+      var display = label ? label.querySelector("[data-when-display]") : null;
+      if (!display) return;
+      if (!input.value) { display.textContent = "Ahora"; return; }
+      var d = new Date(input.value);
+      if (isNaN(d.getTime())) { display.textContent = ""; return; }
+      var diff = d.getTime() - Date.now();
+      if (Math.abs(diff) < 30 * 1000) { display.textContent = "Ahora"; return; }
+      var abs = formatWhenAbs(d);
+      if (diff < 0) display.textContent = "Hace " + durationLabel(-diff) + " · " + abs;
+      else display.textContent = "Dentro de " + durationLabel(diff) + " · " + abs;
+    }
+
+    function stepWhen(input, deltaMin) {
+      var base = input.value ? new Date(input.value) : new Date();
+      if (isNaN(base.getTime())) base = new Date();
+      var next = new Date(base.getTime() + deltaMin * 60 * 1000);
+      if (Math.abs(next.getTime() - Date.now()) < 30 * 1000) {
+        input.value = "";
+      } else {
+        input.value = toLocalDatetimeString(next);
+      }
+      updateWhenDisplay(input);
+    }
+
+    document.addEventListener("click", function(e) {
+      var t = e.target;
+      if (!t || t.tagName !== "BUTTON") return;
+      if (!t.parentNode || !t.parentNode.classList || !t.parentNode.classList.contains("when-quick")) return;
+      e.preventDefault();
+      var label = t.closest("label");
+      var input = label ? label.querySelector('input[name="when"]') : null;
+      if (!input) return;
+      if (t.hasAttribute("data-now")) {
+        input.value = "";
+        updateWhenDisplay(input);
+        return;
+      }
+      var step = parseInt(t.getAttribute("data-step"), 10);
+      if (isFinite(step)) stepWhen(input, step);
+    });
+
+    var whenInputs = document.querySelectorAll('input[name="when"]');
+    for (var wi = 0; wi < whenInputs.length; wi++) {
+      updateWhenDisplay(whenInputs[wi]);
+    }
+
+    setInterval(function() {
+      for (var i = 0; i < whenInputs.length; i++) updateWhenDisplay(whenInputs[i]);
+    }, 30 * 1000);
+
+    var entryForms = document.querySelectorAll("form.entry-form");
+    for (var ef = 0; ef < entryForms.length; ef++) {
+      entryForms[ef].addEventListener("reset", function(e) {
+        var form = e.currentTarget;
+        setTimeout(function() {
+          var inp = form.querySelector('input[name="when"]');
+          if (inp) updateWhenDisplay(inp);
+        }, 0);
+      });
+    }
+
+    // --- Entry forms ---
     var forms = document.querySelectorAll("form.entry-form");
     for (var f = 0; f < forms.length; f++) {
       forms[f].addEventListener("submit", async function(e) {
@@ -2526,51 +2909,98 @@ const APP_HTML = `<!DOCTYPE html>
         var submitBtn = form.querySelector('button[type=submit]');
         submitBtn.disabled = true;
         try {
-          var res = await fetch(entities[entity].endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify(body)
-          });
-          if (res.status === 401) { location.href = "/app/login?next=" + encodeURIComponent(location.pathname); return; }
-          if (!res.ok) {
-            var errText = await res.text();
-            toast("Error: " + errText, true);
-            return;
-          }
+          await postJson(entities[entity].endpoint, body);
           form.reset();
-          toast("Saved");
+          toast("Guardado");
           loadList(entity);
         } catch (err) {
-          toast("Network error: " + err.message, true);
+          if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
         } finally {
           submitBtn.disabled = false;
         }
       });
     }
 
+    // --- Dashboard quick-add buttons ---
     document.addEventListener("click", async function(e) {
       var t = e.target;
-      if (t && t.classList && t.classList.contains("delete-btn")) {
-        if (!confirm("Delete this entry?")) return;
-        var id = t.getAttribute("data-id");
-        var entity = t.getAttribute("data-entity");
-        t.disabled = true;
-        try {
-          var res = await fetch(entities[entity].endpoint + "/" + encodeURIComponent(id), { method: "DELETE" });
-          if (res.status === 401) { location.href = "/app/login?next=" + encodeURIComponent(location.pathname); return; }
-          if (!res.ok) {
-            toast("Delete failed", true);
-            return;
-          }
-          toast("Deleted");
-          loadList(entity);
-        } catch (err) {
-          toast("Network error: " + err.message, true);
-        }
+      if (!t || t.tagName !== "BUTTON" || t.disabled) return;
+      var which = t.getAttribute("data-quick");
+      if (which === "feeding") {
+        var amt = parseFloat(t.getAttribute("data-amount"));
+        if (!isFinite(amt) || amt <= 0) return;
+        quickPost(t, "/api/feedings", { amount_ml: amt }, "Registrado: " + amt + " ml");
+      } else if (which === "diaper") {
+        var kind = t.getAttribute("data-kind");
+        if (!kind) return;
+        quickPost(t, "/api/diapers", { kind: kind }, "Pañal: " + fmtKind(kind));
+      } else if (which === "medication") {
+        var medName = t.getAttribute("data-name") || "Vitamina D";
+        quickPost(t, "/api/medications", { name: medName }, "Medicamento: " + medName);
+      } else if (which === "bath") {
+        quickPost(t, "/api/observations", { text: "Baño", category: BATH_CATEGORY }, "Baño registrado");
       }
     });
 
-    showTab("feedings");
+    async function quickPost(btn, endpoint, body, doneMsg) {
+      btn.disabled = true;
+      try {
+        await postJson(endpoint, body);
+        toast(doneMsg);
+        loadDashboard();
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // --- Inline delete confirmation (two-tap) ---
+    function disarmAllDeletes(except) {
+      var pending = document.querySelectorAll(".delete-btn.pending");
+      for (var i = 0; i < pending.length; i++) {
+        if (pending[i] === except) continue;
+        pending[i].classList.remove("pending");
+        pending[i].textContent = "Eliminar";
+      }
+    }
+
+    document.addEventListener("click", async function(e) {
+      var t = e.target;
+      if (!t || !t.classList) return;
+      if (!t.classList.contains("delete-btn")) {
+        disarmAllDeletes(null);
+        return;
+      }
+      if (!t.classList.contains("pending")) {
+        disarmAllDeletes(t);
+        t.classList.add("pending");
+        t.textContent = "¿Confirmar?";
+        setTimeout(function() {
+          if (t.classList.contains("pending")) {
+            t.classList.remove("pending");
+            t.textContent = "Eliminar";
+          }
+        }, 4000);
+        return;
+      }
+      var id = t.getAttribute("data-id");
+      var entity = t.getAttribute("data-entity");
+      t.disabled = true;
+      try {
+        var res = await fetch(entities[entity].endpoint + "/" + encodeURIComponent(id), { method: "DELETE" });
+        if (res.status === 401) { gotoLogin(); return; }
+        if (!res.ok) { toast("Error al eliminar", true); return; }
+        toast("Eliminado");
+        loadList(entity);
+      } catch (err) {
+        toast("Error de red: " + err.message, true);
+      } finally {
+        t.disabled = false;
+      }
+    });
+
+    showTab("today");
   </script>
 </body>
 </html>`;
@@ -2642,20 +3072,16 @@ async function readBody<T extends z.ZodTypeAny>(
 const FeedingCreateSchema = z.object({
   amount_ml: z.number().positive(),
   when: z.string().datetime().optional(),
-  note: z.string().max(500).optional(),
 });
 
 const DiaperCreateSchema = z.object({
   kind: z.enum(["pee", "poop", "both"]),
   when: z.string().datetime().optional(),
-  note: z.string().max(500).optional(),
 });
 
 const MedicationCreateSchema = z.object({
   name: z.string().min(1).max(100),
-  dose: z.string().max(50).optional(),
   when: z.string().datetime().optional(),
-  note: z.string().max(500).optional(),
 });
 
 const ObservationCreateSchema = z.object({
@@ -2667,13 +3093,11 @@ const ObservationCreateSchema = z.object({
 const WeightCreateSchema = z.object({
   weight_kg: z.number().positive(),
   when: z.string().datetime().optional(),
-  note: z.string().max(500).optional(),
 });
 
 const HeightCreateSchema = z.object({
   height_cm: z.number().positive(),
   when: z.string().datetime().optional(),
-  note: z.string().max(500).optional(),
 });
 
 async function listRows<T>(
@@ -2713,7 +3137,7 @@ async function apiFeedings(
     params.push(limit);
     const items = await listRows<FeedingRow>(
       env.DB,
-      `SELECT id, ts, amount_ml, note FROM feedings ${where} ORDER BY ts DESC LIMIT ?`,
+      `SELECT id, ts, amount_ml FROM feedings ${where} ORDER BY ts DESC LIMIT ?`,
       params
     );
     return jsonOk({ items });
@@ -2723,8 +3147,8 @@ async function apiFeedings(
     if (!parsed.ok) return jsonError(400, parsed.error);
     const ts = parsed.value.when ?? new Date().toISOString();
     const row = await env.DB
-      .prepare("INSERT INTO feedings (ts, amount_ml, note) VALUES (?, ?, ?) RETURNING id, ts, amount_ml, note")
-      .bind(ts, parsed.value.amount_ml, parsed.value.note ?? null)
+      .prepare("INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id, ts, amount_ml")
+      .bind(ts, parsed.value.amount_ml)
       .first<FeedingRow>();
     return jsonOk(row, 201);
   }
@@ -2759,7 +3183,7 @@ async function apiDiapers(
     params.push(limit);
     const items = await listRows<DiaperRow>(
       env.DB,
-      `SELECT id, ts, kind, note FROM diapers ${where} ORDER BY ts DESC LIMIT ?`,
+      `SELECT id, ts, kind FROM diapers ${where} ORDER BY ts DESC LIMIT ?`,
       params
     );
     return jsonOk({ items });
@@ -2769,8 +3193,8 @@ async function apiDiapers(
     if (!parsed.ok) return jsonError(400, parsed.error);
     const ts = parsed.value.when ?? new Date().toISOString();
     const row = await env.DB
-      .prepare("INSERT INTO diapers (ts, kind, note) VALUES (?, ?, ?) RETURNING id, ts, kind, note")
-      .bind(ts, parsed.value.kind, parsed.value.note ?? null)
+      .prepare("INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id, ts, kind")
+      .bind(ts, parsed.value.kind)
       .first<DiaperRow>();
     return jsonOk(row, 201);
   }
@@ -2805,7 +3229,7 @@ async function apiMedications(
     params.push(limit);
     const items = await listRows<MedicationRow>(
       env.DB,
-      `SELECT id, ts, name, dose, note FROM medications ${where} ORDER BY ts DESC LIMIT ?`,
+      `SELECT id, ts, name FROM medications ${where} ORDER BY ts DESC LIMIT ?`,
       params
     );
     return jsonOk({ items });
@@ -2815,8 +3239,8 @@ async function apiMedications(
     if (!parsed.ok) return jsonError(400, parsed.error);
     const ts = parsed.value.when ?? new Date().toISOString();
     const row = await env.DB
-      .prepare("INSERT INTO medications (ts, name, dose, note) VALUES (?, ?, ?, ?) RETURNING id, ts, name, dose, note")
-      .bind(ts, parsed.value.name, parsed.value.dose ?? null, parsed.value.note ?? null)
+      .prepare("INSERT INTO medications (ts, name) VALUES (?, ?) RETURNING id, ts, name")
+      .bind(ts, parsed.value.name)
       .first<MedicationRow>();
     return jsonOk(row, 201);
   }
@@ -2897,7 +3321,7 @@ async function apiWeights(
     params.push(limit);
     const items = await listRows<WeightRow>(
       env.DB,
-      `SELECT id, ts, weight_kg, note FROM weights ${where} ORDER BY ts DESC LIMIT ?`,
+      `SELECT id, ts, weight_kg FROM weights ${where} ORDER BY ts DESC LIMIT ?`,
       params
     );
     return jsonOk({ items });
@@ -2907,8 +3331,8 @@ async function apiWeights(
     if (!parsed.ok) return jsonError(400, parsed.error);
     const ts = parsed.value.when ?? new Date().toISOString();
     const row = await env.DB
-      .prepare("INSERT INTO weights (ts, weight_kg, note) VALUES (?, ?, ?) RETURNING id, ts, weight_kg, note")
-      .bind(ts, parsed.value.weight_kg, parsed.value.note ?? null)
+      .prepare("INSERT INTO weights (ts, weight_kg) VALUES (?, ?) RETURNING id, ts, weight_kg")
+      .bind(ts, parsed.value.weight_kg)
       .first<WeightRow>();
     return jsonOk(row, 201);
   }
@@ -2941,7 +3365,7 @@ async function apiHeights(
     params.push(limit);
     const items = await listRows<HeightRow>(
       env.DB,
-      `SELECT id, ts, height_cm, note FROM heights ${where} ORDER BY ts DESC LIMIT ?`,
+      `SELECT id, ts, height_cm FROM heights ${where} ORDER BY ts DESC LIMIT ?`,
       params
     );
     return jsonOk({ items });
@@ -2951,8 +3375,8 @@ async function apiHeights(
     if (!parsed.ok) return jsonError(400, parsed.error);
     const ts = parsed.value.when ?? new Date().toISOString();
     const row = await env.DB
-      .prepare("INSERT INTO heights (ts, height_cm, note) VALUES (?, ?, ?) RETURNING id, ts, height_cm, note")
-      .bind(ts, parsed.value.height_cm, parsed.value.note ?? null)
+      .prepare("INSERT INTO heights (ts, height_cm) VALUES (?, ?) RETURNING id, ts, height_cm")
+      .bind(ts, parsed.value.height_cm)
       .first<HeightRow>();
     return jsonOk(row, 201);
   }
