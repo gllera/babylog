@@ -97,12 +97,117 @@ function formatProfile(row: ProfileRow | null): string {
   return lines.join("\n");
 }
 
-type IndicationMetric =
-  | "feeding_total_ml"
-  | "feeding_count"
-  | "diaper_count"
-  | "routine_count"
-  | "note_count";
+function humanizeGap(deltaMs: number): string {
+  if (deltaMs < 0) return "in the future";
+  const totalMin = Math.round(deltaMs / 60000);
+  if (totalMin < 1) return "<1 min";
+  if (totalMin < 60) return `${totalMin} min`;
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hours < 24) {
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const h = hours % 24;
+  return h > 0 ? `${days}d ${h}h` : `${days}d`;
+}
+
+function formatGap(
+  currentTs: string,
+  prevTs: string | null,
+  suffix = ""
+): {
+  gapStr: string | null;
+  gapMin: number | null;
+  gapNote: string;
+} {
+  if (!prevTs) return { gapStr: null, gapMin: null, gapNote: "" };
+  const ms = new Date(currentTs).getTime() - new Date(prevTs).getTime();
+  const gapStr = humanizeGap(ms);
+  const tail = suffix ? ` ${suffix}` : "";
+  return {
+    gapStr,
+    gapMin: Math.round(ms / 60000),
+    gapNote: `  (${gapStr} since previous${tail})`,
+  };
+}
+
+const INDICATION_METRICS = [
+  "feeding_total_ml",
+  "feeding_count",
+  "feeding_gap_max_min",
+  "diaper_count",
+  "routine_count",
+  "note_count",
+] as const;
+type IndicationMetric = (typeof INDICATION_METRICS)[number];
+const indicationMetricSchema = z.enum(INDICATION_METRICS);
+const comparisonSchema = z.enum([">=", "<="] as const);
+
+const DAY_MS = 86_400_000;
+const WINDOW_OFFSET_MS = {
+  "24h": DAY_MS,
+  "7d": 7 * DAY_MS,
+  "30d": 30 * DAY_MS,
+} as const;
+
+async function insertAndLookupPrev<P>(
+  db: D1Database,
+  selectStmt: D1PreparedStatement,
+  insertStmt: D1PreparedStatement
+): Promise<{ id: number; prev: P | undefined }> {
+  const [prevRes, insRes] = await db.batch([selectStmt, insertStmt]);
+  return {
+    prev: (prevRes.results as P[])[0],
+    id: (insRes.results as Array<{ id: number }>)[0]?.id ?? 0,
+  };
+}
+
+function buildWindowClauses(since?: string, until?: string) {
+  const clauses: string[] = [];
+  const params: (string | number)[] = [];
+  if (since) {
+    clauses.push("ts >= ?");
+    params.push(since);
+  }
+  if (until) {
+    clauses.push("ts < ?");
+    params.push(until);
+  }
+  return { clauses, params };
+}
+
+const limitField = z
+  .number()
+  .int()
+  .positive()
+  .max(500)
+  .optional()
+  .describe("Maximum number of rows to return (default 50, max 500)");
+
+async function deleteById(
+  db: D1Database,
+  table: string,
+  label: string,
+  id: number
+) {
+  const res = await db
+    .prepare(`DELETE FROM ${table} WHERE id = ?`)
+    .bind(id)
+    .run();
+  const changes = res.meta.changes ?? 0;
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          changes > 0
+            ? `Deleted ${label} #${id}.`
+            : `No ${label} with id #${id} found.`,
+      },
+    ],
+  };
+}
 
 type IndicationRow = {
   id: number;
@@ -115,77 +220,81 @@ type IndicationRow = {
   active: number;
 };
 
-async function computeIndicationActual(
+function buildIndicationStatement(
   db: D1Database,
   metric: IndicationMetric,
   filter: string | null,
   start: string,
   end: string
-): Promise<number> {
+): D1PreparedStatement {
   switch (metric) {
-    case "feeding_total_ml": {
-      const r = await db
+    case "feeding_total_ml":
+      return db
         .prepare(
           "SELECT COALESCE(SUM(amount_ml), 0) AS v FROM feedings WHERE ts >= ? AND ts < ?"
         )
-        .bind(start, end)
-        .first<{ v: number }>();
-      return r?.v ?? 0;
-    }
-    case "feeding_count": {
-      const r = await db
+        .bind(start, end);
+    case "feeding_count":
+      return db
+        .prepare("SELECT COUNT(*) AS v FROM feedings WHERE ts >= ? AND ts < ?")
+        .bind(start, end);
+    case "feeding_gap_max_min":
+      return db
         .prepare(
-          "SELECT COUNT(*) AS v FROM feedings WHERE ts >= ? AND ts < ?"
+          "SELECT ts FROM feedings WHERE ts >= ? AND ts < ? ORDER BY ts ASC"
         )
-        .bind(start, end)
-        .first<{ v: number }>();
-      return r?.v ?? 0;
-    }
+        .bind(start, end);
     case "diaper_count": {
-      let sql =
-        "SELECT COUNT(*) AS v FROM diapers WHERE ts >= ? AND ts < ?";
-      const params: (string | number)[] = [start, end];
+      let sql = "SELECT COUNT(*) AS v FROM diapers WHERE ts >= ? AND ts < ?";
       if (filter === "pee") sql += " AND kind IN ('pee','both')";
       else if (filter === "poop") sql += " AND kind IN ('poop','both')";
       else if (filter === "both") sql += " AND kind = 'both'";
-      const r = await db
-        .prepare(sql)
-        .bind(...params)
-        .first<{ v: number }>();
-      return r?.v ?? 0;
+      return db.prepare(sql).bind(start, end);
     }
-    case "routine_count": {
+    case "routine_count":
       if (filter) {
-        const r = await db
+        return db
           .prepare(
             "SELECT COUNT(*) AS v FROM routines WHERE ts >= ? AND ts < ? AND LOWER(name) LIKE ?"
           )
-          .bind(start, end, `%${filter.toLowerCase()}%`)
-          .first<{ v: number }>();
-        return r?.v ?? 0;
+          .bind(start, end, `%${filter.toLowerCase()}%`);
       }
-      const r = await db
-        .prepare(
-          "SELECT COUNT(*) AS v FROM routines WHERE ts >= ? AND ts < ?"
-        )
-        .bind(start, end)
-        .first<{ v: number }>();
-      return r?.v ?? 0;
-    }
-    case "note_count": {
-      const r = await db
-        .prepare(
-          "SELECT COUNT(*) AS v FROM notes WHERE ts >= ? AND ts < ?"
-        )
-        .bind(start, end)
-        .first<{ v: number }>();
-      return r?.v ?? 0;
-    }
+      return db
+        .prepare("SELECT COUNT(*) AS v FROM routines WHERE ts >= ? AND ts < ?")
+        .bind(start, end);
+    case "note_count":
+      return db
+        .prepare("SELECT COUNT(*) AS v FROM notes WHERE ts >= ? AND ts < ?")
+        .bind(start, end);
   }
 }
 
+function extractIndicationActual(
+  metric: IndicationMetric,
+  result: D1Result<unknown>
+): number {
+  if (metric === "feeding_gap_max_min") {
+    const rows = result.results as Array<{ ts: string }>;
+    if (rows.length < 2) return 0;
+    let maxGap = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const gap = Math.round(
+        (new Date(rows[i].ts).getTime() -
+          new Date(rows[i - 1].ts).getTime()) /
+          60000
+      );
+      if (gap > maxGap) maxGap = gap;
+    }
+    return maxGap;
+  }
+  const rows = result.results as Array<{ v: number }>;
+  return rows[0]?.v ?? 0;
+}
+
 function indicationUnit(metric: IndicationMetric): string {
-  return metric === "feeding_total_ml" ? "ml" : "";
+  if (metric === "feeding_total_ml") return "ml";
+  if (metric === "feeding_gap_max_min") return "min";
+  return "";
 }
 
 const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
@@ -199,6 +308,43 @@ const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fi
 </svg>`;
 
 const SERVER_ORIGIN = "https://baby-feeding-mcp.llera.workers.dev";
+
+const WEB_MANIFEST = JSON.stringify({
+  name: "Baby diary",
+  short_name: "Baby diary",
+  description:
+    "Log feedings, diapers, routines, weights, heights, and notes.",
+  start_url: "/app",
+  scope: "/",
+  display: "standalone",
+  orientation: "portrait",
+  background_color: "#fafafa",
+  theme_color: "#0070f3",
+  lang: "es",
+  icons: [
+    {
+      src: "/icon.svg",
+      sizes: "any",
+      type: "image/svg+xml",
+      purpose: "any",
+    },
+    {
+      src: "/icon.svg",
+      sizes: "any",
+      type: "image/svg+xml",
+      purpose: "maskable",
+    },
+  ],
+});
+
+// Minimal pass-through service worker. Its presence (plus a fetch listener)
+// is what some browsers — Opera Mobile included — still check for to enable
+// "Install app" / standalone mode. We intentionally do not cache anything:
+// auth cookies, MCP tokens and live diary data don't mix with stale caches.
+const SERVICE_WORKER_JS = `self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("fetch", () => {});
+`;
 
 export class BabyFeedingMCP extends McpAgent<Env> {
   server = new McpServer({
@@ -301,13 +447,34 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       {
         description:
           "Get the baby's profile: name, sex, date of birth, and computed age.",
+        outputSchema: {
+          name: z.string().nullable(),
+          sex: z.enum(["male", "female", "other"]).nullable(),
+          date_of_birth: z.string().nullable(),
+          age: z.string().nullable(),
+          age_days: z.number().int().nullable(),
+        },
       },
       async () => {
         const row = await this.env.DB.prepare(
           "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
         ).first<ProfileRow>();
+        let age: string | null = null;
+        let ageDays: number | null = null;
+        if (row?.date_of_birth) {
+          age = computeAge(row.date_of_birth);
+          const birth = new Date(`${row.date_of_birth}T00:00:00Z`);
+          ageDays = Math.floor((Date.now() - birth.getTime()) / 86400000);
+        }
         return {
           content: [{ type: "text", text: formatProfile(row) }],
+          structuredContent: {
+            name: row?.name ?? null,
+            sex: row?.sex ?? null,
+            date_of_birth: row?.date_of_birth ?? null,
+            age,
+            age_days: ageDays,
+          },
         };
       }
     );
@@ -316,7 +483,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "record_feeding",
       {
         description:
-          "Record a milk feeding for the baby. If the user does not specify a time, OMIT the `when` parameter — the server records the feeding at the current time. Only pass `when` if the user gave an explicit past/future time.",
+          "Record a milk feeding for the baby. If the user does not specify a time, OMIT the `when` parameter — the server records the feeding at the current time. Only pass `when` if the user gave an explicit past/future time. The response includes the gap since the previous feeding so the agent can mention it.",
         inputSchema: {
           amount_ml: z
             .number()
@@ -330,23 +497,43 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z). OMIT this when the feeding is happening now — the server fills in the current time. Only pass this if the user explicitly gave a different time."
             ),
         },
+        outputSchema: {
+          id: z.number().int(),
+          ts: z.string(),
+          amount_ml: z.number(),
+          gap_since_previous: z.string().nullable(),
+          gap_since_previous_min: z.number().int().nullable(),
+          previous_ts: z.string().nullable(),
+        },
       },
       async ({ amount_ml, when }) => {
         const ts = when ?? new Date().toISOString();
-        const inserted = await this.env.DB.prepare(
-          "INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id"
-        )
-          .bind(ts, amount_ml)
-          .first<{ id: number }>();
+        const { id, prev } = await insertAndLookupPrev<{ ts: string }>(
+          this.env.DB,
+          this.env.DB.prepare(
+            "SELECT ts FROM feedings WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+          ).bind(ts),
+          this.env.DB.prepare(
+            "INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id"
+          ).bind(ts, amount_ml)
+        );
+        const { gapStr, gapMin, gapNote } = formatGap(ts, prev?.ts ?? null);
 
-        const id = inserted?.id;
         return {
           content: [
             {
               type: "text",
-              text: `Recorded feeding #${id}: ${amount_ml} ml at ${ts}.`,
+              text: `Recorded feeding #${id}: ${amount_ml} ml at ${ts}${gapNote}.`,
             },
           ],
+          structuredContent: {
+            id,
+            ts,
+            amount_ml,
+            gap_since_previous: gapStr,
+            gap_since_previous_min: gapMin,
+            previous_ts: prev?.ts ?? null,
+          },
         };
       }
     );
@@ -367,26 +554,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .datetime()
             .optional()
             .describe("Include feedings strictly before this ISO timestamp"),
-          limit: z
-            .number()
-            .int()
-            .positive()
-            .max(500)
-            .optional()
-            .describe("Maximum number of rows to return (default 50, max 500)"),
+          limit: limitField,
+        },
+        outputSchema: {
+          count: z.number().int(),
+          feedings: z.array(
+            z.object({
+              id: z.number().int(),
+              ts: z.string(),
+              amount_ml: z.number(),
+            })
+          ),
         },
       },
       async ({ since, until, limit }) => {
-        const clauses: string[] = [];
-        const params: (string | number)[] = [];
-        if (since) {
-          clauses.push("ts >= ?");
-          params.push(since);
-        }
-        if (until) {
-          clauses.push("ts < ?");
-          params.push(until);
-        }
+        const { clauses, params } = buildWindowClauses(since, until);
         const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
         params.push(limit ?? 50);
 
@@ -401,6 +583,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             content: [
               { type: "text", text: "No feedings recorded in that range." },
             ],
+            structuredContent: { count: 0, feedings: [] },
           };
         }
 
@@ -409,6 +592,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: { count: results.length, feedings: results },
         };
       }
     );
@@ -425,32 +609,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe("Feeding id to delete (from list_feedings)"),
         },
       },
-      async ({ id }) => {
-        const res = await this.env.DB.prepare(
-          "DELETE FROM feedings WHERE id = ?"
-        )
-          .bind(id)
-          .run();
-        const changes = res.meta.changes ?? 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                changes > 0
-                  ? `Deleted feeding #${id}.`
-                  : `No feeding with id #${id} found.`,
-            },
-          ],
-        };
-      }
+      async ({ id }) => deleteById(this.env.DB, "feedings", "feeding", id)
     );
 
     this.server.registerTool(
       "record_diaper",
       {
         description:
-          "Record a diaper change — pee, poop, or both. If the user does not specify a time, OMIT the `when` parameter — the server records the change at the current time. Only pass `when` if the user gave an explicit past/future time.",
+          "Record a diaper change — pee, poop, or both. If the user does not specify a time, OMIT the `when` parameter — the server records the change at the current time. Only pass `when` if the user gave an explicit past/future time. The response includes the gap since the previous diaper of any kind.",
         inputSchema: {
           kind: z
             .enum(["pee", "poop", "both"])
@@ -465,22 +631,48 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z). OMIT this when the change is happening now — the server fills in the current time. Only pass this if the user explicitly gave a different time."
             ),
         },
+        outputSchema: {
+          id: z.number().int(),
+          ts: z.string(),
+          kind: z.enum(["pee", "poop", "both"]),
+          gap_since_previous: z.string().nullable(),
+          gap_since_previous_min: z.number().int().nullable(),
+          previous_ts: z.string().nullable(),
+          previous_kind: z.enum(["pee", "poop", "both"]).nullable(),
+        },
       },
       async ({ kind, when }) => {
         const ts = when ?? new Date().toISOString();
-        const inserted = await this.env.DB.prepare(
-          "INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id"
-        )
-          .bind(ts, kind)
-          .first<{ id: number }>();
+        const { id, prev } = await insertAndLookupPrev<{
+          ts: string;
+          kind: DiaperKind;
+        }>(
+          this.env.DB,
+          this.env.DB.prepare(
+            "SELECT ts, kind FROM diapers WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+          ).bind(ts),
+          this.env.DB.prepare(
+            "INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id"
+          ).bind(ts, kind)
+        );
+        const { gapStr, gapMin, gapNote } = formatGap(ts, prev?.ts ?? null);
 
         return {
           content: [
             {
               type: "text",
-              text: `Recorded diaper #${inserted?.id}: ${kind} at ${ts}.`,
+              text: `Recorded diaper #${id}: ${kind} at ${ts}${gapNote}.`,
             },
           ],
+          structuredContent: {
+            id,
+            ts,
+            kind,
+            gap_since_previous: gapStr,
+            gap_since_previous_min: gapMin,
+            previous_ts: prev?.ts ?? null,
+            previous_kind: prev?.kind ?? null,
+          },
         };
       }
     );
@@ -505,26 +697,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .enum(["pee", "poop", "both"])
             .optional()
             .describe("Filter to only pee, only poop, or only 'both' events"),
-          limit: z
-            .number()
-            .int()
-            .positive()
-            .max(500)
-            .optional()
-            .describe("Maximum number of rows to return (default 50, max 500)"),
+          limit: limitField,
+        },
+        outputSchema: {
+          count: z.number().int(),
+          diapers: z.array(
+            z.object({
+              id: z.number().int(),
+              ts: z.string(),
+              kind: z.enum(["pee", "poop", "both"]),
+            })
+          ),
         },
       },
       async ({ since, until, kind, limit }) => {
-        const clauses: string[] = [];
-        const params: (string | number)[] = [];
-        if (since) {
-          clauses.push("ts >= ?");
-          params.push(since);
-        }
-        if (until) {
-          clauses.push("ts < ?");
-          params.push(until);
-        }
+        const { clauses, params } = buildWindowClauses(since, until);
         if (kind) {
           clauses.push("kind = ?");
           params.push(kind);
@@ -543,6 +730,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             content: [
               { type: "text", text: "No diaper events in that range." },
             ],
+            structuredContent: { count: 0, diapers: [] },
           };
         }
 
@@ -551,6 +739,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: { count: results.length, diapers: results },
         };
       }
     );
@@ -567,32 +756,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe("Diaper id to delete (from list_diapers)"),
         },
       },
-      async ({ id }) => {
-        const res = await this.env.DB.prepare(
-          "DELETE FROM diapers WHERE id = ?"
-        )
-          .bind(id)
-          .run();
-        const changes = res.meta.changes ?? 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                changes > 0
-                  ? `Deleted diaper #${id}.`
-                  : `No diaper with id #${id} found.`,
-            },
-          ],
-        };
-      }
+      async ({ id }) => deleteById(this.env.DB, "diapers", "diaper", id)
     );
 
     this.server.registerTool(
       "record_routine",
       {
         description:
-          "Record a routine care event, medication, or supplement for the baby. This table is used for medication doses (e.g. 'Vitamin D', 'Acetaminophen') as well as routine events the user wants to track over time (e.g. 'Bath', 'Tummy' for tummy time). If the user does not specify a time, OMIT the `when` parameter — the server records the event at the current time. Only pass `when` if the user gave an explicit past/future time.",
+          "Record a routine care event, medication, or supplement for the baby. This table is used for medication doses (e.g. 'Vitamin D', 'Acetaminophen') as well as routine events the user wants to track over time (e.g. 'Bath', 'Tummy' for tummy time). If the user does not specify a time, OMIT the `when` parameter — the server records the event at the current time. Only pass `when` if the user gave an explicit past/future time. The response includes the gap since the previous entry with the same `name` (case-insensitive) so the agent can space doses.",
         inputSchema: {
           name: z
             .string()
@@ -607,22 +778,43 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z). OMIT this when the event is happening now — the server fills in the current time."
             ),
         },
+        outputSchema: {
+          id: z.number().int(),
+          ts: z.string(),
+          name: z.string(),
+          gap_since_previous: z.string().nullable(),
+          gap_since_previous_min: z.number().int().nullable(),
+          previous_ts: z.string().nullable(),
+        },
       },
       async ({ name, when }) => {
         const ts = when ?? new Date().toISOString();
-        const inserted = await this.env.DB.prepare(
-          "INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id"
-        )
-          .bind(ts, name)
-          .first<{ id: number }>();
+        const { id, prev } = await insertAndLookupPrev<{ ts: string }>(
+          this.env.DB,
+          this.env.DB.prepare(
+            "SELECT ts FROM routines WHERE ts < ? AND LOWER(name) = LOWER(?) ORDER BY ts DESC LIMIT 1"
+          ).bind(ts, name),
+          this.env.DB.prepare(
+            "INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id"
+          ).bind(ts, name)
+        );
+        const { gapStr, gapMin, gapNote } = formatGap(ts, prev?.ts ?? null, name);
 
         return {
           content: [
             {
               type: "text",
-              text: `Recorded routine #${inserted?.id}: ${name} at ${ts}.`,
+              text: `Recorded routine #${id}: ${name} at ${ts}${gapNote}.`,
             },
           ],
+          structuredContent: {
+            id,
+            ts,
+            name,
+            gap_since_previous: gapStr,
+            gap_since_previous_min: gapMin,
+            previous_ts: prev?.ts ?? null,
+          },
         };
       }
     );
@@ -651,26 +843,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Filter by entry name (case-insensitive substring match, e.g. 'vitamin')"
             ),
-          limit: z
-            .number()
-            .int()
-            .positive()
-            .max(500)
-            .optional()
-            .describe("Maximum number of rows to return (default 50, max 500)"),
+          limit: limitField,
+        },
+        outputSchema: {
+          count: z.number().int(),
+          routines: z.array(
+            z.object({
+              id: z.number().int(),
+              ts: z.string(),
+              name: z.string(),
+            })
+          ),
         },
       },
       async ({ since, until, name, limit }) => {
-        const clauses: string[] = [];
-        const params: (string | number)[] = [];
-        if (since) {
-          clauses.push("ts >= ?");
-          params.push(since);
-        }
-        if (until) {
-          clauses.push("ts < ?");
-          params.push(until);
-        }
+        const { clauses, params } = buildWindowClauses(since, until);
         if (name) {
           clauses.push("LOWER(name) LIKE ?");
           params.push(`%${name.toLowerCase()}%`);
@@ -689,6 +876,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             content: [
               { type: "text", text: "No routines recorded in that range." },
             ],
+            structuredContent: { count: 0, routines: [] },
           };
         }
 
@@ -697,6 +885,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: { count: results.length, routines: results },
         };
       }
     );
@@ -713,25 +902,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe("Routine id to delete (from list_routines)"),
         },
       },
-      async ({ id }) => {
-        const res = await this.env.DB.prepare(
-          "DELETE FROM routines WHERE id = ?"
-        )
-          .bind(id)
-          .run();
-        const changes = res.meta.changes ?? 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                changes > 0
-                  ? `Deleted routine #${id}.`
-                  : `No routine with id #${id} found.`,
-            },
-          ],
-        };
-      }
+      async ({ id }) => deleteById(this.env.DB, "routines", "routine", id)
     );
 
     this.server.registerTool(
@@ -755,6 +926,11 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               "Optional ISO 8601 timestamp. OMIT this when the note is happening now — the server fills in the current time."
             ),
         },
+        outputSchema: {
+          id: z.number().int(),
+          ts: z.string(),
+          text: z.string(),
+        },
       },
       async ({ text, when }) => {
         const ts = when ?? new Date().toISOString();
@@ -764,13 +940,15 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           .bind(ts, text)
           .first<{ id: number }>();
 
+        const id = inserted?.id ?? 0;
         return {
           content: [
             {
               type: "text",
-              text: `Recorded note #${inserted?.id} at ${ts}: ${text}`,
+              text: `Recorded note #${id} at ${ts}: ${text}`,
             },
           ],
+          structuredContent: { id, ts, text },
         };
       }
     );
@@ -799,26 +977,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Substring to search for inside the note text (case-insensitive)"
             ),
-          limit: z
-            .number()
-            .int()
-            .positive()
-            .max(500)
-            .optional()
-            .describe("Maximum number of rows to return (default 50, max 500)"),
+          limit: limitField,
+        },
+        outputSchema: {
+          count: z.number().int(),
+          notes: z.array(
+            z.object({
+              id: z.number().int(),
+              ts: z.string(),
+              text: z.string(),
+            })
+          ),
         },
       },
       async ({ since, until, search, limit }) => {
-        const clauses: string[] = [];
-        const params: (string | number)[] = [];
-        if (since) {
-          clauses.push("ts >= ?");
-          params.push(since);
-        }
-        if (until) {
-          clauses.push("ts < ?");
-          params.push(until);
-        }
+        const { clauses, params } = buildWindowClauses(since, until);
         if (search) {
           clauses.push("LOWER(text) LIKE ?");
           params.push(`%${search.toLowerCase()}%`);
@@ -837,6 +1010,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             content: [
               { type: "text", text: "No notes recorded in that range." },
             ],
+            structuredContent: { count: 0, notes: [] },
           };
         }
 
@@ -845,6 +1019,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: { count: results.length, notes: results },
         };
       }
     );
@@ -861,25 +1036,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe("Note id to delete (from list_notes)"),
         },
       },
-      async ({ id }) => {
-        const res = await this.env.DB.prepare(
-          "DELETE FROM notes WHERE id = ?"
-        )
-          .bind(id)
-          .run();
-        const changes = res.meta.changes ?? 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                changes > 0
-                  ? `Deleted note #${id}.`
-                  : `No note with id #${id} found.`,
-            },
-          ],
-        };
-      }
+      async ({ id }) => deleteById(this.env.DB, "notes", "note", id)
     );
 
     this.server.registerTool(
@@ -903,25 +1060,34 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               "Optional ISO 8601 timestamp. OMIT this when the measurement is happening now."
             ),
         },
+        outputSchema: {
+          id: z.number().int(),
+          ts: z.string(),
+          weight_g: z.number().int(),
+          delta_g: z.number().int().nullable(),
+          previous_ts: z.string().nullable(),
+          previous_weight_g: z.number().int().nullable(),
+        },
       },
       async ({ weight_g, when }) => {
         const ts = when ?? new Date().toISOString();
-        const inserted = await this.env.DB.prepare(
-          "INSERT INTO weights (ts, weight_g) VALUES (?, ?) RETURNING id"
-        )
-          .bind(ts, weight_g)
-          .first<{ id: number }>();
-
-        // Compute delta vs previous measurement.
-        const prev = await this.env.DB.prepare(
-          "SELECT ts, weight_g FROM weights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-        )
-          .bind(ts)
-          .first<{ ts: string; weight_g: number }>();
+        const { id, prev } = await insertAndLookupPrev<{
+          ts: string;
+          weight_g: number;
+        }>(
+          this.env.DB,
+          this.env.DB.prepare(
+            "SELECT ts, weight_g FROM weights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+          ).bind(ts),
+          this.env.DB.prepare(
+            "INSERT INTO weights (ts, weight_g) VALUES (?, ?) RETURNING id"
+          ).bind(ts, weight_g)
+        );
 
         let delta = "";
+        let diff: number | null = null;
         if (prev) {
-          const diff = weight_g - prev.weight_g;
+          diff = weight_g - prev.weight_g;
           const sign = diff >= 0 ? "+" : "";
           delta = `  (${sign}${diff} g since ${prev.ts})`;
         }
@@ -930,9 +1096,17 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded weight #${inserted?.id}: ${weight_g} g at ${ts}${delta}.`,
+              text: `Recorded weight #${id}: ${weight_g} g at ${ts}${delta}.`,
             },
           ],
+          structuredContent: {
+            id,
+            ts,
+            weight_g,
+            delta_g: diff,
+            previous_ts: prev?.ts ?? null,
+            previous_weight_g: prev?.weight_g ?? null,
+          },
         };
       }
     );
@@ -953,26 +1127,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .datetime()
             .optional()
             .describe("Include measurements strictly before this ISO timestamp"),
-          limit: z
-            .number()
-            .int()
-            .positive()
-            .max(500)
-            .optional()
-            .describe("Maximum number of rows to return (default 50, max 500)"),
+          limit: limitField,
+        },
+        outputSchema: {
+          count: z.number().int(),
+          weights: z.array(
+            z.object({
+              id: z.number().int(),
+              ts: z.string(),
+              weight_g: z.number().int(),
+            })
+          ),
         },
       },
       async ({ since, until, limit }) => {
-        const clauses: string[] = [];
-        const params: (string | number)[] = [];
-        if (since) {
-          clauses.push("ts >= ?");
-          params.push(since);
-        }
-        if (until) {
-          clauses.push("ts < ?");
-          params.push(until);
-        }
+        const { clauses, params } = buildWindowClauses(since, until);
         const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
         params.push(limit ?? 50);
 
@@ -987,6 +1156,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             content: [
               { type: "text", text: "No weight measurements in that range." },
             ],
+            structuredContent: { count: 0, weights: [] },
           };
         }
 
@@ -996,6 +1166,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: { count: results.length, weights: results },
         };
       }
     );
@@ -1012,25 +1183,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe("Weight id to delete (from list_weights)"),
         },
       },
-      async ({ id }) => {
-        const res = await this.env.DB.prepare(
-          "DELETE FROM weights WHERE id = ?"
-        )
-          .bind(id)
-          .run();
-        const changes = res.meta.changes ?? 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                changes > 0
-                  ? `Deleted weight #${id}.`
-                  : `No weight measurement with id #${id} found.`,
-            },
-          ],
-        };
-      }
+      async ({ id }) => deleteById(this.env.DB, "weights", "weight", id)
     );
 
     this.server.registerTool(
@@ -1054,24 +1207,34 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               "Optional ISO 8601 timestamp. OMIT this when the measurement is happening now."
             ),
         },
+        outputSchema: {
+          id: z.number().int(),
+          ts: z.string(),
+          height_cm: z.number().int(),
+          delta_cm: z.number().int().nullable(),
+          previous_ts: z.string().nullable(),
+          previous_height_cm: z.number().int().nullable(),
+        },
       },
       async ({ height_cm, when }) => {
         const ts = when ?? new Date().toISOString();
-        const inserted = await this.env.DB.prepare(
-          "INSERT INTO heights (ts, height_cm) VALUES (?, ?) RETURNING id"
-        )
-          .bind(ts, height_cm)
-          .first<{ id: number }>();
-
-        const prev = await this.env.DB.prepare(
-          "SELECT ts, height_cm FROM heights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-        )
-          .bind(ts)
-          .first<{ ts: string; height_cm: number }>();
+        const { id, prev } = await insertAndLookupPrev<{
+          ts: string;
+          height_cm: number;
+        }>(
+          this.env.DB,
+          this.env.DB.prepare(
+            "SELECT ts, height_cm FROM heights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+          ).bind(ts),
+          this.env.DB.prepare(
+            "INSERT INTO heights (ts, height_cm) VALUES (?, ?) RETURNING id"
+          ).bind(ts, height_cm)
+        );
 
         let delta = "";
+        let diff: number | null = null;
         if (prev) {
-          const diff = height_cm - prev.height_cm;
+          diff = height_cm - prev.height_cm;
           const sign = diff >= 0 ? "+" : "";
           delta = `  (${sign}${diff} cm since ${prev.ts})`;
         }
@@ -1080,9 +1243,17 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded height #${inserted?.id}: ${height_cm} cm at ${ts}${delta}.`,
+              text: `Recorded height #${id}: ${height_cm} cm at ${ts}${delta}.`,
             },
           ],
+          structuredContent: {
+            id,
+            ts,
+            height_cm,
+            delta_cm: diff,
+            previous_ts: prev?.ts ?? null,
+            previous_height_cm: prev?.height_cm ?? null,
+          },
         };
       }
     );
@@ -1103,26 +1274,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .datetime()
             .optional()
             .describe("Include measurements strictly before this ISO timestamp"),
-          limit: z
-            .number()
-            .int()
-            .positive()
-            .max(500)
-            .optional()
-            .describe("Maximum number of rows to return (default 50, max 500)"),
+          limit: limitField,
+        },
+        outputSchema: {
+          count: z.number().int(),
+          heights: z.array(
+            z.object({
+              id: z.number().int(),
+              ts: z.string(),
+              height_cm: z.number().int(),
+            })
+          ),
         },
       },
       async ({ since, until, limit }) => {
-        const clauses: string[] = [];
-        const params: (string | number)[] = [];
-        if (since) {
-          clauses.push("ts >= ?");
-          params.push(since);
-        }
-        if (until) {
-          clauses.push("ts < ?");
-          params.push(until);
-        }
+        const { clauses, params } = buildWindowClauses(since, until);
         const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
         params.push(limit ?? 50);
 
@@ -1137,6 +1303,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             content: [
               { type: "text", text: "No height measurements in that range." },
             ],
+            structuredContent: { count: 0, heights: [] },
           };
         }
 
@@ -1146,6 +1313,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         );
         return {
           content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: { count: results.length, heights: results },
         };
       }
     );
@@ -1162,57 +1330,30 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe("Height id to delete (from list_heights)"),
         },
       },
-      async ({ id }) => {
-        const res = await this.env.DB.prepare(
-          "DELETE FROM heights WHERE id = ?"
-        )
-          .bind(id)
-          .run();
-        const changes = res.meta.changes ?? 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                changes > 0
-                  ? `Deleted height #${id}.`
-                  : `No height measurement with id #${id} found.`,
-            },
-          ],
-        };
-      }
+      async ({ id }) => deleteById(this.env.DB, "heights", "height", id)
     );
 
     this.server.registerTool(
       "add_indication",
       {
         description:
-          "Define a target the baby's care should follow over a window of N days. Examples:\n  '1 poop a day' → metric='diaper_count', filter='poop', target=1\n  '500 ml of milk a day' → metric='feeding_total_ml', target=500\n  'Vitamin D once a day' → metric='routine_count', filter='vitamin d', target=1\n  'bath every 2 days' → metric='routine_count', filter='bath', target=1, period_days=2.",
+          "Define a target the baby's care should follow over a window of N days. Examples:\n  '1 poop a day' → metric='diaper_count', filter='poop', target=1\n  '500 ml of milk a day' → metric='feeding_total_ml', target=500\n  'Vitamin D once a day' → metric='routine_count', filter='vitamin d', target=1\n  'bath every 2 days' → metric='routine_count', filter='bath', target=1, period_days=2\n  'max 4h between feedings' → metric='feeding_gap_max_min', target=240, comparison='<='.",
         inputSchema: {
           label: z
             .string()
             .min(1)
             .max(120)
             .describe(
-              "Short human-readable label, e.g. '1 poop per day', 'bath every 2 days'"
+              "Short human-readable label, e.g. '1 poop per day', 'bath every 2 days', 'max 4h between feedings'"
             ),
-          metric: z
-            .enum([
-              "feeding_total_ml",
-              "feeding_count",
-              "diaper_count",
-              "routine_count",
-              "note_count",
-            ])
-            .describe(
-              "What to aggregate: feeding_total_ml (sum of feeding ml), feeding_count, diaper_count, routine_count, note_count"
-            ),
+          metric: indicationMetricSchema.describe(
+            "What to aggregate: feeding_total_ml (sum of feeding ml), feeding_count, feeding_gap_max_min (max minutes between consecutive feedings in the window — use with comparison='<='), diaper_count, routine_count, note_count"
+          ),
           target: z
             .number()
             .nonnegative()
-            .describe("Threshold value, e.g. 500 (ml) or 1 (count)"),
-          comparison: z
-            .enum([">=", "<="])
+            .describe("Threshold value, e.g. 500 (ml), 1 (count), 240 (minutes)"),
+          comparison: comparisonSchema
             .optional()
             .describe(
               "'>=' (minimum, default — at least this much in the window) or '<=' (maximum — no more than this in the window)"
@@ -1231,8 +1372,17 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .max(100)
             .optional()
             .describe(
-              "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). Ignored for feeding and note metrics."
+              "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). Not allowed for feeding_* or note_count."
             ),
+        },
+        outputSchema: {
+          id: z.number().int(),
+          label: z.string(),
+          metric: indicationMetricSchema,
+          filter: z.string().nullable(),
+          target: z.number(),
+          comparison: comparisonSchema,
+          period_days: z.number().int(),
         },
       },
       async ({
@@ -1257,7 +1407,10 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           }
         }
         if (
-          (metric === "feeding_total_ml" || metric === "feeding_count") &&
+          (metric === "feeding_total_ml" ||
+            metric === "feeding_count" ||
+            metric === "feeding_gap_max_min" ||
+            metric === "note_count") &&
           filter
         ) {
           return {
@@ -1289,15 +1442,26 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         const unit = indicationUnit(metric);
         const period = period_days ?? 1;
         const periodS = period === 1 ? "/d" : `/${period}d`;
+        const id = inserted?.id ?? 0;
+        const cmp = comparison ?? ">=";
         return {
           content: [
             {
               type: "text",
-              text: `Added indication #${inserted?.id}: ${label}  [${metric}${
+              text: `Added indication #${id}: ${label}  [${metric}${
                 filter ? `:${filter}` : ""
-              } ${comparison ?? ">="} ${target}${unit ? " " + unit : ""}${periodS}]`,
+              } ${cmp} ${target}${unit ? " " + unit : ""}${periodS}]`,
             },
           ],
+          structuredContent: {
+            id,
+            label,
+            metric,
+            filter: filter ?? null,
+            target,
+            comparison: cmp,
+            period_days: period,
+          },
         };
       }
     );
@@ -1313,6 +1477,21 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .optional()
             .describe("Include indications where active=0. Default false."),
         },
+        outputSchema: {
+          count: z.number().int(),
+          indications: z.array(
+            z.object({
+              id: z.number().int(),
+              label: z.string(),
+              metric: indicationMetricSchema,
+              filter: z.string().nullable(),
+              target: z.number(),
+              comparison: comparisonSchema,
+              period_days: z.number().int(),
+              active: z.boolean(),
+            })
+          ),
+        },
       },
       async ({ include_inactive }) => {
         const where = include_inactive ? "" : "WHERE active = 1";
@@ -1321,6 +1500,17 @@ export class BabyFeedingMCP extends McpAgent<Env> {
            FROM indications ${where}
            ORDER BY active DESC, id`
         ).all<IndicationRow>();
+
+        const structured = results.map((r) => ({
+          id: r.id,
+          label: r.label,
+          metric: r.metric,
+          filter: r.filter,
+          target: r.target,
+          comparison: r.comparison,
+          period_days: r.period_days,
+          active: r.active === 1,
+        }));
 
         if (results.length === 0) {
           return {
@@ -1332,6 +1522,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
                   : "No active indications. Use add_indication to create one.",
               },
             ],
+            structuredContent: { count: 0, indications: [] },
           };
         }
 
@@ -1344,6 +1535,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         });
         return {
           content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: { count: results.length, indications: structured },
         };
       }
     );
@@ -1360,25 +1552,8 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe("Indication id (from list_indications)"),
         },
       },
-      async ({ id }) => {
-        const res = await this.env.DB.prepare(
-          "DELETE FROM indications WHERE id = ?"
-        )
-          .bind(id)
-          .run();
-        const changes = res.meta.changes ?? 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                changes > 0
-                  ? `Deleted indication #${id}.`
-                  : `No indication with id #${id} found.`,
-            },
-          ],
-        };
-      }
+      async ({ id }) =>
+        deleteById(this.env.DB, "indications", "indication", id)
     );
 
     this.server.registerTool(
@@ -1395,6 +1570,25 @@ export class BabyFeedingMCP extends McpAgent<Env> {
               "ISO date YYYY-MM-DD (UTC) to evaluate. Defaults to today."
             ),
         },
+        outputSchema: {
+          date: z.string(),
+          met_count: z.number().int(),
+          total: z.number().int(),
+          results: z.array(
+            z.object({
+              id: z.number().int(),
+              label: z.string(),
+              metric: indicationMetricSchema,
+              filter: z.string().nullable(),
+              target: z.number(),
+              comparison: comparisonSchema,
+              period_days: z.number().int(),
+              actual: z.number(),
+              unit: z.string(),
+              met: z.boolean(),
+            })
+          ),
+        },
       },
       async ({ date }) => {
         const day = date ?? new Date().toISOString().slice(0, 10);
@@ -1403,10 +1597,17 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         endDate.setUTCDate(endDate.getUTCDate() + 1);
         const end = endDate.toISOString();
 
-        const { results: indications } = await this.env.DB.prepare(
-          `SELECT id, label, metric, filter, target, comparison, period_days, active
-           FROM indications WHERE active = 1 ORDER BY id`
-        ).all<IndicationRow>();
+        const [indRes, profileRes] = await this.env.DB.batch([
+          this.env.DB.prepare(
+            `SELECT id, label, metric, filter, target, comparison, period_days, active
+             FROM indications WHERE active = 1 ORDER BY id`
+          ),
+          this.env.DB.prepare(
+            "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
+          ),
+        ]);
+        const indications = indRes.results as IndicationRow[];
+        const profile = (profileRes.results as ProfileRow[])[0];
 
         if (indications.length === 0) {
           return {
@@ -1417,30 +1618,53 @@ export class BabyFeedingMCP extends McpAgent<Env> {
                   "No active indications. Use add_indication to define one (e.g. '1 poop a day').",
               },
             ],
+            structuredContent: {
+              date: day,
+              met_count: 0,
+              total: 0,
+              results: [],
+            },
           };
         }
 
-        const profile = await this.env.DB.prepare(
-          "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
-        ).first<ProfileRow>();
         const ageS = profile?.date_of_birth
           ? `, ${computeAge(profile.date_of_birth, dayStart)}`
           : "";
 
-        const lines: string[] = [`Indications evaluated as of ${day} (UTC${ageS}):`];
-        let met = 0;
-        for (const ind of indications) {
+        const starts = indications.map((ind) => {
           const startDate = new Date(dayStart);
           startDate.setUTCDate(startDate.getUTCDate() - (ind.period_days - 1));
-          const start = startDate.toISOString();
+          return startDate.toISOString();
+        });
+        const actualResults = await this.env.DB.batch(
+          indications.map((ind, i) =>
+            buildIndicationStatement(
+              this.env.DB,
+              ind.metric,
+              ind.filter,
+              starts[i],
+              end
+            )
+          )
+        );
 
-          const actual = await computeIndicationActual(
-            this.env.DB,
-            ind.metric,
-            ind.filter,
-            start,
-            end
-          );
+        const lines: string[] = [`Indications evaluated as of ${day} (UTC${ageS}):`];
+        const structured: Array<{
+          id: number;
+          label: string;
+          metric: string;
+          filter: string | null;
+          target: number;
+          comparison: ">=" | "<=";
+          period_days: number;
+          actual: number;
+          unit: string;
+          met: boolean;
+        }> = [];
+        let met = 0;
+        for (let i = 0; i < indications.length; i++) {
+          const ind = indications[i];
+          const actual = extractIndicationActual(ind.metric, actualResults[i]);
           const ok =
             ind.comparison === ">="
               ? actual >= ind.target
@@ -1453,11 +1677,31 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           lines.push(
             `${ok ? "[OK]  " : "[MISS]"} ${ind.label}  →  ${actual}${unitS} (target ${ind.comparison} ${ind.target}${unitS}${window})`
           );
+          structured.push({
+            id: ind.id,
+            label: ind.label,
+            metric: ind.metric,
+            filter: ind.filter,
+            target: ind.target,
+            comparison: ind.comparison,
+            period_days: ind.period_days,
+            actual,
+            unit,
+            met: ok,
+          });
         }
         lines.push("");
         lines.push(`Met ${met}/${indications.length}.`);
 
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: {
+            date: day,
+            met_count: met,
+            total: indications.length,
+            results: structured,
+          },
+        };
       }
     );
 
@@ -1465,8 +1709,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "get_stats",
       {
         description:
-          "Summarize feedings, diapers, routines, and notes within a time window, plus the latest weight (g) and height (cm). Defaults to the last 24 hours.",
+          "Summarize feedings, diapers, routines, and notes within a time window, plus the latest weight (g) and height (cm). Pass `window` for a quick preset, or `since`/`until` for a custom range. Defaults to the last 24 hours.",
         inputSchema: {
+          window: z
+            .enum(["24h", "today", "7d", "30d"])
+            .optional()
+            .describe(
+              "Quick preset. '24h' = last 24 hours; 'today' = since UTC midnight; '7d' = last 7×24h; '30d' = last 30×24h. If set, ignores `since`/`until`."
+            ),
           since: z
             .string()
             .datetime()
@@ -1478,50 +1728,113 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .optional()
             .describe("End of the window (ISO timestamp). Default: now."),
         },
+        outputSchema: {
+          start: z.string(),
+          end: z.string(),
+          feedings: z.object({
+            count: z.number().int(),
+            total_ml: z.number(),
+            avg_ml: z.number(),
+            last_ts: z.string().nullable(),
+          }),
+          diapers: z.object({
+            count: z.number().int(),
+            pee_count: z.number().int(),
+            poop_count: z.number().int(),
+            last_ts: z.string().nullable(),
+          }),
+          routines: z.object({
+            count: z.number().int(),
+            last_ts: z.string().nullable(),
+            by_name: z.array(
+              z.object({ name: z.string(), count: z.number().int() })
+            ),
+          }),
+          notes: z.object({
+            count: z.number().int(),
+            last_ts: z.string().nullable(),
+          }),
+          latest_weight: z
+            .object({ ts: z.string(), weight_g: z.number().int() })
+            .nullable(),
+          latest_height: z
+            .object({ ts: z.string(), height_cm: z.number().int() })
+            .nullable(),
+        },
       },
-      async ({ since, until }) => {
-        const end = until ?? new Date().toISOString();
-        const start =
-          since ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      async ({ window, since, until }) => {
+        const now = Date.now();
+        const nowIso = new Date(now).toISOString();
+        let start: string;
+        let end: string;
+        if (window === "today") {
+          const d = new Date(now);
+          d.setUTCHours(0, 0, 0, 0);
+          start = d.toISOString();
+          end = nowIso;
+        } else if (window) {
+          start = new Date(now - WINDOW_OFFSET_MS[window]).toISOString();
+          end = nowIso;
+        } else {
+          end = until ?? nowIso;
+          start = since ?? new Date(now - DAY_MS).toISOString();
+        }
 
-        const [feedAgg, diaperAgg, routineAgg, routineBreakdown, noteAgg] =
-          await this.env.DB.batch([
-            this.env.DB.prepare(
-              `SELECT
-                 COUNT(*)                    AS count,
-                 COALESCE(SUM(amount_ml), 0) AS total_ml,
-                 COALESCE(AVG(amount_ml), 0) AS avg_ml,
-                 MAX(ts)                     AS last_ts
-               FROM feedings
-               WHERE ts >= ? AND ts < ?`
-            ).bind(start, end),
-            this.env.DB.prepare(
-              `SELECT
-                 COUNT(*)                                                   AS event_count,
-                 SUM(CASE WHEN kind IN ('pee',  'both') THEN 1 ELSE 0 END)  AS pee_count,
-                 SUM(CASE WHEN kind IN ('poop', 'both') THEN 1 ELSE 0 END)  AS poop_count,
-                 MAX(ts)                                                    AS last_ts
-               FROM diapers
-               WHERE ts >= ? AND ts < ?`
-            ).bind(start, end),
-            this.env.DB.prepare(
-              `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
-               FROM routines
-               WHERE ts >= ? AND ts < ?`
-            ).bind(start, end),
-            this.env.DB.prepare(
-              `SELECT name, COUNT(*) AS n
-               FROM routines
-               WHERE ts >= ? AND ts < ?
-               GROUP BY name
-               ORDER BY n DESC`
-            ).bind(start, end),
-            this.env.DB.prepare(
-              `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
-               FROM notes
-               WHERE ts >= ? AND ts < ?`
-            ).bind(start, end),
-          ]);
+        const [
+          feedAgg,
+          diaperAgg,
+          routineAgg,
+          routineBreakdown,
+          noteAgg,
+          weightLatest,
+          heightLatest,
+          profileRow,
+        ] = await this.env.DB.batch([
+          this.env.DB.prepare(
+            `SELECT
+               COUNT(*)                    AS count,
+               COALESCE(SUM(amount_ml), 0) AS total_ml,
+               COALESCE(AVG(amount_ml), 0) AS avg_ml,
+               MAX(ts)                     AS last_ts
+             FROM feedings
+             WHERE ts >= ? AND ts < ?`
+          ).bind(start, end),
+          this.env.DB.prepare(
+            `SELECT
+               COUNT(*)                                                   AS event_count,
+               SUM(CASE WHEN kind IN ('pee',  'both') THEN 1 ELSE 0 END)  AS pee_count,
+               SUM(CASE WHEN kind IN ('poop', 'both') THEN 1 ELSE 0 END)  AS poop_count,
+               MAX(ts)                                                    AS last_ts
+             FROM diapers
+             WHERE ts >= ? AND ts < ?`
+          ).bind(start, end),
+          this.env.DB.prepare(
+            `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
+             FROM routines
+             WHERE ts >= ? AND ts < ?`
+          ).bind(start, end),
+          this.env.DB.prepare(
+            `SELECT name, COUNT(*) AS n
+             FROM routines
+             WHERE ts >= ? AND ts < ?
+             GROUP BY name
+             ORDER BY n DESC`
+          ).bind(start, end),
+          this.env.DB.prepare(
+            `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
+             FROM notes
+             WHERE ts >= ? AND ts < ?`
+          ).bind(start, end),
+          this.env.DB.prepare(
+            "SELECT ts, weight_g FROM weights ORDER BY ts DESC LIMIT 1"
+          ),
+          this.env.DB.prepare(
+            "SELECT ts, height_cm FROM heights ORDER BY ts DESC LIMIT 1"
+          ),
+          this.env.DB.prepare(
+            "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
+          ),
+        ]);
 
         const feed = feedAgg.results[0] as {
           count: number;
@@ -1548,9 +1861,13 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           last_ts: string | null;
         };
 
-        const profile = await this.env.DB.prepare(
-          "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
-        ).first<ProfileRow>();
+        const profile = (profileRow.results as ProfileRow[])[0];
+        const latestWeight = (
+          weightLatest.results as Array<{ ts: string; weight_g: number }>
+        )[0];
+        const latestHeight = (
+          heightLatest.results as Array<{ ts: string; height_cm: number }>
+        )[0];
 
         const lines: string[] = [];
         if (
@@ -1601,15 +1918,6 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           lines.push(`Notes:       ${notes.count}  (last ${notes.last_ts})`);
         }
 
-        // Latest weight + height (independent of the window — current state).
-        const [latestWeight, latestHeight] = await Promise.all([
-          this.env.DB.prepare(
-            "SELECT ts, weight_g FROM weights ORDER BY ts DESC LIMIT 1"
-          ).first<{ ts: string; weight_g: number }>(),
-          this.env.DB.prepare(
-            "SELECT ts, height_cm FROM heights ORDER BY ts DESC LIMIT 1"
-          ).first<{ ts: string; height_cm: number }>(),
-        ]);
         if (latestWeight || latestHeight) {
           lines.push("");
         }
@@ -1624,7 +1932,211 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           );
         }
 
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: {
+            start,
+            end,
+            feedings: {
+              count: feed.count,
+              total_ml: feed.total_ml,
+              avg_ml: feed.avg_ml,
+              last_ts: feed.last_ts,
+            },
+            diapers: {
+              count: diaper.event_count,
+              pee_count: diaper.pee_count,
+              poop_count: diaper.poop_count,
+              last_ts: diaper.last_ts,
+            },
+            routines: {
+              count: routines.count,
+              last_ts: routines.last_ts,
+              by_name: routinesByName.map((r) => ({
+                name: r.name,
+                count: r.n,
+              })),
+            },
+            notes: {
+              count: notes.count,
+              last_ts: notes.last_ts,
+            },
+            latest_weight: latestWeight
+              ? { ts: latestWeight.ts, weight_g: latestWeight.weight_g }
+              : null,
+            latest_height: latestHeight
+              ? { ts: latestHeight.ts, height_cm: latestHeight.height_cm }
+              : null,
+          },
+        };
+      }
+    );
+
+    // record_many uses a flat schema where `amount_ml`/`kind`/`name`/`text` are
+    // all optional on every event; we then runtime-check the right field for
+    // the chosen `type`. A Zod `discriminatedUnion` would be cleaner, but it
+    // serializes to JSON Schema `oneOf` and not every MCP client today
+    // dispatches that well — so we keep the shape flat and validate manually.
+    this.server.registerTool(
+      "record_many",
+      {
+        description:
+          "Record several events at once when the user mentions multiple things in one breath (e.g. 'I gave her Vitamin D, bathed her and did tummy time'). Use this instead of multiple separate calls so the response stays tidy. Each event picks one `type` plus its own required fields. Inserts are issued as a single D1 batch, so the call is atomic — if one INSERT fails, none are recorded and the error is returned.",
+        inputSchema: {
+          when: z
+            .string()
+            .datetime()
+            .optional()
+            .describe(
+              "Default ISO 8601 UTC timestamp applied to events that omit their own `when`. Omit to use the current server time. Per-event `when` overrides this."
+            ),
+          events: z
+            .array(
+              z.object({
+                type: z
+                  .enum(["feeding", "diaper", "routine", "note"])
+                  .describe("Event kind"),
+                amount_ml: z
+                  .number()
+                  .positive()
+                  .optional()
+                  .describe("Required for `feeding`: milk in ml"),
+                kind: z
+                  .enum(["pee", "poop", "both"])
+                  .optional()
+                  .describe("Required for `diaper`: pee | poop | both"),
+                name: z
+                  .string()
+                  .min(1)
+                  .max(100)
+                  .optional()
+                  .describe("Required for `routine`: entry name"),
+                text: z
+                  .string()
+                  .min(1)
+                  .max(2000)
+                  .optional()
+                  .describe("Required for `note`: free-form text"),
+                when: z
+                  .string()
+                  .datetime()
+                  .optional()
+                  .describe(
+                    "Per-event ISO 8601 UTC timestamp; overrides the top-level `when`"
+                  ),
+              })
+            )
+            .min(1)
+            .max(20)
+            .describe("List of events to record (1-20)"),
+        },
+        outputSchema: {
+          count: z.number().int(),
+          recorded: z.array(
+            z.object({
+              type: z.enum(["feeding", "diaper", "routine", "note"]),
+              id: z.number().int(),
+              ts: z.string(),
+            })
+          ),
+          errors: z.array(z.string()),
+        },
+      },
+      async ({ events, when: defaultWhen }) => {
+        const defaultTs = defaultWhen ?? new Date().toISOString();
+        type EvType = "feeding" | "diaper" | "routine" | "note";
+        const stmts: D1PreparedStatement[] = [];
+        const stmtMeta: Array<{ type: EvType; ts: string }> = [];
+        const errors: string[] = [];
+
+        for (let i = 0; i < events.length; i++) {
+          const ev = events[i];
+          const ts = ev.when ?? defaultTs;
+          if (ev.type === "feeding") {
+            if (ev.amount_ml === undefined) {
+              errors.push(`event #${i}: feeding requires amount_ml`);
+              continue;
+            }
+            stmts.push(
+              this.env.DB.prepare(
+                "INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id"
+              ).bind(ts, ev.amount_ml)
+            );
+            stmtMeta.push({ type: "feeding", ts });
+          } else if (ev.type === "diaper") {
+            if (!ev.kind) {
+              errors.push(`event #${i}: diaper requires kind`);
+              continue;
+            }
+            stmts.push(
+              this.env.DB.prepare(
+                "INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id"
+              ).bind(ts, ev.kind)
+            );
+            stmtMeta.push({ type: "diaper", ts });
+          } else if (ev.type === "routine") {
+            if (!ev.name) {
+              errors.push(`event #${i}: routine requires name`);
+              continue;
+            }
+            stmts.push(
+              this.env.DB.prepare(
+                "INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id"
+              ).bind(ts, ev.name)
+            );
+            stmtMeta.push({ type: "routine", ts });
+          } else if (ev.type === "note") {
+            if (!ev.text) {
+              errors.push(`event #${i}: note requires text`);
+              continue;
+            }
+            stmts.push(
+              this.env.DB.prepare(
+                "INSERT INTO notes (ts, text) VALUES (?, ?) RETURNING id"
+              ).bind(ts, ev.text)
+            );
+            stmtMeta.push({ type: "note", ts });
+          }
+        }
+
+        const recorded: Array<{ type: EvType; id: number; ts: string }> = [];
+        if (stmts.length > 0) {
+          try {
+            const batchResults = await this.env.DB.batch<{ id: number }>(
+              stmts
+            );
+            for (let i = 0; i < batchResults.length; i++) {
+              const m = stmtMeta[i];
+              const id = batchResults[i].results[0]?.id ?? 0;
+              recorded.push({ type: m.type, id, ts: m.ts });
+            }
+          } catch (e) {
+            errors.push(
+              `batch insert failed: ${e instanceof Error ? e.message : String(e)}`
+            );
+          }
+        }
+
+        const lines: string[] = recorded.map(
+          (r) => `Recorded ${r.type} #${r.id} at ${r.ts}.`
+        );
+        if (errors.length > 0) {
+          lines.push("", "Errors:");
+          for (const err of errors) lines.push(`  - ${err}`);
+        }
+        if (recorded.length === 0 && errors.length === 0) {
+          lines.push("No events recorded.");
+        }
+
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          structuredContent: {
+            count: recorded.length,
+            recorded,
+            errors,
+          },
+          isError: recorded.length === 0 && errors.length > 0,
+        };
       }
     );
   }
@@ -1840,6 +2352,12 @@ function renderAppLogin(error?: string, next?: string): Response {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Baby diary — Log in</title>
   <link rel="icon" href="/icon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0070f3">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Baby diary">
+  <link rel="apple-touch-icon" href="/icon.svg">
   <style>
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          max-width:420px;margin:60px auto;padding:24px;line-height:1.5;color:#222}
@@ -1868,6 +2386,13 @@ function renderAppLogin(error?: string, next?: string): Response {
       <button type="submit">Log in</button>
     </form>
   </div>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>`;
   return new Response(html, {
@@ -1946,6 +2471,13 @@ const APP_HTML = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Baby diary</title>
   <link rel="icon" href="/icon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0070f3">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Baby diary">
+  <link rel="apple-touch-icon" href="/icon.svg">
   <style>
     :root {
       --primary: #0070f3;
@@ -3116,6 +3648,12 @@ ${WHEN_BLOCK}
     });
 
     showTab("today");
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
   </script>
 </body>
 </html>`;
@@ -3545,6 +4083,23 @@ const defaultHandler = {
         headers: {
           "Content-Type": "image/svg+xml",
           "Cache-Control": "public, max-age=86400",
+        },
+      });
+    }
+    if (url.pathname === "/manifest.webmanifest") {
+      return new Response(WEB_MANIFEST, {
+        headers: {
+          "Content-Type": "application/manifest+json; charset=utf-8",
+          "Cache-Control": "public, max-age=86400",
+        },
+      });
+    }
+    if (url.pathname === "/sw.js") {
+      return new Response(SERVICE_WORKER_JS, {
+        headers: {
+          "Content-Type": "application/javascript; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "Service-Worker-Allowed": "/",
         },
       });
     }

@@ -17,13 +17,13 @@ in the `OAUTH_KV` namespace.
 | ------------------- | ----------------------------------------------------------------------- |
 | `set_profile`       | Set baby's `name`, `sex`, `date_of_birth` (any combination)             |
 | `get_profile`       | Read profile + computed age                                             |
-| `record_feeding`    | Log a feeding: `amount_ml` (required), `when` (ISO ts)                  |
+| `record_feeding`    | Log a feeding: `amount_ml` (required), `when` (ISO ts). Returns the gap since the previous feeding |
 | `list_feedings`     | List feedings, newest first. Optional `since` / `until` / `limit`       |
 | `delete_feeding`    | Remove a feeding by `id`                                                |
-| `record_diaper`     | Log a diaper: `kind` ('pee' / 'poop' / 'both'), `when`                  |
+| `record_diaper`     | Log a diaper: `kind` ('pee' / 'poop' / 'both'), `when`. Returns the gap since the previous diaper |
 | `list_diapers`      | List diapers, newest first. Optional `since` / `until` / `kind` / `limit` |
 | `delete_diaper`     | Remove a diaper event by `id`                                           |
-| `record_routine`    | Log a routine event, medication, or supplement: `name` (e.g. 'Vitamin D', 'Bath'), `when` |
+| `record_routine`    | Log a routine event, medication, or supplement: `name` (e.g. 'Vitamin D', 'Bath'), `when`. Returns the gap since the previous entry with the same `name` |
 | `list_routines`     | List entries, newest first. Optional `since` / `until` / `name` / `limit` |
 | `delete_routine`    | Remove an entry by `id`                                                 |
 | `record_note`       | Log a free-form note (e.g. 'pimples on face'): `text`, `when`           |
@@ -35,11 +35,12 @@ in the `OAUTH_KV` namespace.
 | `record_height`     | Log a length/height in cm: `height_cm`, `when` (reports delta)          |
 | `list_heights`      | List height measurements. Optional `since` / `until` / `limit`          |
 | `delete_height`     | Remove a height measurement by `id`                                     |
-| `add_indication`    | Define a target over an N-day window (e.g. '1 poop a day', 'bath every 2 days'): `label`, `metric`, `target`, `comparison`, `period_days`, `filter` |
+| `add_indication`    | Define a target over an N-day window (e.g. '1 poop a day', 'bath every 2 days', 'max 4h between feedings'): `label`, `metric`, `target`, `comparison`, `period_days`, `filter`. `metric` ∈ `feeding_total_ml` / `feeding_count` / `feeding_gap_max_min` / `diaper_count` / `routine_count` / `note_count` |
 | `list_indications`  | List defined indications (active by default)                            |
 | `delete_indication` | Remove an indication by `id`                                            |
 | `check_indications` | Evaluate all active indications against a day's actuals (today by default) |
-| `get_stats`         | Feedings + diapers + routines + notes summary + latest weight & height, over a window (default 24 h) |
+| `get_stats`         | Feedings + diapers + routines + notes summary + latest weight & height. Pass `window` (`24h` / `today` / `7d` / `30d`) or custom `since`/`until` (default 24 h) |
+| `record_many`       | Batch-record up to 20 events of mixed types (`feeding`, `diaper`, `routine`, `note`) in one call, with an optional shared `when` |
 
 All timestamps are ISO 8601 UTC strings (e.g. `2026-05-14T07:30:00Z`).
 
