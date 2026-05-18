@@ -14,12 +14,19 @@
 // -----------------------------------------------------------------------------
 
 import { X509Certificate, createVerify } from "node:crypto";
+import { computeAgeParts, insertAndLookupPrev } from "./lib";
 
 export type AlexaEnv = {
   DB: D1Database;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
 };
+
+type DiaperKind = "pee" | "poop" | "both";
+
+const MS_PER_HOUR = 3_600_000;
+const MAX_TIMESTAMP_SKEW_MS = 150_000;
+const CERT_CACHE_TTL_S = 86_400;
 
 // ---- Alexa request / response types ----------------------------------------
 
@@ -107,12 +114,14 @@ interface AlexaResponseEnvelope {
 
 // ---- Tiny helpers ----------------------------------------------------------
 
-function speak(
-  text: string,
-  endSession = true,
-  reprompt?: string,
-  cardTitle?: string
-): AlexaResponseEnvelope {
+interface SpeakOptions {
+  endSession?: boolean;
+  reprompt?: string;
+  cardTitle?: string;
+}
+
+function speak(text: string, opts: SpeakOptions = {}): AlexaResponseEnvelope {
+  const { endSession = true, reprompt, cardTitle } = opts;
   const out: AlexaResponseEnvelope = {
     version: "1.0",
     response: {
@@ -141,26 +150,24 @@ function jsonResponse(body: AlexaResponseEnvelope): Response {
   });
 }
 
-// Prefer the resolved slot id (set by the interaction-model synonym table)
-// over the raw spoken value.
-function slotResolvedId(slot: AlexaSlot | undefined): string | undefined {
+function slotResolution(
+  slot: AlexaSlot | undefined
+): { id?: string; name: string } | undefined {
   const authorities = slot?.resolutions?.resolutionsPerAuthority ?? [];
   for (const a of authorities) {
     if (a.status.code === "ER_SUCCESS_MATCH" && a.values && a.values.length > 0) {
-      return a.values[0].value.id;
+      return a.values[0].value;
     }
   }
   return undefined;
 }
 
+function slotResolvedId(slot: AlexaSlot | undefined): string | undefined {
+  return slotResolution(slot)?.id;
+}
+
 function slotResolvedName(slot: AlexaSlot | undefined): string | undefined {
-  const authorities = slot?.resolutions?.resolutionsPerAuthority ?? [];
-  for (const a of authorities) {
-    if (a.status.code === "ER_SUCCESS_MATCH" && a.values && a.values.length > 0) {
-      return a.values[0].value.name;
-    }
-  }
-  return undefined;
+  return slotResolution(slot)?.name;
 }
 
 function slotRaw(slot: AlexaSlot | undefined): string | undefined {
@@ -171,7 +178,6 @@ function slotRaw(slot: AlexaSlot | undefined): string | undefined {
 function slotNumber(slot: AlexaSlot | undefined): number | undefined {
   const raw = slotRaw(slot);
   if (raw === undefined) return undefined;
-  // AMAZON.NUMBER returns digit strings like "120" or "4.25".
   const n = Number(raw.replace(",", "."));
   return Number.isFinite(n) ? n : undefined;
 }
@@ -184,7 +190,7 @@ function madridOffsetHours(date: Date): number {
   const year = date.getUTCFullYear();
   const march = new Date(Date.UTC(year, 2, 31));
   march.setUTCDate(31 - march.getUTCDay());
-  march.setUTCHours(1, 0, 0, 0); // 03:00 local = 01:00 UTC
+  march.setUTCHours(1, 0, 0, 0);
   const october = new Date(Date.UTC(year, 9, 31));
   october.setUTCDate(31 - october.getUTCDay());
   october.setUTCHours(1, 0, 0, 0);
@@ -193,7 +199,7 @@ function madridOffsetHours(date: Date): number {
 
 function madridHHMM(iso: string): string {
   const d = new Date(iso);
-  const local = new Date(d.getTime() + madridOffsetHours(d) * 3_600_000);
+  const local = new Date(d.getTime() + madridOffsetHours(d) * MS_PER_HOUR);
   const hh = local.getUTCHours();
   const mm = local.getUTCMinutes().toString().padStart(2, "0");
   return `${hh}:${mm}`;
@@ -201,28 +207,32 @@ function madridHHMM(iso: string): string {
 
 // ---- Spanish formatters ----------------------------------------------------
 
+function pluralEs(n: number, singular: string, plural: string): string {
+  return n === 1 ? singular : plural;
+}
+
 function humanGapEs(deltaMs: number): string {
   if (deltaMs < 0) return "en el futuro";
   const totalMin = Math.round(deltaMs / 60_000);
   if (totalMin < 1) return "menos de un minuto";
-  if (totalMin < 60) return totalMin === 1 ? "un minuto" : `${totalMin} minutos`;
+  if (totalMin < 60) {
+    return totalMin === 1 ? "un minuto" : `${totalMin} minutos`;
+  }
   const hours = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
   if (hours < 24) {
     const hStr = hours === 1 ? "una hora" : `${hours} horas`;
     if (mins === 0) return hStr;
-    const mStr = mins === 1 ? "un minuto" : `${mins} minutos`;
-    return `${hStr} y ${mStr}`;
+    return `${hStr} y ${pluralEs(mins, "un minuto", `${mins} minutos`)}`;
   }
   const days = Math.floor(hours / 24);
   const h = hours % 24;
   const dStr = days === 1 ? "un día" : `${days} días`;
   if (h === 0) return dStr;
-  const hStr = h === 1 ? "una hora" : `${h} horas`;
-  return `${dStr} y ${hStr}`;
+  return `${dStr} y ${pluralEs(h, "una hora", `${h} horas`)}`;
 }
 
-function diaperKindEs(kind: "pee" | "poop" | "both"): string {
+function diaperKindEs(kind: DiaperKind): string {
   if (kind === "pee") return "pis";
   if (kind === "poop") return "caca";
   return "pis y caca";
@@ -252,6 +262,10 @@ const CERT_HEADER_KEYS = [
   "SignatureCertChainUrl",
 ] as const;
 
+// Cache parsed X509 by source URL. Survives within an isolate so warm requests
+// skip the PEM fetch and ASN.1 parse. Amazon rotates these only every few days.
+const certCache = new Map<string, X509Certificate>();
+
 function headerCaseInsensitive(
   request: Request,
   candidates: readonly string[]
@@ -261,6 +275,30 @@ function headerCaseInsensitive(
     if (v) return v;
   }
   return null;
+}
+
+async function loadCert(certChainUrl: string): Promise<X509Certificate> {
+  const cached = certCache.get(certChainUrl);
+  if (cached) {
+    const now = Date.now();
+    if (
+      now >= new Date(cached.validFrom).getTime() &&
+      now <= new Date(cached.validTo).getTime()
+    ) {
+      return cached;
+    }
+    certCache.delete(certChainUrl);
+  }
+  const resp = await fetch(certChainUrl, {
+    cf: { cacheTtl: CERT_CACHE_TTL_S, cacheEverything: true },
+  } as RequestInit);
+  if (!resp.ok) {
+    throw new Error(`cert fetch ${resp.status}`);
+  }
+  const pem = await resp.text();
+  const cert = new X509Certificate(pem);
+  certCache.set(certChainUrl, cert);
+  return cert;
 }
 
 async function verifySignature(
@@ -295,7 +333,6 @@ async function verifySignature(
       status: 400,
       message: "Cert URL must be on s3.amazonaws.com.",
     };
-  // Normalize away "//", "/foo/../" etc. then re-check the prefix.
   const normalized = url.pathname.replace(/\/+/g, "/");
   if (!normalized.startsWith("/echo.api/"))
     return {
@@ -306,23 +343,20 @@ async function verifySignature(
   if (url.port !== "" && url.port !== "443")
     return { ok: false, status: 400, message: "Cert URL must use port 443." };
 
-  let certPem: string;
+  let cert: X509Certificate;
   try {
-    const resp = await fetch(certChainUrl);
-    if (!resp.ok) {
-      return {
-        ok: false,
-        status: 502,
-        message: `Cert fetch returned ${resp.status}.`,
-      };
-    }
-    certPem = await resp.text();
-  } catch {
-    return { ok: false, status: 502, message: "Failed to fetch cert chain." };
+    cert = await loadCert(certChainUrl);
+  } catch (e) {
+    return {
+      ok: false,
+      status: 502,
+      message: `Failed to load cert chain: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    };
   }
 
   try {
-    const cert = new X509Certificate(certPem);
     const now = Date.now();
     const notBefore = new Date(cert.validFrom).getTime();
     const notAfter = new Date(cert.validTo).getTime();
@@ -386,7 +420,6 @@ export async function handleAlexa(
     return new Response("Invalid JSON body.", { status: 400 });
   }
 
-  // applicationId check.
   const appId =
     envelope.session?.application.applicationId ??
     envelope.context?.System.application.applicationId;
@@ -394,9 +427,11 @@ export async function handleAlexa(
     return new Response("Unknown applicationId.", { status: 401 });
   }
 
-  // Timestamp check: reject requests older than 150 s.
   const ts = Date.parse(envelope.request.timestamp);
-  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > 150_000) {
+  if (
+    !Number.isFinite(ts) ||
+    Math.abs(Date.now() - ts) > MAX_TIMESTAMP_SKEW_MS
+  ) {
     return new Response("Stale request timestamp.", { status: 400 });
   }
 
@@ -405,10 +440,7 @@ export async function handleAlexa(
     reply = await route(envelope, env);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    reply = speak(
-      `Lo siento, ha habido un error registrando eso: ${msg}`,
-      true
-    );
+    reply = speak(`Lo siento, ha habido un error registrando eso: ${msg}`);
   }
   return jsonResponse(reply);
 }
@@ -419,9 +451,9 @@ async function route(
 ): Promise<AlexaResponseEnvelope> {
   const r = envelope.request;
   if (r.type === "LaunchRequest") return handleLaunch();
-  if (r.type === "SessionEndedRequest") return speak("", true);
+  if (r.type === "SessionEndedRequest") return speak("");
   if (r.type !== "IntentRequest" || !r.intent) {
-    return speak("Lo siento, no he entendido.", true);
+    return speak("Lo siento, no he entendido.");
   }
   return dispatchIntent(r.intent, env);
 }
@@ -430,8 +462,10 @@ function handleLaunch(): AlexaResponseEnvelope {
   return speak(
     'Hola, soy el diario de Gabita. Puedes decir "tomó 120 mililitros", '
       + '"hizo caca", "le di vitamina D" o "cómo vamos hoy". ¿Qué quieres registrar?',
-    false,
-    'Puedes decir, por ejemplo, "120 mililitros" o "hizo pis".'
+    {
+      endSession: false,
+      reprompt: 'Puedes decir, por ejemplo, "120 mililitros" o "hizo pis".',
+    }
   );
 }
 
@@ -465,20 +499,18 @@ async function dispatchIntent(
           + 'vitamina D" o "ya hicimos el baño"; peso con "pesa cuatro kilos '
           + 'doscientos cincuenta", o consultar el día con "cómo vamos". ¿Qué '
           + "quieres hacer?",
-        false,
-        "Dime qué quieres registrar."
+        { endSession: false, reprompt: "Dime qué quieres registrar." }
       );
     case "AMAZON.CancelIntent":
     case "AMAZON.StopIntent":
-      return speak("Hasta luego.", true);
+      return speak("Hasta luego.");
     case "AMAZON.FallbackIntent":
       return speak(
         'No te he entendido. Puedes decir "tomó 120 mililitros" o "hizo caca". ¿Qué quieres registrar?',
-        false,
-        "¿Qué quieres registrar?"
+        { endSession: false, reprompt: "¿Qué quieres registrar?" }
       );
     default:
-      return speak("No conozco esa orden todavía.", true);
+      return speak("No conozco esa orden todavía.");
   }
 }
 
@@ -490,123 +522,109 @@ async function handleRecordFeeding(
 ): Promise<AlexaResponseEnvelope> {
   const amount = slotNumber(intent.slots?.amount);
   if (amount === undefined || amount <= 0) {
-    return speak(
-      "¿Cuántos mililitros tomó?",
-      false,
-      'Dime los mililitros, por ejemplo "ciento veinte".'
-    );
+    return speak("¿Cuántos mililitros tomó?", {
+      endSession: false,
+      reprompt: 'Dime los mililitros, por ejemplo "ciento veinte".',
+    });
   }
   const amountMl = Math.round(amount);
-  const ts = new Date().toISOString();
-  const prev = await env.DB.prepare(
-    "SELECT ts FROM feedings WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-  )
-    .bind(ts)
-    .first<{ ts: string }>();
-  await env.DB.prepare("INSERT INTO feedings (ts, amount_ml) VALUES (?, ?)")
-    .bind(ts, amountMl)
-    .run();
+  const now = Date.now();
+  const ts = new Date(now).toISOString();
+  const { prev } = await insertAndLookupPrev<{ ts: string }>(
+    env.DB,
+    env.DB.prepare(
+      "SELECT ts FROM feedings WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+    ).bind(ts),
+    env.DB.prepare(
+      "INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id"
+    ).bind(ts, amountMl)
+  );
 
   let tail = "";
   if (prev) {
-    const gap = humanGapEs(new Date(ts).getTime() - new Date(prev.ts).getTime());
-    tail = ` Han pasado ${gap} desde la anterior.`;
+    tail = ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde la anterior.`;
   }
-  return speak(
-    `Apuntada toma de ${amountMl} mililitros.${tail}`,
-    true,
-    undefined,
-    "Toma registrada"
-  );
+  return speak(`Apuntada toma de ${amountMl} mililitros.${tail}`, {
+    cardTitle: "Toma registrada",
+  });
 }
 
 async function handleRecordDiaper(
   intent: AlexaIntent,
   env: AlexaEnv
 ): Promise<AlexaResponseEnvelope> {
-  // The interaction model maps each synonym to an id of "pee" / "poop" / "both".
   const id = slotResolvedId(intent.slots?.kind);
-  let kind: "pee" | "poop" | "both" | null = null;
+  let kind: DiaperKind | null = null;
   if (id === "pee" || id === "poop" || id === "both") {
     kind = id;
   } else {
     // Best-effort fallback if the model wasn't built with ids.
-    const raw = (slotResolvedName(intent.slots?.kind) ?? slotRaw(intent.slots?.kind) ?? "")
-      .toLowerCase();
+    const raw = (
+      slotResolvedName(intent.slots?.kind) ?? slotRaw(intent.slots?.kind) ?? ""
+    ).toLowerCase();
     if (/(^|\W)(pip[ií]?|pis|mojado)(\W|$)/.test(raw)) kind = "pee";
     else if (/cac|pop[oó]|deposici|sucio/.test(raw)) kind = "poop";
     else if (/(ambos|las\s*dos|los\s*dos|todo|complet|las\s*dos\s*cosas)/.test(raw))
       kind = "both";
   }
   if (!kind) {
-    return speak(
-      "¿Qué tipo de pañal? Puedes decir pis, caca o las dos cosas.",
-      false,
-      "Dime pis, caca o las dos cosas."
-    );
+    return speak("¿Qué tipo de pañal? Puedes decir pis, caca o las dos cosas.", {
+      endSession: false,
+      reprompt: "Dime pis, caca o las dos cosas.",
+    });
   }
-  const ts = new Date().toISOString();
-  const prev = await env.DB.prepare(
-    "SELECT ts FROM diapers WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-  )
-    .bind(ts)
-    .first<{ ts: string }>();
-  await env.DB.prepare("INSERT INTO diapers (ts, kind) VALUES (?, ?)")
-    .bind(ts, kind)
-    .run();
+  const now = Date.now();
+  const ts = new Date(now).toISOString();
+  const { prev } = await insertAndLookupPrev<{ ts: string }>(
+    env.DB,
+    env.DB.prepare(
+      "SELECT ts FROM diapers WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+    ).bind(ts),
+    env.DB.prepare(
+      "INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id"
+    ).bind(ts, kind)
+  );
 
   let tail = "";
   if (prev) {
-    const gap = humanGapEs(new Date(ts).getTime() - new Date(prev.ts).getTime());
-    tail = ` Han pasado ${gap} desde el anterior.`;
+    tail = ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde el anterior.`;
   }
-  return speak(
-    `Apuntado pañal de ${diaperKindEs(kind)}.${tail}`,
-    true,
-    undefined,
-    "Pañal registrado"
-  );
+  return speak(`Apuntado pañal de ${diaperKindEs(kind)}.${tail}`, {
+    cardTitle: "Pañal registrado",
+  });
 }
 
 async function handleRecordRoutine(
   intent: AlexaIntent,
   env: AlexaEnv
 ): Promise<AlexaResponseEnvelope> {
-  // Use the canonical id from the interaction model if present; otherwise
-  // fall back to the spoken value (trim / collapse spaces).
-  const id = slotResolvedId(intent.slots?.routine);
   const name =
-    id ??
+    slotResolvedId(intent.slots?.routine) ??
     slotResolvedName(intent.slots?.routine) ??
     slotRaw(intent.slots?.routine);
   if (!name) {
-    return speak(
-      "¿Qué rutina quieres registrar?",
-      false,
-      'Puedes decir, por ejemplo, "vitamina D", "baño" o "paseo".'
-    );
+    return speak("¿Qué rutina quieres registrar?", {
+      endSession: false,
+      reprompt: 'Puedes decir, por ejemplo, "vitamina D", "baño" o "paseo".',
+    });
   }
-  const ts = new Date().toISOString();
-  const prev = await env.DB.prepare(
-    "SELECT ts FROM routines WHERE ts < ? AND LOWER(name) = LOWER(?) ORDER BY ts DESC LIMIT 1"
-  )
-    .bind(ts, name)
-    .first<{ ts: string }>();
-  await env.DB.prepare("INSERT INTO routines (ts, name) VALUES (?, ?)")
-    .bind(ts, name)
-    .run();
+  const now = Date.now();
+  const ts = new Date(now).toISOString();
+  const { prev } = await insertAndLookupPrev<{ ts: string }>(
+    env.DB,
+    env.DB.prepare(
+      "SELECT ts FROM routines WHERE ts < ? AND LOWER(name) = LOWER(?) ORDER BY ts DESC LIMIT 1"
+    ).bind(ts, name),
+    env.DB.prepare(
+      "INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id"
+    ).bind(ts, name)
+  );
 
   let tail = "";
   if (prev) {
-    const gap = humanGapEs(new Date(ts).getTime() - new Date(prev.ts).getTime());
-    tail = ` Han pasado ${gap} desde la anterior.`;
+    tail = ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde la anterior.`;
   }
-  return speak(
-    `Apuntado: ${name}.${tail}`,
-    true,
-    undefined,
-    "Rutina registrada"
-  );
+  return speak(`Apuntado: ${name}.${tail}`, { cardTitle: "Rutina registrada" });
 }
 
 async function handleRecordWeight(
@@ -619,27 +637,26 @@ async function handleRecordWeight(
   if (kilos !== undefined && grams !== undefined) {
     totalG = Math.round(kilos * 1000 + grams);
   } else if (kilos !== undefined) {
-    // "Pesa 4 kilos" → 4000; "4.25 kilos" → 4250.
     totalG = Math.round(kilos * 1000);
   } else if (grams !== undefined) {
-    // Rare path: "pesa 4250 gramos".
     totalG = Math.round(grams);
   }
   if (totalG === undefined || totalG <= 0) {
     return speak(
       "¿Cuánto pesa? Dime los kilos, por ejemplo, cuatro kilos doscientos cincuenta.",
-      false
+      { endSession: false }
     );
   }
   const ts = new Date().toISOString();
-  const prev = await env.DB.prepare(
-    "SELECT weight_g FROM weights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-  )
-    .bind(ts)
-    .first<{ weight_g: number }>();
-  await env.DB.prepare("INSERT INTO weights (ts, weight_g) VALUES (?, ?)")
-    .bind(ts, totalG)
-    .run();
+  const { prev } = await insertAndLookupPrev<{ weight_g: number }>(
+    env.DB,
+    env.DB.prepare(
+      "SELECT weight_g FROM weights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+    ).bind(ts),
+    env.DB.prepare(
+      "INSERT INTO weights (ts, weight_g) VALUES (?, ?) RETURNING id"
+    ).bind(ts, totalG)
+  );
 
   let tail = "";
   if (prev) {
@@ -650,12 +667,9 @@ async function handleRecordWeight(
       tail = ` ${Math.abs(delta)} gramos ${sign} que la pesada anterior.`;
     }
   }
-  return speak(
-    `Apuntado peso de ${totalG} gramos.${tail}`,
-    true,
-    undefined,
-    "Peso registrado"
-  );
+  return speak(`Apuntado peso de ${totalG} gramos.${tail}`, {
+    cardTitle: "Peso registrado",
+  });
 }
 
 async function handleRecordHeight(
@@ -664,18 +678,19 @@ async function handleRecordHeight(
 ): Promise<AlexaResponseEnvelope> {
   const cm = slotNumber(intent.slots?.cm);
   if (cm === undefined || cm <= 0) {
-    return speak("¿Cuánto mide en centímetros?", false);
+    return speak("¿Cuánto mide en centímetros?", { endSession: false });
   }
   const cmInt = Math.round(cm);
   const ts = new Date().toISOString();
-  const prev = await env.DB.prepare(
-    "SELECT height_cm FROM heights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-  )
-    .bind(ts)
-    .first<{ height_cm: number }>();
-  await env.DB.prepare("INSERT INTO heights (ts, height_cm) VALUES (?, ?)")
-    .bind(ts, cmInt)
-    .run();
+  const { prev } = await insertAndLookupPrev<{ height_cm: number }>(
+    env.DB,
+    env.DB.prepare(
+      "SELECT height_cm FROM heights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+    ).bind(ts),
+    env.DB.prepare(
+      "INSERT INTO heights (ts, height_cm) VALUES (?, ?) RETURNING id"
+    ).bind(ts, cmInt)
+  );
 
   let tail = "";
   if (prev) {
@@ -686,12 +701,9 @@ async function handleRecordHeight(
       tail = ` ${Math.abs(delta)} centímetros ${sign} que la medida anterior.`;
     }
   }
-  return speak(
-    `Apuntada talla de ${cmInt} centímetros.${tail}`,
-    true,
-    undefined,
-    "Talla registrada"
-  );
+  return speak(`Apuntada talla de ${cmInt} centímetros.${tail}`, {
+    cardTitle: "Talla registrada",
+  });
 }
 
 async function handleRecordNote(
@@ -700,26 +712,26 @@ async function handleRecordNote(
 ): Promise<AlexaResponseEnvelope> {
   const text = slotRaw(intent.slots?.text);
   if (!text) {
-    return speak("¿Qué quieres anotar?", false);
+    return speak("¿Qué quieres anotar?", { endSession: false });
   }
   const ts = new Date().toISOString();
   await env.DB.prepare("INSERT INTO notes (ts, text) VALUES (?, ?)")
     .bind(ts, text)
     .run();
-  return speak(`Nota guardada: ${text}.`, true, undefined, "Nota guardada");
+  return speak(`Nota guardada: ${text}.`, { cardTitle: "Nota guardada" });
 }
 
 async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
   // Window: "today" in Madrid local — convert local midnight back to UTC.
   const now = new Date();
   const offsetH = madridOffsetHours(now);
-  const localNow = new Date(now.getTime() + offsetH * 3_600_000);
+  const localNow = new Date(now.getTime() + offsetH * MS_PER_HOUR);
   const localMidnightUtcMs = Date.UTC(
     localNow.getUTCFullYear(),
     localNow.getUTCMonth(),
     localNow.getUTCDate()
   );
-  const startIso = new Date(localMidnightUtcMs - offsetH * 3_600_000).toISOString();
+  const startIso = new Date(localMidnightUtcMs - offsetH * MS_PER_HOUR).toISOString();
   const endIso = now.toISOString();
 
   const [feedAgg, diaperAgg, routineAgg] = await env.DB.batch([
@@ -766,7 +778,7 @@ async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
   if (feed.last_ts) {
     parts.push(`Última toma a las ${madridHHMM(feed.last_ts)}.`);
   }
-  return speak(parts.join(" "), true, undefined, "Resumen de hoy");
+  return speak(parts.join(" "), { cardTitle: "Resumen de hoy" });
 }
 
 async function handleLastFeeding(
@@ -776,15 +788,13 @@ async function handleLastFeeding(
     "SELECT ts, amount_ml FROM feedings ORDER BY ts DESC LIMIT 1"
   ).first<{ ts: string; amount_ml: number }>();
   if (!row) {
-    return speak("No tengo ninguna toma registrada todavía.", true);
+    return speak("No tengo ninguna toma registrada todavía.");
   }
-  const ago = humanGapEs(Date.now() - new Date(row.ts).getTime());
+  const ago = humanGapEs(Date.now() - Date.parse(row.ts));
   const amount = Math.round(row.amount_ml);
   return speak(
     `La última toma fue hace ${ago}, a las ${madridHHMM(row.ts)}, de ${amount} mililitros.`,
-    true,
-    undefined,
-    "Última toma"
+    { cardTitle: "Última toma" }
   );
 }
 
@@ -795,53 +805,28 @@ async function handleGetProfile(
     "SELECT name, date_of_birth FROM profile WHERE id = 1"
   ).first<{ name: string | null; date_of_birth: string | null }>();
   if (!row?.date_of_birth) {
-    return speak(
-      "Todavía no he guardado la fecha de nacimiento.",
-      true
-    );
+    return speak("Todavía no he guardado la fecha de nacimiento.");
   }
-  const birth = new Date(`${row.date_of_birth}T00:00:00Z`).getTime();
-  const days = Math.floor((Date.now() - birth) / 86_400_000);
+  const parts = computeAgeParts(row.date_of_birth);
   const name = row.name ?? "Gabita";
-  if (days < 0) {
-    return speak(`${name} aún no ha nacido.`, true);
+  if (!parts) {
+    return speak(`${name} aún no ha nacido.`);
   }
+  const { days, weeks, remDays, years, months } = parts;
   if (days < 60) {
-    const weeks = Math.floor(days / 7);
-    const rem = days % 7;
+    const dStr = `${days} ${pluralEs(days, "día", "días")}`;
     let weeksStr = "";
     if (weeks > 0) {
+      const w = `${weeks} ${pluralEs(weeks, "semana", "semanas")}`;
       weeksStr =
-        rem > 0
-          ? ` (${weeks} ${weeks === 1 ? "semana" : "semanas"} y ${rem} ${
-              rem === 1 ? "día" : "días"
-            })`
-          : ` (${weeks} ${weeks === 1 ? "semana" : "semanas"})`;
+        remDays > 0
+          ? ` (${w} y ${remDays} ${pluralEs(remDays, "día", "días")})`
+          : ` (${w})`;
     }
-    return speak(
-      `${name} tiene ${days} ${days === 1 ? "día" : "días"}${weeksStr}.`,
-      true,
-      undefined,
-      "Edad"
-    );
+    return speak(`${name} tiene ${dStr}${weeksStr}.`, { cardTitle: "Edad" });
   }
-  const ref = new Date();
-  const birthDate = new Date(`${row.date_of_birth}T00:00:00Z`);
-  let years = ref.getUTCFullYear() - birthDate.getUTCFullYear();
-  let months = ref.getUTCMonth() - birthDate.getUTCMonth();
-  if (ref.getUTCDate() < birthDate.getUTCDate()) months--;
-  if (months < 0) {
-    years--;
-    months += 12;
-  }
-  const partsAge: string[] = [];
-  if (years > 0) partsAge.push(`${years} ${years === 1 ? "año" : "años"}`);
-  if (months > 0)
-    partsAge.push(`${months} ${months === 1 ? "mes" : "meses"}`);
-  return speak(
-    `${name} tiene ${partsAge.join(" y ")}.`,
-    true,
-    undefined,
-    "Edad"
-  );
+  const ageParts: string[] = [];
+  if (years > 0) ageParts.push(`${years} ${pluralEs(years, "año", "años")}`);
+  if (months > 0) ageParts.push(`${months} ${pluralEs(months, "mes", "meses")}`);
+  return speak(`${name} tiene ${ageParts.join(" y ")}.`, { cardTitle: "Edad" });
 }
