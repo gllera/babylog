@@ -249,11 +249,11 @@
           "name": "Routine",
           "values": [
             {
-              "id": "Vitamina D",
               "name": {
-                "value": "vitamina d",
+                "value": "Vitamina D",
                 "synonyms": [
                   "vit d",
+                  "vitamina d",
                   "vitamina de",
                   "gotas de vitamina",
                   "gotas de vitamina d",
@@ -262,17 +262,16 @@
               }
             },
             {
-              "id": "Baño",
               "name": {
-                "value": "baño",
+                "value": "Baño",
                 "synonyms": ["bañito", "bano", "la bañera", "el baño", "la ducha", "ducha"]
               }
             },
             {
-              "id": "Tummy",
               "name": {
-                "value": "tummy",
+                "value": "Tummy",
                 "synonyms": [
+                  "tummy",
                   "tummy time",
                   "panza abajo",
                   "boca abajo",
@@ -281,45 +280,39 @@
               }
             },
             {
-              "id": "Paseo",
               "name": {
-                "value": "paseo",
-                "synonyms": ["paseíto", "paseito", "paseo afuera", "salida"]
+                "value": "Paseo",
+                "synonyms": ["paseo", "paseíto", "paseito", "paseo afuera", "salida"]
               }
             },
             {
-              "id": "Paracetamol",
               "name": {
-                "value": "paracetamol",
-                "synonyms": ["apiretal"]
+                "value": "Paracetamol",
+                "synonyms": ["paracetamol", "apiretal"]
               }
             },
             {
-              "id": "Ibuprofeno",
               "name": {
-                "value": "ibuprofeno",
-                "synonyms": ["ibu", "dalsy"]
+                "value": "Ibuprofeno",
+                "synonyms": ["ibuprofeno", "ibu", "dalsy"]
               }
             },
             {
-              "id": "Pomada",
               "name": {
-                "value": "pomada",
-                "synonyms": ["crema", "crema del culete"]
+                "value": "Pomada",
+                "synonyms": ["pomada", "crema", "crema del culete"]
               }
             },
             {
-              "id": "Jarabe",
               "name": {
-                "value": "jarabe",
-                "synonyms": []
+                "value": "Jarabe",
+                "synonyms": ["jarabe"]
               }
             },
             {
-              "id": "Masaje",
               "name": {
-                "value": "masaje",
-                "synonyms": ["masajito", "el masaje"]
+                "value": "Masaje",
+                "synonyms": ["masaje", "masajito", "el masaje"]
               }
             }
           ]
