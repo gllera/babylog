@@ -6,6 +6,8 @@ import {
   type AuthRequest,
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
+import { handleAlexa } from "./alexa";
+import { computeAgeParts, insertAndLookupPrev } from "./lib";
 
 type Env = {
   DB: D1Database;
@@ -13,6 +15,8 @@ type Env = {
   OAUTH_KV: KVNamespace;
   OAUTH_PROVIDER: OAuthHelpers;
   SHARED_SECRET?: string;
+  ALEXA_APPLICATION_ID?: string;
+  ALEXA_SKIP_SIGNATURE?: string;
 };
 
 type FeedingRow = {
@@ -60,22 +64,12 @@ type ProfileRow = {
 };
 
 function computeAge(dob: string, at?: Date): string {
-  const birth = new Date(`${dob}T00:00:00Z`);
-  const ref = at ?? new Date();
-  const days = Math.floor((ref.getTime() - birth.getTime()) / 86400000);
-  if (days < 0) return "not yet born";
+  const parts = computeAgeParts(dob, at);
+  if (!parts) return "not yet born";
+  const { days, weeks, remDays, years, months } = parts;
   if (days < 60) {
-    const weeks = Math.floor(days / 7);
-    const rem = days % 7;
     if (weeks === 0) return `${days} day${days === 1 ? "" : "s"} old`;
-    return `${days} days old (${weeks}w${rem > 0 ? ` ${rem}d` : ""})`;
-  }
-  let years = ref.getUTCFullYear() - birth.getUTCFullYear();
-  let months = ref.getUTCMonth() - birth.getUTCMonth();
-  if (ref.getUTCDate() < birth.getUTCDate()) months--;
-  if (months < 0) {
-    years--;
-    months += 12;
+    return `${days} days old (${weeks}w${remDays > 0 ? ` ${remDays}d` : ""})`;
   }
   if (years === 0) {
     return `${months} month${months === 1 ? "" : "s"} old (${days} days)`;
@@ -150,18 +144,6 @@ const WINDOW_OFFSET_MS = {
   "7d": 7 * DAY_MS,
   "30d": 30 * DAY_MS,
 } as const;
-
-async function insertAndLookupPrev<P>(
-  db: D1Database,
-  selectStmt: D1PreparedStatement,
-  insertStmt: D1PreparedStatement
-): Promise<{ id: number; prev: P | undefined }> {
-  const [prevRes, insRes] = await db.batch([selectStmt, insertStmt]);
-  return {
-    prev: (prevRes.results as P[])[0],
-    id: (insRes.results as Array<{ id: number }>)[0]?.id ?? 0,
-  };
-}
 
 function buildWindowClauses(since?: string, until?: string) {
   const clauses: string[] = [];
@@ -4117,6 +4099,9 @@ const defaultHandler = {
     }
     if (url.pathname.startsWith("/api/")) {
       return handleApi(request, env, url);
+    }
+    if (url.pathname === "/alexa") {
+      return handleAlexa(request, env);
     }
     if (url.pathname === "/") {
       return new Response(null, {

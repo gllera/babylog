@@ -1,0 +1,330 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "diario de gabita",
+      "intents": [
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
+        {
+          "name": "RecordFeedingIntent",
+          "slots": [
+            { "name": "amount", "type": "AMAZON.NUMBER" }
+          ],
+          "samples": [
+            "anota {amount} mililitros",
+            "anota una toma de {amount}",
+            "anota una toma de {amount} mililitros",
+            "ha tomado {amount}",
+            "ha tomado {amount} mililitros",
+            "acaba de tomar {amount}",
+            "acaba de tomar {amount} mililitros",
+            "tomó {amount} mililitros",
+            "tomó {amount}",
+            "se ha tomado {amount}",
+            "se ha tomado {amount} mililitros",
+            "le he dado {amount} mililitros",
+            "le di {amount} mililitros",
+            "registra una toma de {amount}",
+            "registra {amount} mililitros",
+            "{amount} mililitros",
+            "{amount} mililitros de leche",
+            "una toma de {amount}",
+            "una toma de {amount} mililitros"
+          ]
+        },
+        {
+          "name": "RecordDiaperIntent",
+          "slots": [
+            { "name": "kind", "type": "DiaperKind" }
+          ],
+          "samples": [
+            "ha hecho {kind}",
+            "hizo {kind}",
+            "acaba de hacer {kind}",
+            "se acaba de hacer {kind}",
+            "ha hecho un pañal de {kind}",
+            "anota un pañal de {kind}",
+            "anota pañal de {kind}",
+            "anota {kind}",
+            "registra {kind}",
+            "registra un pañal de {kind}",
+            "registra un pañal con {kind}",
+            "pañal de {kind}",
+            "se hizo {kind}",
+            "ha sido {kind}"
+          ]
+        },
+        {
+          "name": "RecordRoutineIntent",
+          "slots": [
+            { "name": "routine", "type": "Routine" }
+          ],
+          "samples": [
+            "le he dado {routine}",
+            "le di {routine}",
+            "ya le di {routine}",
+            "anota {routine}",
+            "registra {routine}",
+            "acabo de darle {routine}",
+            "le acabo de dar {routine}",
+            "hicimos {routine}",
+            "ya hicimos {routine}",
+            "ya hicimos el {routine}",
+            "ya hicimos la {routine}",
+            "ya tocó {routine}",
+            "acabamos de hacer {routine}",
+            "acabamos el {routine}",
+            "ya está el {routine}",
+            "ya está la {routine}",
+            "registra una rutina de {routine}"
+          ]
+        },
+        {
+          "name": "RecordWeightIntent",
+          "slots": [
+            { "name": "kilos", "type": "AMAZON.NUMBER" },
+            { "name": "grams", "type": "AMAZON.NUMBER" }
+          ],
+          "samples": [
+            "pesa {kilos} kilos",
+            "pesa {kilos} kilos {grams}",
+            "pesa {kilos} kilos y {grams}",
+            "pesa {kilos} kilos {grams} gramos",
+            "pesa {kilos} kilos y {grams} gramos",
+            "pesa {kilos} kilos con {grams} gramos",
+            "ahora pesa {kilos} kilos",
+            "ahora pesa {kilos} kilos {grams}",
+            "ahora pesa {kilos} kilos y {grams}",
+            "ha pesado {kilos} kilos",
+            "ha pesado {kilos} kilos {grams}",
+            "anota {kilos} kilos",
+            "anota un peso de {kilos} kilos",
+            "anota un peso de {kilos} kilos {grams}",
+            "registra un peso de {kilos} kilos",
+            "registra un peso de {kilos} kilos {grams}",
+            "el peso es {kilos} kilos {grams}",
+            "el peso es {kilos} kilos y {grams}"
+          ]
+        },
+        {
+          "name": "RecordHeightIntent",
+          "slots": [
+            { "name": "cm", "type": "AMAZON.NUMBER" }
+          ],
+          "samples": [
+            "mide {cm} centímetros",
+            "mide {cm}",
+            "ahora mide {cm}",
+            "ahora mide {cm} centímetros",
+            "anota una talla de {cm}",
+            "anota una talla de {cm} centímetros",
+            "anota {cm} centímetros",
+            "su altura es {cm}",
+            "su altura es {cm} centímetros",
+            "la talla es {cm}",
+            "la talla es {cm} centímetros",
+            "registra una talla de {cm}",
+            "registra {cm} centímetros"
+          ]
+        },
+        {
+          "name": "RecordNoteIntent",
+          "slots": [
+            { "name": "text", "type": "AMAZON.SearchQuery" }
+          ],
+          "samples": [
+            "anota que {text}",
+            "anota lo siguiente {text}",
+            "guarda una nota {text}",
+            "guarda la nota {text}",
+            "toma nota de que {text}",
+            "toma nota {text}",
+            "apunta que {text}",
+            "nota {text}"
+          ]
+        },
+        {
+          "name": "GetStatsIntent",
+          "samples": [
+            "cómo vamos",
+            "cómo vamos hoy",
+            "cómo va el día",
+            "cómo va hoy",
+            "qué tal vamos",
+            "qué tal el día",
+            "qué tal va el día",
+            "qué tal va hoy",
+            "resumen",
+            "resumen del día",
+            "resumen de hoy",
+            "dame el resumen",
+            "dame un resumen",
+            "cuéntame cómo va el día"
+          ]
+        },
+        {
+          "name": "LastFeedingIntent",
+          "samples": [
+            "cuándo fue la última toma",
+            "cuándo tomó por última vez",
+            "hace cuánto que comió",
+            "hace cuánto que tomó",
+            "cuánto tiempo desde la última toma",
+            "cuándo comió por última vez",
+            "última toma"
+          ]
+        },
+        {
+          "name": "GetProfileIntent",
+          "samples": [
+            "cuántos días tiene",
+            "cuántos días tiene gabita",
+            "qué edad tiene",
+            "qué edad tiene gabita",
+            "cuánto tiempo tiene",
+            "cuánto tiempo tiene gabita",
+            "qué edad tiene la bebé"
+          ]
+        }
+      ],
+      "types": [
+        {
+          "name": "DiaperKind",
+          "values": [
+            {
+              "id": "pee",
+              "name": {
+                "value": "pis",
+                "synonyms": [
+                  "pipí",
+                  "pipi",
+                  "mojado",
+                  "un pis",
+                  "un pipí"
+                ]
+              }
+            },
+            {
+              "id": "poop",
+              "name": {
+                "value": "caca",
+                "synonyms": [
+                  "popó",
+                  "popo",
+                  "cacota",
+                  "caquita",
+                  "deposición",
+                  "deposicion",
+                  "una caca",
+                  "un popó",
+                  "sucio",
+                  "ensució",
+                  "ensucio"
+                ]
+              }
+            },
+            {
+              "id": "both",
+              "name": {
+                "value": "las dos cosas",
+                "synonyms": [
+                  "ambos",
+                  "las dos",
+                  "los dos",
+                  "todo",
+                  "completito",
+                  "pis y caca",
+                  "pipí y caca",
+                  "caca y pis",
+                  "pipí y popó"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Routine",
+          "values": [
+            {
+              "id": "Vitamina D",
+              "name": {
+                "value": "vitamina d",
+                "synonyms": [
+                  "vit d",
+                  "vitamina de",
+                  "gotas de vitamina",
+                  "gotas de vitamina d",
+                  "vitamina"
+                ]
+              }
+            },
+            {
+              "id": "Baño",
+              "name": {
+                "value": "baño",
+                "synonyms": ["bañito", "bano", "la bañera", "el baño", "la ducha", "ducha"]
+              }
+            },
+            {
+              "id": "Tummy",
+              "name": {
+                "value": "tummy",
+                "synonyms": [
+                  "tummy time",
+                  "panza abajo",
+                  "boca abajo",
+                  "rato boca abajo"
+                ]
+              }
+            },
+            {
+              "id": "Paseo",
+              "name": {
+                "value": "paseo",
+                "synonyms": ["paseíto", "paseito", "paseo afuera", "salida"]
+              }
+            },
+            {
+              "id": "Paracetamol",
+              "name": {
+                "value": "paracetamol",
+                "synonyms": ["apiretal"]
+              }
+            },
+            {
+              "id": "Ibuprofeno",
+              "name": {
+                "value": "ibuprofeno",
+                "synonyms": ["ibu", "dalsy"]
+              }
+            },
+            {
+              "id": "Pomada",
+              "name": {
+                "value": "pomada",
+                "synonyms": ["crema", "crema del culete"]
+              }
+            },
+            {
+              "id": "Jarabe",
+              "name": {
+                "value": "jarabe",
+                "synonyms": []
+              }
+            },
+            {
+              "id": "Masaje",
+              "name": {
+                "value": "masaje",
+                "synonyms": ["masajito", "el masaje"]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

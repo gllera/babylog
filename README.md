@@ -52,6 +52,14 @@ an MCP client. Log in once with the `SHARED_SECRET` password and the
 session is remembered via an HttpOnly cookie. Visiting `/` redirects to
 `/app`.
 
+## Alexa skill
+
+A Spanish (`es-ES`) custom Alexa skill lives in
+[`alexa-skill/`](./alexa-skill/). The same Worker serves an Alexa endpoint
+at `/alexa`, so voice commands ("*tomó 120 mililitros*", "*hizo caca*",
+"*cómo vamos hoy*") write to the same D1 database as the MCP tools and the
+web UI. See [`alexa-skill/README.md`](./alexa-skill/README.md) for setup.
+
 ## Setup
 
 ### 1. Install
@@ -143,7 +151,12 @@ Then try:
 
 ```
 .
-├── src/index.ts                    # McpAgent + tools + web UI (all inline)
+├── src/
+│   ├── index.ts                    # McpAgent + tools + web UI + OAuth gate
+│   └── alexa.ts                    # /alexa endpoint for the Alexa skill
+├── alexa-skill/
+│   ├── interaction-model.es-ES.json  # Voice model to upload to Alexa
+│   └── README.md                   # Step-by-step skill setup
 ├── migrations/                     # 0001..NNNN sequential D1 schema migrations
 ├── wrangler.jsonc                  # Worker + Durable Object + D1 + KV bindings
 ├── tsconfig.json
