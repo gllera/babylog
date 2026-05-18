@@ -30,6 +30,11 @@ const CERT_CACHE_TTL_S = 86_400;
 
 // ---- Alexa request / response types ----------------------------------------
 
+interface AlexaSlotValue {
+  name: string;
+  id?: string;
+}
+
 interface AlexaSlot {
   name: string;
   value?: string;
@@ -38,7 +43,7 @@ interface AlexaSlot {
     resolutionsPerAuthority: Array<{
       authority: string;
       status: { code: string };
-      values?: Array<{ value: { name: string; id?: string } }>;
+      values?: Array<{ value: AlexaSlotValue }>;
     }>;
   };
 }
@@ -152,7 +157,7 @@ function jsonResponse(body: AlexaResponseEnvelope): Response {
 
 function slotResolution(
   slot: AlexaSlot | undefined
-): { id?: string; name: string } | undefined {
+): AlexaSlotValue | undefined {
   const authorities = slot?.resolutions?.resolutionsPerAuthority ?? [];
   for (const a of authorities) {
     if (a.status.code === "ER_SUCCESS_MATCH" && a.values && a.values.length > 0) {
@@ -238,6 +243,22 @@ function diaperKindEs(kind: DiaperKind): string {
   return "pis y caca";
 }
 
+function gapTailEs(
+  prev: { ts: string } | undefined,
+  now: number,
+  feminine: boolean
+): string {
+  if (!prev) return "";
+  const article = feminine ? "la" : "el";
+  return ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde ${article} anterior.`;
+}
+
+function deltaTailEs(delta: number, unit: string, referent: string): string {
+  if (delta === 0) return ` Igual que la ${referent} anterior.`;
+  const sign = delta > 0 ? "más" : "menos";
+  return ` ${Math.abs(delta)} ${unit} ${sign} que la ${referent} anterior.`;
+}
+
 // Some words need agreement; "tomas" is feminine plural, "pañal" is masculine.
 function feedingCountEs(n: number, totalMl: number): string {
   if (n === 0) return "ninguna toma";
@@ -291,7 +312,7 @@ async function loadCert(certChainUrl: string): Promise<X509Certificate> {
   }
   const resp = await fetch(certChainUrl, {
     cf: { cacheTtl: CERT_CACHE_TTL_S, cacheEverything: true },
-  } as RequestInit);
+  });
   if (!resp.ok) {
     throw new Error(`cert fetch ${resp.status}`);
   }
@@ -540,10 +561,7 @@ async function handleRecordFeeding(
     ).bind(ts, amountMl)
   );
 
-  let tail = "";
-  if (prev) {
-    tail = ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde la anterior.`;
-  }
+  const tail = gapTailEs(prev, now, true);
   return speak(`Apuntada toma de ${amountMl} mililitros.${tail}`, {
     cardTitle: "Toma registrada",
   });
@@ -585,10 +603,7 @@ async function handleRecordDiaper(
     ).bind(ts, kind)
   );
 
-  let tail = "";
-  if (prev) {
-    tail = ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde el anterior.`;
-  }
+  const tail = gapTailEs(prev, now, false);
   return speak(`Apuntado pañal de ${diaperKindEs(kind)}.${tail}`, {
     cardTitle: "Pañal registrado",
   });
@@ -620,10 +635,7 @@ async function handleRecordRoutine(
     ).bind(ts, name)
   );
 
-  let tail = "";
-  if (prev) {
-    tail = ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde la anterior.`;
-  }
+  const tail = gapTailEs(prev, now, true);
   return speak(`Apuntado: ${name}.${tail}`, { cardTitle: "Rutina registrada" });
 }
 
@@ -658,15 +670,7 @@ async function handleRecordWeight(
     ).bind(ts, totalG)
   );
 
-  let tail = "";
-  if (prev) {
-    const delta = totalG - prev.weight_g;
-    if (delta === 0) tail = " Igual que la pesada anterior.";
-    else {
-      const sign = delta > 0 ? "más" : "menos";
-      tail = ` ${Math.abs(delta)} gramos ${sign} que la pesada anterior.`;
-    }
-  }
+  const tail = prev ? deltaTailEs(totalG - prev.weight_g, "gramos", "pesada") : "";
   return speak(`Apuntado peso de ${totalG} gramos.${tail}`, {
     cardTitle: "Peso registrado",
   });
@@ -692,15 +696,7 @@ async function handleRecordHeight(
     ).bind(ts, cmInt)
   );
 
-  let tail = "";
-  if (prev) {
-    const delta = cmInt - prev.height_cm;
-    if (delta === 0) tail = " Igual que la medida anterior.";
-    else {
-      const sign = delta > 0 ? "más" : "menos";
-      tail = ` ${Math.abs(delta)} centímetros ${sign} que la medida anterior.`;
-    }
-  }
+  const tail = prev ? deltaTailEs(cmInt - prev.height_cm, "centímetros", "medida") : "";
   return speak(`Apuntada talla de ${cmInt} centímetros.${tail}`, {
     cardTitle: "Talla registrada",
   });
