@@ -6,6 +6,7 @@ import {
   type AuthRequest,
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
+import { handleAlexa } from "./alexa";
 
 type Env = {
   DB: D1Database;
@@ -13,6 +14,8 @@ type Env = {
   OAUTH_KV: KVNamespace;
   OAUTH_PROVIDER: OAuthHelpers;
   SHARED_SECRET?: string;
+  ALEXA_APPLICATION_ID?: string;
+  ALEXA_SKIP_SIGNATURE?: string;
 };
 
 type FeedingRow = {
@@ -4117,6 +4120,9 @@ const defaultHandler = {
     }
     if (url.pathname.startsWith("/api/")) {
       return handleApi(request, env, url);
+    }
+    if (url.pathname === "/alexa") {
+      return handleAlexa(request, env);
     }
     if (url.pathname === "/") {
       return new Response(null, {
