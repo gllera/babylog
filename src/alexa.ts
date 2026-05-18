@@ -447,6 +447,16 @@ export async function handleAlexa(
     return new Response("Unknown applicationId.", { status: 401 });
   }
 
+  // DEBUG: temporary log so we can see what Alexa sends.
+  console.log(
+    "alexa_req",
+    JSON.stringify({
+      type: envelope.request.type,
+      intent: envelope.request.intent?.name,
+      slots: envelope.request.intent?.slots,
+    })
+  );
+
   const ts = Date.parse(envelope.request.timestamp);
   if (
     !Number.isFinite(ts) ||
