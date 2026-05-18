@@ -242,6 +242,77 @@ function diaperKindEs(kind: DiaperKind): string {
   return "pis y caca";
 }
 
+// Canonical routine names match the web UI's English labels. When Alexa's
+// synonym resolution fails (status != ER_SUCCESS_MATCH) the handler falls
+// back to the raw user utterance, which is Spanish — this lookup pulls it
+// back to the canonical so the DB stays consistent across web, MCP, Alexa.
+const ROUTINE_CANONICAL: Record<string, string> = {
+  "vitamin d": "Vitamin D",
+  "vit d": "Vitamin D",
+  "vitamina d": "Vitamin D",
+  "vitamina de": "Vitamin D",
+  vitamina: "Vitamin D",
+  "gotas de vitamina": "Vitamin D",
+  "gotas de vitamina d": "Vitamin D",
+  bath: "Bath",
+  "baño": "Bath",
+  bano: "Bath",
+  "bañito": "Bath",
+  "el baño": "Bath",
+  "la bañera": "Bath",
+  "la ducha": "Bath",
+  ducha: "Bath",
+  tummy: "Tummy",
+  "tummy time": "Tummy",
+  "panza abajo": "Tummy",
+  "boca abajo": "Tummy",
+  "rato boca abajo": "Tummy",
+  walk: "Walk",
+  paseo: "Walk",
+  "paseíto": "Walk",
+  paseito: "Walk",
+  "paseo afuera": "Walk",
+  salida: "Walk",
+  paracetamol: "Paracetamol",
+  apiretal: "Paracetamol",
+  ibuprofen: "Ibuprofen",
+  ibuprofeno: "Ibuprofen",
+  ibu: "Ibuprofen",
+  dalsy: "Ibuprofen",
+  cream: "Cream",
+  pomada: "Cream",
+  crema: "Cream",
+  "crema del culete": "Cream",
+  syrup: "Syrup",
+  jarabe: "Syrup",
+  massage: "Massage",
+  masaje: "Massage",
+  masajito: "Massage",
+  "el masaje": "Massage",
+};
+
+function canonicalRoutineName(raw: string): string {
+  return ROUTINE_CANONICAL[raw.toLowerCase().trim()] ?? raw;
+}
+
+// Spanish display names for the voice response (the canonical name is the
+// English form stored in the DB; this only affects what Alexa speaks back).
+const ROUTINE_DISPLAY_ES: Record<string, string> = {
+  "Vitamin D": "vitamina D",
+  Bath: "baño",
+  Tummy: "tummy",
+  Walk: "paseo",
+  Paracetamol: "paracetamol",
+  Ibuprofen: "ibuprofeno",
+  Cream: "pomada",
+  Syrup: "jarabe",
+  Massage: "masaje",
+};
+
+function routineDisplayEs(canonical: string): string {
+  return ROUTINE_DISPLAY_ES[canonical] ?? canonical;
+}
+
 function gapTailEs(
   prev: { ts: string } | undefined,
   now: number
@@ -598,16 +669,19 @@ async function handleRecordRoutine(
   // Alexa auto-generates an opaque `id` hash for every slot value when the
   // interaction model doesn't set one explicitly. The Routine slot type
   // defines no ids — only canonical name.value strings — so we read `name`
-  // directly and ignore `id` here.
-  const name =
+  // directly and ignore `id` here. If synonym resolution failed, slotRaw
+  // returns the literal Spanish utterance; canonicalRoutineName maps it back
+  // to the English canonical so the DB stays consistent with the web UI.
+  const raw =
     slotResolvedName(intent.slots?.routine) ??
     slotRaw(intent.slots?.routine);
-  if (!name) {
+  if (!raw) {
     return speak("¿Qué rutina quieres registrar?", {
       endSession: false,
       reprompt: 'Puedes decir, por ejemplo, "vitamina D", "baño" o "paseo".',
     });
   }
+  const name = canonicalRoutineName(raw);
   const now = Date.now();
   const ts = new Date(now).toISOString();
   const { prev } = await insertAndLookupPrev<{ ts: string }>(
@@ -621,7 +695,7 @@ async function handleRecordRoutine(
   );
 
   const tail = gapTailEs(prev, now);
-  return speak(`${name}${tail}.`, {
+  return speak(`${routineDisplayEs(name)}${tail}.`, {
     cardTitle: "Rutina registrada",
     endSession: false,
     reprompt: "¿Algo más?",
