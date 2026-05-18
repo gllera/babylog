@@ -1,4 +1,4 @@
-# Alexa skill — `Diario de Gabita`
+# Alexa skill — `Bitácora de Gabita`
 
 A custom Alexa skill (Spanish, `es-ES`) that talks to the same Cloudflare
 Worker as the MCP server and the web app. Voice commands write to the same
@@ -8,21 +8,107 @@ and in MCP clients.
 The skill uses an **HTTPS endpoint** (your Worker's URL + `/alexa`) — no AWS
 Lambda needed.
 
-## Voice cheat-sheet
+## Patrones de invocación
 
-> "Alexa, abre **diario de gabita**"
+### 🚀 Lo más rápido: Alexa Routines (1 utterance por toma)
+
+La fricción principal está en decir el nombre de la skill. Las **Rutinas
+de Alexa** lo eliminan: configuras un disparador corto (`Alexa, ciento
+veinte`) que internamente le manda a la skill la frase completa (`tomó
+ciento veinte mililitros`). Setup una vez, ahorro permanente.
+
+**Setup en la app de Alexa (móvil):**
+
+1. **Más → Rutinas → ➕ Nueva rutina**
+2. **Cuando digas:** tu trigger corto, por ejemplo `Alexa, ciento veinte`
+3. **➕ Añadir acción → Personalizado**
+4. La frase que va dentro del campo de acción es la que la rutina pasará a la
+   skill como si la hubieras dicho tú. Cualquiera de estas funciona:
+   - `dile a bitácora de gabita que tomó ciento veinte mililitros`
+   - `pregúntale a bitácora de gabita por ciento veinte mililitros`
+5. **Guardar**
+
+Repite para tus cantidades habituales (60, 90, 120, 150, 180, 200 ml).
+Setup de ~20 min y tienes 1-utterance feedings durante meses.
+
+Tras la rutina la skill cierra sesión automáticamente, así que cada
+disparo es independiente.
+
+> ⚠️ **Notas prácticas:**
+> - El trigger no puede ser un número solo (Alexa exige al menos una
+>   palabra). `Alexa, ciento veinte` funciona; `Alexa, 120` no siempre.
+>   Si te resulta más cómodo, usa prefijos cortos: `Alexa, toma ciento
+>   veinte`, `Alexa, anota ciento veinte`.
+> - Si la app no tiene "Personalizado" en tu región, busca **"Habilidad"**
+>   o **"Skill"** y pega la misma frase.
+
+### Saludo cuando abres la skill normal
+
+> "Alexa, **abre bitácora de gabita**"
+
+Saludo corto: *"Sí, ¿cuántos mililitros?"*. Como acepta `{amount}` solo,
+basta con decir el número:
+
+```
+Tú: "Alexa, abre bitácora de gabita"
+Skill: "Sí, ¿cuántos mililitros?"
+Tú: "ciento setenta y cinco"
+Skill: "Apuntada toma de 175 mililitros…"
+```
+
+Si querías un pañal/rutina/resumen, dilo igual ("hizo caca", "cómo
+vamos") — el prompt es solo un hint, la sesión acepta cualquier intent.
+
+### One-shot directo (menos fiable)
+
+> "Alexa, dile a bitácora de gabita que tomó ciento veinte mililitros"
+
+En español, el patrón `dile a [skill] que ...` compite con la
+mensajería de Alexa. Si la skill name forma un modismo con `a` (por
+ejemplo `a diario`, `a menudo`, `a veces`), Alexa puede interpretar
+mal la invocación y acabar anunciando el mensaje. El `invocationName`
+actual está elegido para no formar locución con `a` (`a bitácora` no
+significa nada en español) y para no chocar con features nativas
+(`agenda` → calendario, `lista`, `alarma`, etc.). Aun así, las
+rutinas o `abre` son más fiables.
+
+### Encadenar comandos en la misma sesión
+
+Tras cada operación, la skill **mantiene la sesión abierta** unos
+segundos, así que puedes encadenar sin reinvocar:
+
+```
+Tú: "Alexa, abre bitácora de gabita"
+Skill: "Sí, ¿cuántos mililitros?"
+Tú: "ciento veinte"
+Skill: "Apuntada toma de 120 mililitros. Han pasado 2 horas…"
+Tú: "hizo caca"
+Skill: "Apuntado pañal de caca…"
+Tú: (silencio ~8 s) → Alexa cierra la sesión
+```
+
+Para terminar antes di "para" o "cancela".
+
+La skill registra y consulta; **no borra**. Las correcciones/borrados
+se hacen desde la web o el agente MCP.
+
+## Voice cheat-sheet
 
 | Si dices…                                     | Pasa…                                                              |
 | --------------------------------------------- | ------------------------------------------------------------------ |
-| "tomó 120 mililitros"                         | `record_feeding(120)` (+ gap desde la anterior)                    |
+| "120" / "ciento veinte" / "120 mililitros" / "tomó 120 mililitros" | `record_feeding(120)` (+ gap desde la anterior) |
 | "hizo pis" / "hizo caca" / "las dos cosas"    | `record_diaper(...)`                                               |
 | "le di vitamina D" / "ya hicimos el baño"     | `record_routine("Vitamina D" / "Baño" / …)`                        |
 | "pesa cuatro kilos doscientos cincuenta"      | `record_weight(4250)`                                              |
 | "mide 53 centímetros"                         | `record_height(53)`                                                |
-| "anota que tiene granitos en la cara"         | `record_note("tiene granitos en la cara")`                         |
 | "cómo vamos" / "resumen de hoy"               | Resumen de tomas + pañales + rutinas + última toma                 |
 | "cuándo fue la última toma"                   | Hora y volumen de la última toma + cuánto hace                     |
 | "cuántos días tiene"                          | Edad de Gabita (días / semanas / meses)                            |
+
+Las notas libres (`anota que tiene granitos`) **no** están en el modelo de
+Alexa: usan `AMAZON.SearchQuery`, que es un atrapa-todo que captura cualquier
+frase y produce falsos positivos. Pasa esas notas por la web o por el
+agente MCP.
 
 Synonyms (pis ↔ pipí ↔ mojado, baño ↔ bañito ↔ ducha, etc.) live in the
 interaction model under `types[].values[].name.synonyms`.
@@ -46,7 +132,7 @@ be that URL + `/alexa`.
 
 1. Go to <https://developer.amazon.com/alexa/console/ask> and click
    **Create Skill**.
-2. **Skill name**: `Diario de Gabita`. **Primary locale**: `Spanish (ES)`.
+2. **Skill name**: `Bitácora de Gabita`. **Primary locale**: `Spanish (ES)`.
 3. **Experience**: *Other* → *Custom*. **Hosting**: *Provision your own*.
 4. **Template**: *Start from Scratch*.
 
@@ -89,7 +175,7 @@ skill or from a random client are also rejected.
 ### 6. Try it
 
 1. Alexa console → **Test** tab → switch to **Development** (top-left).
-2. Type or say: *abre diario de gabita*.
+2. Type or say: *abre bitácora de gabita*.
 3. Then: *tomó ciento veinte mililitros* → Alexa should answer something
    like "*Apuntada toma de 120 mililitros. Han pasado dos horas y diez
    minutos desde la anterior.*"

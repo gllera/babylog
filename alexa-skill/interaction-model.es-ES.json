@@ -1,7 +1,7 @@
 {
   "interactionModel": {
     "languageModel": {
-      "invocationName": "diario de gabita",
+      "invocationName": "bitácora de gabita",
       "intents": [
         { "name": "AMAZON.CancelIntent", "samples": [] },
         { "name": "AMAZON.HelpIntent", "samples": [] },
@@ -14,24 +14,16 @@
             { "name": "amount", "type": "AMAZON.NUMBER" }
           ],
           "samples": [
-            "anota {amount} mililitros",
-            "anota una toma de {amount}",
-            "anota una toma de {amount} mililitros",
-            "ha tomado {amount}",
-            "ha tomado {amount} mililitros",
-            "acaba de tomar {amount}",
-            "acaba de tomar {amount} mililitros",
-            "tomó {amount} mililitros",
-            "tomó {amount}",
-            "se ha tomado {amount}",
-            "se ha tomado {amount} mililitros",
-            "le he dado {amount} mililitros",
-            "le di {amount} mililitros",
-            "registra una toma de {amount}",
-            "registra {amount} mililitros",
+            "{amount}",
             "{amount} mililitros",
-            "{amount} mililitros de leche",
-            "una toma de {amount}",
+            "{amount} ml",
+            "tomó {amount}",
+            "tomó {amount} mililitros",
+            "ha tomado {amount} mililitros",
+            "acaba de tomar {amount} mililitros",
+            "le di {amount} mililitros",
+            "anota {amount} mililitros",
+            "registra {amount} mililitros",
             "una toma de {amount} mililitros"
           ]
         },
@@ -41,20 +33,12 @@
             { "name": "kind", "type": "DiaperKind" }
           ],
           "samples": [
-            "ha hecho {kind}",
             "hizo {kind}",
+            "ha hecho {kind}",
             "acaba de hacer {kind}",
-            "se acaba de hacer {kind}",
-            "ha hecho un pañal de {kind}",
             "anota un pañal de {kind}",
-            "anota pañal de {kind}",
-            "anota {kind}",
-            "registra {kind}",
             "registra un pañal de {kind}",
-            "registra un pañal con {kind}",
-            "pañal de {kind}",
-            "se hizo {kind}",
-            "ha sido {kind}"
+            "pañal de {kind}"
           ]
         },
         {
@@ -63,22 +47,12 @@
             { "name": "routine", "type": "Routine" }
           ],
           "samples": [
-            "le he dado {routine}",
             "le di {routine}",
             "ya le di {routine}",
+            "acabamos de hacer {routine}",
+            "ya hicimos {routine}",
             "anota {routine}",
             "registra {routine}",
-            "acabo de darle {routine}",
-            "le acabo de dar {routine}",
-            "hicimos {routine}",
-            "ya hicimos {routine}",
-            "ya hicimos el {routine}",
-            "ya hicimos la {routine}",
-            "ya tocó {routine}",
-            "acabamos de hacer {routine}",
-            "acabamos el {routine}",
-            "ya está el {routine}",
-            "ya está la {routine}",
             "registra una rutina de {routine}"
           ]
         },
@@ -94,19 +68,9 @@
             "pesa {kilos} kilos y {grams}",
             "pesa {kilos} kilos {grams} gramos",
             "pesa {kilos} kilos y {grams} gramos",
-            "pesa {kilos} kilos con {grams} gramos",
-            "ahora pesa {kilos} kilos",
-            "ahora pesa {kilos} kilos {grams}",
-            "ahora pesa {kilos} kilos y {grams}",
-            "ha pesado {kilos} kilos",
-            "ha pesado {kilos} kilos {grams}",
-            "anota {kilos} kilos",
             "anota un peso de {kilos} kilos",
             "anota un peso de {kilos} kilos {grams}",
-            "registra un peso de {kilos} kilos",
-            "registra un peso de {kilos} kilos {grams}",
-            "el peso es {kilos} kilos {grams}",
-            "el peso es {kilos} kilos y {grams}"
+            "registra un peso de {kilos} kilos {grams}"
           ]
         },
         {
@@ -116,34 +80,10 @@
           ],
           "samples": [
             "mide {cm} centímetros",
-            "mide {cm}",
-            "ahora mide {cm}",
             "ahora mide {cm} centímetros",
-            "anota una talla de {cm}",
             "anota una talla de {cm} centímetros",
-            "anota {cm} centímetros",
-            "su altura es {cm}",
-            "su altura es {cm} centímetros",
-            "la talla es {cm}",
             "la talla es {cm} centímetros",
-            "registra una talla de {cm}",
-            "registra {cm} centímetros"
-          ]
-        },
-        {
-          "name": "RecordNoteIntent",
-          "slots": [
-            { "name": "text", "type": "AMAZON.SearchQuery" }
-          ],
-          "samples": [
-            "anota que {text}",
-            "anota lo siguiente {text}",
-            "guarda una nota {text}",
-            "guarda la nota {text}",
-            "toma nota de que {text}",
-            "toma nota {text}",
-            "apunta que {text}",
-            "nota {text}"
+            "registra una talla de {cm} centímetros"
           ]
         },
         {
@@ -152,16 +92,10 @@
             "cómo vamos",
             "cómo vamos hoy",
             "cómo va el día",
-            "cómo va hoy",
             "qué tal vamos",
-            "qué tal el día",
-            "qué tal va el día",
-            "qué tal va hoy",
             "resumen",
             "resumen del día",
-            "resumen de hoy",
             "dame el resumen",
-            "dame un resumen",
             "cuéntame cómo va el día"
           ]
         },
@@ -172,8 +106,6 @@
             "cuándo tomó por última vez",
             "hace cuánto que comió",
             "hace cuánto que tomó",
-            "cuánto tiempo desde la última toma",
-            "cuándo comió por última vez",
             "última toma"
           ]
         },
@@ -183,10 +115,7 @@
             "cuántos días tiene",
             "cuántos días tiene gabita",
             "qué edad tiene",
-            "qué edad tiene gabita",
-            "cuánto tiempo tiene",
-            "cuánto tiempo tiene gabita",
-            "qué edad tiene la bebé"
+            "qué edad tiene gabita"
           ]
         }
       ],
