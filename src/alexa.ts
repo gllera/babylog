@@ -612,8 +612,11 @@ async function handleRecordRoutine(
   intent: AlexaIntent,
   env: AlexaEnv
 ): Promise<AlexaResponseEnvelope> {
+  // Alexa auto-generates an opaque `id` hash for every slot value when the
+  // interaction model doesn't set one explicitly. The Routine slot type
+  // defines no ids — only canonical name.value strings — so we read `name`
+  // directly and ignore `id` here.
   const name =
-    slotResolvedId(intent.slots?.routine) ??
     slotResolvedName(intent.slots?.routine) ??
     slotRaw(intent.slots?.routine);
   if (!name) {
