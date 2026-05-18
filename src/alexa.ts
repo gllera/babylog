@@ -479,14 +479,11 @@ async function route(
 }
 
 function handleLaunch(): AlexaResponseEnvelope {
-  return speak(
-    'Hola, soy el diario de Gabita. Puedes decir "tomó 120 mililitros", '
-      + '"hizo caca", "le di vitamina D" o "cómo vamos hoy". ¿Qué quieres registrar?',
-    {
-      endSession: false,
-      reprompt: 'Puedes decir, por ejemplo, "120 mililitros" o "hizo pis".',
-    }
-  );
+  return speak("Sí, ¿cuántos mililitros?", {
+    endSession: false,
+    reprompt:
+      'Dime los mililitros, o di "hizo caca", "le di vitamina D", "cómo vamos".',
+  });
 }
 
 async function dispatchIntent(
@@ -504,8 +501,6 @@ async function dispatchIntent(
       return handleRecordWeight(intent, env);
     case "RecordHeightIntent":
       return handleRecordHeight(intent, env);
-    case "RecordNoteIntent":
-      return handleRecordNote(intent, env);
     case "GetStatsIntent":
       return handleGetStats(env);
     case "LastFeedingIntent":
@@ -563,6 +558,8 @@ async function handleRecordFeeding(
   const tail = gapTailEs(prev, now, "la");
   return speak(`Apuntada toma de ${amountMl} mililitros.${tail}`, {
     cardTitle: "Toma registrada",
+    endSession: false,
+    reprompt: "¿Algo más?",
   });
 }
 
@@ -605,6 +602,8 @@ async function handleRecordDiaper(
   const tail = gapTailEs(prev, now, "el");
   return speak(`Apuntado pañal de ${diaperKindEs(kind)}.${tail}`, {
     cardTitle: "Pañal registrado",
+    endSession: false,
+    reprompt: "¿Algo más?",
   });
 }
 
@@ -638,7 +637,11 @@ async function handleRecordRoutine(
   );
 
   const tail = gapTailEs(prev, now, "la");
-  return speak(`Apuntado: ${name}.${tail}`, { cardTitle: "Rutina registrada" });
+  return speak(`Apuntado: ${name}.${tail}`, {
+    cardTitle: "Rutina registrada",
+    endSession: false,
+    reprompt: "¿Algo más?",
+  });
 }
 
 async function handleRecordWeight(
@@ -675,6 +678,8 @@ async function handleRecordWeight(
   const tail = prev ? deltaTailEs(totalG - prev.weight_g, "gramos", "pesada") : "";
   return speak(`Apuntado peso de ${totalG} gramos.${tail}`, {
     cardTitle: "Peso registrado",
+    endSession: false,
+    reprompt: "¿Algo más?",
   });
 }
 
@@ -701,22 +706,9 @@ async function handleRecordHeight(
   const tail = prev ? deltaTailEs(cmInt - prev.height_cm, "centímetros", "medida") : "";
   return speak(`Apuntada talla de ${cmInt} centímetros.${tail}`, {
     cardTitle: "Talla registrada",
+    endSession: false,
+    reprompt: "¿Algo más?",
   });
-}
-
-async function handleRecordNote(
-  intent: AlexaIntent,
-  env: AlexaEnv
-): Promise<AlexaResponseEnvelope> {
-  const text = slotRaw(intent.slots?.text);
-  if (!text) {
-    return speak("¿Qué quieres anotar?", { endSession: false });
-  }
-  const ts = new Date().toISOString();
-  await env.DB.prepare("INSERT INTO notes (ts, text) VALUES (?, ?)")
-    .bind(ts, text)
-    .run();
-  return speak(`Nota guardada: ${text}.`, { cardTitle: "Nota guardada" });
 }
 
 async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
@@ -776,7 +768,11 @@ async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
   if (feed.last_ts) {
     parts.push(`Última toma a las ${madridHHMM(feed.last_ts)}.`);
   }
-  return speak(parts.join(" "), { cardTitle: "Resumen de hoy" });
+  return speak(parts.join(" "), {
+    cardTitle: "Resumen de hoy",
+    endSession: false,
+    reprompt: "¿Algo más?",
+  });
 }
 
 async function handleLastFeeding(
@@ -786,13 +782,16 @@ async function handleLastFeeding(
     "SELECT ts, amount_ml FROM feedings ORDER BY ts DESC LIMIT 1"
   ).first<{ ts: string; amount_ml: number }>();
   if (!row) {
-    return speak("No tengo ninguna toma registrada todavía.");
+    return speak("No tengo ninguna toma registrada todavía.", {
+      endSession: false,
+      reprompt: "¿Algo más?",
+    });
   }
   const ago = humanGapEs(Date.now() - Date.parse(row.ts));
   const amount = Math.round(row.amount_ml);
   return speak(
     `La última toma fue hace ${ago}, a las ${madridHHMM(row.ts)}, de ${amount} mililitros.`,
-    { cardTitle: "Última toma" }
+    { cardTitle: "Última toma", endSession: false, reprompt: "¿Algo más?" }
   );
 }
 
@@ -803,12 +802,18 @@ async function handleGetProfile(
     "SELECT name, date_of_birth FROM profile WHERE id = 1"
   ).first<{ name: string | null; date_of_birth: string | null }>();
   if (!row?.date_of_birth) {
-    return speak("Todavía no he guardado la fecha de nacimiento.");
+    return speak("Todavía no he guardado la fecha de nacimiento.", {
+      endSession: false,
+      reprompt: "¿Algo más?",
+    });
   }
   const parts = computeAgeParts(row.date_of_birth);
   const name = row.name ?? "Gabita";
   if (!parts) {
-    return speak(`${name} aún no ha nacido.`);
+    return speak(`${name} aún no ha nacido.`, {
+      endSession: false,
+      reprompt: "¿Algo más?",
+    });
   }
   const { days, weeks, remDays, years, months } = parts;
   if (days < 60) {
@@ -821,10 +826,18 @@ async function handleGetProfile(
           ? ` (${w} y ${remDays} ${pluralEs(remDays, "día", "días")})`
           : ` (${w})`;
     }
-    return speak(`${name} tiene ${dStr}${weeksStr}.`, { cardTitle: "Edad" });
+    return speak(`${name} tiene ${dStr}${weeksStr}.`, {
+      cardTitle: "Edad",
+      endSession: false,
+      reprompt: "¿Algo más?",
+    });
   }
   const ageParts: string[] = [];
   if (years > 0) ageParts.push(`${years} ${pluralEs(years, "año", "años")}`);
   if (months > 0) ageParts.push(`${months} ${pluralEs(months, "mes", "meses")}`);
-  return speak(`${name} tiene ${ageParts.join(" y ")}.`, { cardTitle: "Edad" });
+  return speak(`${name} tiene ${ageParts.join(" y ")}.`, {
+    cardTitle: "Edad",
+    endSession: false,
+    reprompt: "¿Algo más?",
+  });
 }
