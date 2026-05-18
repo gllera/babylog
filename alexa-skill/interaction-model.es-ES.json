@@ -140,21 +140,29 @@
           "values": [
             {
               "name": {
-                "value": "Vitamina D",
+                "value": "Vitamin D",
                 "synonyms": [
                   "vit d",
                   "vitamina d",
                   "vitamina de",
+                  "vitamina",
                   "gotas de vitamina",
-                  "gotas de vitamina d",
-                  "vitamina"
+                  "gotas de vitamina d"
                 ]
               }
             },
             {
               "name": {
-                "value": "Baño",
-                "synonyms": ["bañito", "bano", "la bañera", "el baño", "la ducha", "ducha"]
+                "value": "Bath",
+                "synonyms": [
+                  "baño",
+                  "bañito",
+                  "bano",
+                  "la bañera",
+                  "el baño",
+                  "la ducha",
+                  "ducha"
+                ]
               }
             },
             {
@@ -171,7 +179,7 @@
             },
             {
               "name": {
-                "value": "Paseo",
+                "value": "Walk",
                 "synonyms": ["paseo", "paseíto", "paseito", "paseo afuera", "salida"]
               }
             },
@@ -183,25 +191,25 @@
             },
             {
               "name": {
-                "value": "Ibuprofeno",
+                "value": "Ibuprofen",
                 "synonyms": ["ibuprofeno", "ibu", "dalsy"]
               }
             },
             {
               "name": {
-                "value": "Pomada",
+                "value": "Cream",
                 "synonyms": ["pomada", "crema", "crema del culete"]
               }
             },
             {
               "name": {
-                "value": "Jarabe",
+                "value": "Syrup",
                 "synonyms": ["jarabe"]
               }
             },
             {
               "name": {
-                "value": "Masaje",
+                "value": "Massage",
                 "synonyms": ["masaje", "masajito", "el masaje"]
               }
             }
