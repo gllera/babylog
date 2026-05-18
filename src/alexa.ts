@@ -613,8 +613,6 @@ async function handleRecordFeeding(
   const tail = gapTailEs(prev, now);
   return speak(`${amountMl} mililitros${tail}.`, {
     cardTitle: "Toma registrada",
-    endSession: false,
-    reprompt: "¿Algo más?",
   });
 }
 
@@ -657,8 +655,6 @@ async function handleRecordDiaper(
   const tail = gapTailEs(prev, now);
   return speak(`${diaperKindEs(kind)}${tail}.`, {
     cardTitle: "Pañal registrado",
-    endSession: false,
-    reprompt: "¿Algo más?",
   });
 }
 
@@ -697,8 +693,6 @@ async function handleRecordRoutine(
   const tail = gapTailEs(prev, now);
   return speak(`${routineDisplayEs(name)}${tail}.`, {
     cardTitle: "Rutina registrada",
-    endSession: false,
-    reprompt: "¿Algo más?",
   });
 }
 
@@ -759,11 +753,7 @@ async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
   if (feed.last_ts) {
     parts.push(`Última toma a las ${madridHHMM(feed.last_ts)}.`);
   }
-  return speak(parts.join(" "), {
-    cardTitle: "Resumen de hoy",
-    endSession: false,
-    reprompt: "¿Algo más?",
-  });
+  return speak(parts.join(" "), { cardTitle: "Resumen de hoy" });
 }
 
 async function handleLastFeeding(
@@ -773,16 +763,13 @@ async function handleLastFeeding(
     "SELECT ts, amount_ml FROM feedings ORDER BY ts DESC LIMIT 1"
   ).first<{ ts: string; amount_ml: number }>();
   if (!row) {
-    return speak("No tengo ninguna toma registrada todavía.", {
-      endSession: false,
-      reprompt: "¿Algo más?",
-    });
+    return speak("No tengo ninguna toma registrada todavía.");
   }
   const ago = humanGapEs(Date.now() - Date.parse(row.ts));
   const amount = Math.round(row.amount_ml);
   return speak(
     `La última toma fue hace ${ago}, a las ${madridHHMM(row.ts)}, de ${amount} mililitros.`,
-    { cardTitle: "Última toma", endSession: false, reprompt: "¿Algo más?" }
+    { cardTitle: "Última toma" }
   );
 }
 
