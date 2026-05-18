@@ -2,9 +2,8 @@
 // Alexa Custom Skill endpoint (Spanish).
 //
 // Exposes /alexa on the same Worker so an Alexa skill can record feedings,
-// diapers, routines, weights, heights and notes, and ask "how is the day
-// going" — all by voice. The skill's interaction model lives in
-// `alexa-skill/interaction-model.es-ES.json`.
+// diapers and routines, and ask "how is the day going" — all by voice. The
+// skill's interaction model lives in `alexa-skill/interaction-model.es-ES.json`.
 //
 // Auth: every Alexa request includes the skill's `applicationId`. We compare
 // it against `ALEXA_APPLICATION_ID` (a wrangler secret). If `Signature` and
@@ -14,7 +13,7 @@
 // -----------------------------------------------------------------------------
 
 import { X509Certificate, createVerify } from "node:crypto";
-import { computeAgeParts, insertAndLookupPrev } from "./lib";
+import { insertAndLookupPrev } from "./lib";
 
 export type AlexaEnv = {
   DB: D1Database;
@@ -245,17 +244,10 @@ function diaperKindEs(kind: DiaperKind): string {
 
 function gapTailEs(
   prev: { ts: string } | undefined,
-  now: number,
-  article: "la" | "el"
+  now: number
 ): string {
   if (!prev) return "";
-  return ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde ${article} anterior.`;
-}
-
-function deltaTailEs(delta: number, unit: string, referent: string): string {
-  if (delta === 0) return ` Igual que la ${referent} anterior.`;
-  const sign = delta > 0 ? "más" : "menos";
-  return ` ${Math.abs(delta)} ${unit} ${sign} que la ${referent} anterior.`;
+  return `, ${humanGapEs(now - Date.parse(prev.ts))}`;
 }
 
 // Some words need agreement; "tomas" is feminine plural, "pañal" is masculine.
@@ -497,23 +489,15 @@ async function dispatchIntent(
       return handleRecordDiaper(intent, env);
     case "RecordRoutineIntent":
       return handleRecordRoutine(intent, env);
-    case "RecordWeightIntent":
-      return handleRecordWeight(intent, env);
-    case "RecordHeightIntent":
-      return handleRecordHeight(intent, env);
     case "GetStatsIntent":
       return handleGetStats(env);
     case "LastFeedingIntent":
       return handleLastFeeding(env);
-    case "GetProfileIntent":
-      return handleGetProfile(env);
     case "AMAZON.HelpIntent":
       return speak(
-        'Puedes registrar tomas diciendo "tomó 120 mililitros"; pañales '
-          + 'con "hizo pis", "hizo caca" o "las dos cosas"; rutinas como "le di '
-          + 'vitamina D" o "ya hicimos el baño"; peso con "pesa cuatro kilos '
-          + 'doscientos cincuenta", o consultar el día con "cómo vamos". ¿Qué '
-          + "quieres hacer?",
+        'Di solo el número para registrar una toma, "hizo pis" o "hizo caca" '
+          + 'para un pañal, "le di vitamina D" o "ya hicimos el baño" para una '
+          + 'rutina, o "cómo vamos" para el resumen del día. ¿Qué quieres hacer?',
         { endSession: false, reprompt: "Dime qué quieres registrar." }
       );
     case "AMAZON.CancelIntent":
@@ -555,8 +539,8 @@ async function handleRecordFeeding(
     ).bind(ts, amountMl)
   );
 
-  const tail = gapTailEs(prev, now, "la");
-  return speak(`Apuntada toma de ${amountMl} mililitros.${tail}`, {
+  const tail = gapTailEs(prev, now);
+  return speak(`${amountMl} mililitros${tail}.`, {
     cardTitle: "Toma registrada",
     endSession: false,
     reprompt: "¿Algo más?",
@@ -599,8 +583,8 @@ async function handleRecordDiaper(
     ).bind(ts, kind)
   );
 
-  const tail = gapTailEs(prev, now, "el");
-  return speak(`Apuntado pañal de ${diaperKindEs(kind)}.${tail}`, {
+  const tail = gapTailEs(prev, now);
+  return speak(`${diaperKindEs(kind)}${tail}.`, {
     cardTitle: "Pañal registrado",
     endSession: false,
     reprompt: "¿Algo más?",
@@ -636,76 +620,9 @@ async function handleRecordRoutine(
     ).bind(ts, name)
   );
 
-  const tail = gapTailEs(prev, now, "la");
-  return speak(`Apuntado: ${name}.${tail}`, {
+  const tail = gapTailEs(prev, now);
+  return speak(`${name}${tail}.`, {
     cardTitle: "Rutina registrada",
-    endSession: false,
-    reprompt: "¿Algo más?",
-  });
-}
-
-async function handleRecordWeight(
-  intent: AlexaIntent,
-  env: AlexaEnv
-): Promise<AlexaResponseEnvelope> {
-  const kilos = slotNumber(intent.slots?.kilos);
-  const grams = slotNumber(intent.slots?.grams);
-  let totalG: number | undefined;
-  if (kilos !== undefined && grams !== undefined) {
-    totalG = Math.round(kilos * 1000 + grams);
-  } else if (kilos !== undefined) {
-    totalG = Math.round(kilos * 1000);
-  } else if (grams !== undefined) {
-    totalG = Math.round(grams);
-  }
-  if (totalG === undefined || totalG <= 0) {
-    return speak(
-      "¿Cuánto pesa? Dime los kilos, por ejemplo, cuatro kilos doscientos cincuenta.",
-      { endSession: false }
-    );
-  }
-  const ts = new Date().toISOString();
-  const { prev } = await insertAndLookupPrev<{ weight_g: number }>(
-    env.DB,
-    env.DB.prepare(
-      "SELECT weight_g FROM weights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-    ).bind(ts),
-    env.DB.prepare(
-      "INSERT INTO weights (ts, weight_g) VALUES (?, ?) RETURNING id"
-    ).bind(ts, totalG)
-  );
-
-  const tail = prev ? deltaTailEs(totalG - prev.weight_g, "gramos", "pesada") : "";
-  return speak(`Apuntado peso de ${totalG} gramos.${tail}`, {
-    cardTitle: "Peso registrado",
-    endSession: false,
-    reprompt: "¿Algo más?",
-  });
-}
-
-async function handleRecordHeight(
-  intent: AlexaIntent,
-  env: AlexaEnv
-): Promise<AlexaResponseEnvelope> {
-  const cm = slotNumber(intent.slots?.cm);
-  if (cm === undefined || cm <= 0) {
-    return speak("¿Cuánto mide en centímetros?", { endSession: false });
-  }
-  const cmInt = Math.round(cm);
-  const ts = new Date().toISOString();
-  const { prev } = await insertAndLookupPrev<{ height_cm: number }>(
-    env.DB,
-    env.DB.prepare(
-      "SELECT height_cm FROM heights WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-    ).bind(ts),
-    env.DB.prepare(
-      "INSERT INTO heights (ts, height_cm) VALUES (?, ?) RETURNING id"
-    ).bind(ts, cmInt)
-  );
-
-  const tail = prev ? deltaTailEs(cmInt - prev.height_cm, "centímetros", "medida") : "";
-  return speak(`Apuntada talla de ${cmInt} centímetros.${tail}`, {
-    cardTitle: "Talla registrada",
     endSession: false,
     reprompt: "¿Algo más?",
   });
@@ -795,49 +712,3 @@ async function handleLastFeeding(
   );
 }
 
-async function handleGetProfile(
-  env: AlexaEnv
-): Promise<AlexaResponseEnvelope> {
-  const row = await env.DB.prepare(
-    "SELECT name, date_of_birth FROM profile WHERE id = 1"
-  ).first<{ name: string | null; date_of_birth: string | null }>();
-  if (!row?.date_of_birth) {
-    return speak("Todavía no he guardado la fecha de nacimiento.", {
-      endSession: false,
-      reprompt: "¿Algo más?",
-    });
-  }
-  const parts = computeAgeParts(row.date_of_birth);
-  const name = row.name ?? "Gabita";
-  if (!parts) {
-    return speak(`${name} aún no ha nacido.`, {
-      endSession: false,
-      reprompt: "¿Algo más?",
-    });
-  }
-  const { days, weeks, remDays, years, months } = parts;
-  if (days < 60) {
-    const dStr = `${days} ${pluralEs(days, "día", "días")}`;
-    let weeksStr = "";
-    if (weeks > 0) {
-      const w = `${weeks} ${pluralEs(weeks, "semana", "semanas")}`;
-      weeksStr =
-        remDays > 0
-          ? ` (${w} y ${remDays} ${pluralEs(remDays, "día", "días")})`
-          : ` (${w})`;
-    }
-    return speak(`${name} tiene ${dStr}${weeksStr}.`, {
-      cardTitle: "Edad",
-      endSession: false,
-      reprompt: "¿Algo más?",
-    });
-  }
-  const ageParts: string[] = [];
-  if (years > 0) ageParts.push(`${years} ${pluralEs(years, "año", "años")}`);
-  if (months > 0) ageParts.push(`${months} ${pluralEs(months, "mes", "meses")}`);
-  return speak(`${name} tiene ${ageParts.join(" y ")}.`, {
-    cardTitle: "Edad",
-    endSession: false,
-    reprompt: "¿Algo más?",
-  });
-}

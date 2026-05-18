@@ -53,7 +53,7 @@ basta con decir el número:
 Tú: "Alexa, abre bitácora de gabita"
 Skill: "Sí, ¿cuántos mililitros?"
 Tú: "ciento setenta y cinco"
-Skill: "Apuntada toma de 175 mililitros…"
+Skill: "175 mililitros, dos horas y diez minutos."
 ```
 
 Si querías un pañal/rutina/resumen, dilo igual ("hizo caca", "cómo
@@ -81,9 +81,9 @@ segundos, así que puedes encadenar sin reinvocar:
 Tú: "Alexa, abre bitácora de gabita"
 Skill: "Sí, ¿cuántos mililitros?"
 Tú: "ciento veinte"
-Skill: "Apuntada toma de 120 mililitros. Han pasado 2 horas…"
+Skill: "120 mililitros, 2 horas."
 Tú: "hizo caca"
-Skill: "Apuntado pañal de caca…"
+Skill: "caca, 5 horas."
 Tú: (silencio ~8 s) → Alexa cierra la sesión
 ```
 
@@ -99,16 +99,13 @@ se hacen desde la web o el agente MCP.
 | "120" / "ciento veinte" / "120 mililitros" / "tomó 120 mililitros" | `record_feeding(120)` (+ gap desde la anterior) |
 | "hizo pis" / "hizo caca" / "las dos cosas"    | `record_diaper(...)`                                               |
 | "le di vitamina D" / "ya hicimos el baño"     | `record_routine("Vitamina D" / "Baño" / …)`                        |
-| "pesa cuatro kilos doscientos cincuenta"      | `record_weight(4250)`                                              |
-| "mide 53 centímetros"                         | `record_height(53)`                                                |
 | "cómo vamos" / "resumen de hoy"               | Resumen de tomas + pañales + rutinas + última toma                 |
 | "cuándo fue la última toma"                   | Hora y volumen de la última toma + cuánto hace                     |
-| "cuántos días tiene"                          | Edad de Gabita (días / semanas / meses)                            |
 
-Las notas libres (`anota que tiene granitos`) **no** están en el modelo de
-Alexa: usan `AMAZON.SearchQuery`, que es un atrapa-todo que captura cualquier
-frase y produce falsos positivos. Pasa esas notas por la web o por el
-agente MCP.
+La skill **solo expone los intents de uso frecuente por voz**: tomas,
+pañales, rutinas, resumen y última toma. Pesos, tallas, notas libres y
+edad se gestionan por la web (`/app`) o el agente MCP — operaciones raras
+o con precisión que casa mal con ASR.
 
 Synonyms (pis ↔ pipí ↔ mojado, baño ↔ bañito ↔ ducha, etc.) live in the
 interaction model under `types[].values[].name.synonyms`.
@@ -177,8 +174,7 @@ skill or from a random client are also rejected.
 1. Alexa console → **Test** tab → switch to **Development** (top-left).
 2. Type or say: *abre bitácora de gabita*.
 3. Then: *tomó ciento veinte mililitros* → Alexa should answer something
-   like "*Apuntada toma de 120 mililitros. Han pasado dos horas y diez
-   minutos desde la anterior.*"
+   like "*120 mililitros, dos horas y diez minutos.*"
 4. Check `/app` in your browser — the entry is already there.
 
 When happy, link the skill to your real Echo by enabling it under the

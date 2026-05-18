@@ -57,36 +57,6 @@
           ]
         },
         {
-          "name": "RecordWeightIntent",
-          "slots": [
-            { "name": "kilos", "type": "AMAZON.NUMBER" },
-            { "name": "grams", "type": "AMAZON.NUMBER" }
-          ],
-          "samples": [
-            "pesa {kilos} kilos",
-            "pesa {kilos} kilos {grams}",
-            "pesa {kilos} kilos y {grams}",
-            "pesa {kilos} kilos {grams} gramos",
-            "pesa {kilos} kilos y {grams} gramos",
-            "anota un peso de {kilos} kilos",
-            "anota un peso de {kilos} kilos {grams}",
-            "registra un peso de {kilos} kilos {grams}"
-          ]
-        },
-        {
-          "name": "RecordHeightIntent",
-          "slots": [
-            { "name": "cm", "type": "AMAZON.NUMBER" }
-          ],
-          "samples": [
-            "mide {cm} centímetros",
-            "ahora mide {cm} centímetros",
-            "anota una talla de {cm} centímetros",
-            "la talla es {cm} centímetros",
-            "registra una talla de {cm} centímetros"
-          ]
-        },
-        {
           "name": "GetStatsIntent",
           "samples": [
             "cómo vamos",
@@ -107,15 +77,6 @@
             "hace cuánto que comió",
             "hace cuánto que tomó",
             "última toma"
-          ]
-        },
-        {
-          "name": "GetProfileIntent",
-          "samples": [
-            "cuántos días tiene",
-            "cuántos días tiene gabita",
-            "qué edad tiene",
-            "qué edad tiene gabita"
           ]
         }
       ],
