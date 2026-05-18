@@ -72,22 +72,16 @@ significa nada en español) y para no chocar con features nativas
 (`agenda` → calendario, `lista`, `alarma`, etc.). Aun así, las
 rutinas o `abre` son más fiables.
 
-### Encadenar comandos en la misma sesión
+### Una operación por sesión
 
-Tras cada operación, la skill **mantiene la sesión abierta** unos
-segundos, así que puedes encadenar sin reinvocar:
+Cada registro o consulta exitoso **cierra la sesión inmediatamente** — no
+hay "¿algo más?". Si quieres registrar varias cosas seguidas, repite la
+invocación (o, mejor, configura una rutina por cantidad para que cada
+toma sea 1 utterance corta — ver más arriba).
 
-```
-Tú: "Alexa, abre bitácora de gabita"
-Skill: "Sí, ¿cuántos mililitros?"
-Tú: "ciento veinte"
-Skill: "120 mililitros, 2 horas."
-Tú: "hizo caca"
-Skill: "caca, 5 horas."
-Tú: (silencio ~8 s) → Alexa cierra la sesión
-```
-
-Para terminar antes di "para" o "cancela".
+La sesión solo queda abierta cuando la skill **necesita más info** para
+completar la operación en curso, p. ej. dijiste "le di" sin nombrar la
+rutina y te pregunta "¿qué rutina?"; ahí esperará tu respuesta.
 
 La skill registra y consulta; **no borra**. Las correcciones/borrados
 se hacen desde la web o el agente MCP.
