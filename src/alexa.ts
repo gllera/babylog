@@ -246,10 +246,9 @@ function diaperKindEs(kind: DiaperKind): string {
 function gapTailEs(
   prev: { ts: string } | undefined,
   now: number,
-  feminine: boolean
+  article: "la" | "el"
 ): string {
   if (!prev) return "";
-  const article = feminine ? "la" : "el";
   return ` Han pasado ${humanGapEs(now - Date.parse(prev.ts))} desde ${article} anterior.`;
 }
 
@@ -561,7 +560,7 @@ async function handleRecordFeeding(
     ).bind(ts, amountMl)
   );
 
-  const tail = gapTailEs(prev, now, true);
+  const tail = gapTailEs(prev, now, "la");
   return speak(`Apuntada toma de ${amountMl} mililitros.${tail}`, {
     cardTitle: "Toma registrada",
   });
@@ -603,7 +602,7 @@ async function handleRecordDiaper(
     ).bind(ts, kind)
   );
 
-  const tail = gapTailEs(prev, now, false);
+  const tail = gapTailEs(prev, now, "el");
   return speak(`Apuntado pañal de ${diaperKindEs(kind)}.${tail}`, {
     cardTitle: "Pañal registrado",
   });
@@ -635,7 +634,7 @@ async function handleRecordRoutine(
     ).bind(ts, name)
   );
 
-  const tail = gapTailEs(prev, now, true);
+  const tail = gapTailEs(prev, now, "la");
   return speak(`Apuntado: ${name}.${tail}`, { cardTitle: "Rutina registrada" });
 }
 
