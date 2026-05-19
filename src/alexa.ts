@@ -321,22 +321,6 @@ function gapTailEs(
   return `, ${humanGapEs(now - Date.parse(prev.ts))}`;
 }
 
-// Some words need agreement; "tomas" is feminine plural, "pañal" is masculine.
-function feedingCountEs(n: number, totalMl: number): string {
-  if (n === 0) return "ninguna toma";
-  if (n === 1) return `una toma de ${totalMl} mililitros`;
-  return `${n} tomas con un total de ${totalMl} mililitros`;
-}
-
-function diaperBreakdownEs(pee: number, poop: number): string {
-  const parts: string[] = [];
-  if (pee > 0) parts.push(pee === 1 ? "un pis" : `${pee} pises`);
-  if (poop > 0) parts.push(poop === 1 ? "una caca" : `${poop} cacas`);
-  if (parts.length === 0) return "ningún pañal";
-  if (parts.length === 1) return parts[0];
-  return `${parts[0]} y ${parts[1]}`;
-}
-
 // ---- Request verification --------------------------------------------------
 
 const SIG_HEADER_KEYS = ["signature", "Signature"] as const;
@@ -739,19 +723,42 @@ async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
   const routines = routineAgg.results as Array<{ name: string; n: number }>;
 
   const parts: string[] = [];
-  parts.push(`Hoy llevamos ${feedingCountEs(feed.n, Math.round(feed.total))}.`);
-  parts.push(
-    `Pañales: ${diaperBreakdownEs(diaper.pee_n ?? 0, diaper.poop_n ?? 0)}.`
-  );
+
+  if (feed.n > 0) {
+    const total = Math.round(feed.total);
+    parts.push(
+      feed.n === 1
+        ? `1 toma, ${total} mililitros.`
+        : `${feed.n} tomas, ${total} mililitros.`
+    );
+  }
+
+  const pee = diaper.pee_n ?? 0;
+  const poop = diaper.poop_n ?? 0;
+  if (pee > 0 || poop > 0) {
+    const dp: string[] = [];
+    if (pee > 0) dp.push(pee === 1 ? "1 pis" : `${pee} pises`);
+    if (poop > 0) dp.push(poop === 1 ? "1 caca" : `${poop} cacas`);
+    parts.push(`${dp.join(", ")}.`);
+  }
+
   if (routines.length > 0) {
     const r = routines
       .slice(0, 3)
-      .map((x) => (x.n === 1 ? x.name : `${x.name} (${x.n})`))
+      .map((x) => {
+        const d = routineDisplayEs(x.name);
+        return x.n === 1 ? d : `${d} ${x.n} veces`;
+      })
       .join(", ");
-    parts.push(`Rutinas: ${r}.`);
+    parts.push(`${r}.`);
   }
+
   if (feed.last_ts) {
-    parts.push(`Última toma a las ${madridHHMM(feed.last_ts)}.`);
+    parts.push(`Última a las ${madridHHMM(feed.last_ts)}.`);
+  }
+
+  if (parts.length === 0) {
+    return speak("Sin registros hoy.", { cardTitle: "Resumen de hoy" });
   }
   return speak(parts.join(" "), { cardTitle: "Resumen de hoy" });
 }
