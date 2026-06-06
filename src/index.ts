@@ -3667,6 +3667,7 @@ ${WHEN_BLOCK}
         tabs[j].classList.toggle("active", tabs[j].id === "tab-" + name);
       }
       closeMoreDropdown();
+      try { history.replaceState(null, "", "#" + name); } catch (_) {}
       if (name === "today") {
         loadDashboard();
       } else if (entities[name]) {
@@ -3935,7 +3936,13 @@ ${WHEN_BLOCK}
       }
     });
 
-    showTab("today");
+    // Restore the tab from the URL hash so a refresh keeps the selected tab.
+    function tabFromHash() {
+      var h = (location.hash || "").replace(/^#/, "");
+      return (h === "today" || entities[h]) ? h : "today";
+    }
+    window.addEventListener("hashchange", function() { showTab(tabFromHash()); });
+    showTab(tabFromHash());
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
