@@ -2677,6 +2677,52 @@ const APP_HTML = `<!DOCTYPE html>
       color: var(--muted);
       font-style: italic;
     }
+    .week-chart {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .week-chart .card-title { margin-bottom: 12px; }
+    .chart-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      height: 160px;
+    }
+    .chart-bar {
+      flex: 1 1 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      height: 100%;
+      min-width: 0;
+    }
+    .chart-bar-val {
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      margin-bottom: 4px;
+      white-space: nowrap;
+    }
+    .chart-bar-fill {
+      width: 100%;
+      max-width: 44px;
+      background: var(--primary);
+      border-radius: 4px 4px 0 0;
+      min-height: 2px;
+      transition: height .2s;
+    }
+    .chart-bar.today .chart-bar-fill { background: var(--primary-dark); }
+    .chart-bar-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 6px;
+      white-space: nowrap;
+    }
+    .chart-bar.today .chart-bar-label { color: var(--text); font-weight: 700; }
     .quick-row {
       display: flex;
       gap: 8px;
@@ -2911,6 +2957,10 @@ ${WHEN_BLOCK}
         </label>
         <button type="submit">Add</button>
       </form>
+      <div class="week-chart" id="feedings-chart">
+        <div class="card-title">This week &mdash; ml per day</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
       <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
     </section>
 
@@ -3149,6 +3199,63 @@ ${WHEN_BLOCK}
         if (err.message === "Unauthorized") return;
         container.innerHTML = '<div class="list-empty">Error loading: ' + escapeHtml(err.message) + "</div>";
       }
+      if (entity === "feedings") loadFeedingChart();
+    }
+
+    // --- Weekly feeding chart (ml per day, current week, Mon-Sun) ---
+    function startOfWeek() {
+      var d = startOfDay();
+      var dow = (d.getDay() + 6) % 7; // 0 = Monday
+      d.setDate(d.getDate() - dow);
+      return d;
+    }
+
+    var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    async function loadFeedingChart() {
+      var el = document.getElementById("feedings-chart");
+      if (!el) return;
+      var weekStart = startOfWeek();
+      var weekEnd = new Date(weekStart.getTime());
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      var qs = "since=" + encodeURIComponent(weekStart.toISOString()) +
+        "&until=" + encodeURIComponent(weekEnd.toISOString()) + "&limit=500";
+      try {
+        var data = await fetchJson("/api/feedings?" + qs);
+        renderFeedingChart(el, data.items || [], weekStart);
+      } catch (err) {
+        if (err.message === "Unauthorized") return;
+        el.innerHTML = '<div class="card-title">This week &mdash; ml per day</div>' +
+          '<div class="card-empty">Error loading chart: ' + escapeHtml(err.message) + '</div>';
+      }
+    }
+
+    function renderFeedingChart(el, items, weekStart) {
+      var totals = [0, 0, 0, 0, 0, 0, 0];
+      for (var i = 0; i < items.length; i++) {
+        var d = new Date(items[i].ts);
+        if (isNaN(d.getTime())) continue;
+        var idx = Math.floor((d.getTime() - weekStart.getTime()) / 86400000);
+        if (idx < 0 || idx > 6) continue;
+        var n = Number(items[i].amount_ml);
+        if (isFinite(n)) totals[idx] += n;
+      }
+      var max = 0;
+      for (var m = 0; m < 7; m++) if (totals[m] > max) max = totals[m];
+      var todayIdx = Math.floor((startOfDay().getTime() - weekStart.getTime()) / 86400000);
+      var bars = "";
+      for (var b = 0; b < 7; b++) {
+        var pct = max > 0 ? Math.round((totals[b] / max) * 100) : 0;
+        var ml = totals[b];
+        var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
+        bars += '<div class="chart-bar' + (b === todayIdx ? " today" : "") + '">' +
+          '<div class="chart-bar-val">' + (ml > 0 ? escapeHtml(mlStr) : "") + '</div>' +
+          '<div class="chart-bar-fill" style="height:' + pct + '%"></div>' +
+          '<div class="chart-bar-label">' + WEEK_DAY_LABELS[b] + '</div>' +
+        '</div>';
+      }
+      el.innerHTML = '<div class="card-title">This week &mdash; ml per day</div>' +
+        '<div class="chart-bars">' + bars + '</div>';
     }
 
     function renderList(entity, items) {
