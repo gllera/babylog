@@ -2677,6 +2677,76 @@ const APP_HTML = `<!DOCTYPE html>
       color: var(--muted);
       font-style: italic;
     }
+    .week-chart {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .chart-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chart-head .card-title { margin: 0; flex: 1; text-align: center; }
+    .chart-nav {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      font-family: inherit;
+    }
+    .chart-nav:hover:not(:disabled) { background: #f0f0f0; }
+    .chart-nav:disabled { opacity: 0.35; cursor: not-allowed; }
+    .chart-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      height: 160px;
+    }
+    .chart-bar {
+      flex: 1 1 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      height: 100%;
+      min-width: 0;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .chart-bar:hover { background: #f5f5f5; }
+    .chart-bar.selected { background: #eaf2ff; }
+    .chart-bar.selected .chart-bar-label { color: var(--primary); font-weight: 700; }
+    .chart-bar-val {
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      margin-bottom: 4px;
+      white-space: nowrap;
+    }
+    .chart-bar-fill {
+      width: 100%;
+      max-width: 44px;
+      background: var(--primary);
+      border-radius: 4px 4px 0 0;
+      min-height: 2px;
+      transition: height .2s;
+    }
+    .chart-bar.today .chart-bar-fill { background: var(--primary-dark); }
+    .chart-bar-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 6px;
+      white-space: nowrap;
+    }
+    .chart-bar.today .chart-bar-label { color: var(--text); font-weight: 700; }
     .quick-row {
       display: flex;
       gap: 8px;
@@ -2911,6 +2981,10 @@ ${WHEN_BLOCK}
         </label>
         <button type="submit">Add</button>
       </form>
+      <div class="week-chart" id="feedings-chart">
+        <div class="card-title">This week &mdash; ml per day</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
       <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
     </section>
 
@@ -3140,6 +3214,7 @@ ${WHEN_BLOCK}
     }
 
     async function loadList(entity) {
+      if (entity === "feedings") return loadFeedingWeek();
       var cfg = entities[entity];
       var container = document.getElementById("list-" + entity);
       try {
@@ -3148,6 +3223,132 @@ ${WHEN_BLOCK}
       } catch (err) {
         if (err.message === "Unauthorized") return;
         container.innerHTML = '<div class="list-empty">Error loading: ' + escapeHtml(err.message) + "</div>";
+      }
+    }
+
+    // --- Weekly feeding chart (ml per day, Mon-Sun) + day filter for the list ---
+    function startOfWeek() {
+      var d = startOfDay();
+      var dow = (d.getDay() + 6) % 7; // 0 = Monday
+      d.setDate(d.getDate() - dow);
+      return d;
+    }
+
+    var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    var feedWeekStart = startOfWeek();
+    var feedSelectedDay = null; // 0-6, or null for the whole week
+    var feedWeekItems = [];
+
+    function fmtDayMonth(d) {
+      var pad = function(n) { return n < 10 ? "0" + n : String(n); };
+      return pad(d.getDate()) + "/" + pad(d.getMonth() + 1);
+    }
+
+    async function loadFeedingWeek() {
+      var el = document.getElementById("feedings-chart");
+      if (!el) return;
+      var weekEnd = new Date(feedWeekStart.getTime());
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      var qs = "since=" + encodeURIComponent(feedWeekStart.toISOString()) +
+        "&until=" + encodeURIComponent(weekEnd.toISOString()) + "&limit=500";
+      try {
+        var data = await fetchJson("/api/feedings?" + qs);
+        feedWeekItems = data.items || [];
+        renderFeedingWeek();
+      } catch (err) {
+        if (err.message === "Unauthorized") return;
+        el.innerHTML = '<div class="card-title">This week &mdash; ml per day</div>' +
+          '<div class="card-empty">Error loading chart: ' + escapeHtml(err.message) + '</div>';
+      }
+    }
+
+    function renderFeedingWeek() {
+      renderFeedingChart(document.getElementById("feedings-chart"));
+      renderFeedingList();
+    }
+
+    function renderFeedingChart(el) {
+      var totals = [0, 0, 0, 0, 0, 0, 0];
+      for (var i = 0; i < feedWeekItems.length; i++) {
+        var d = new Date(feedWeekItems[i].ts);
+        if (isNaN(d.getTime())) continue;
+        var idx = Math.floor((d.getTime() - feedWeekStart.getTime()) / 86400000);
+        if (idx < 0 || idx > 6) continue;
+        var n = Number(feedWeekItems[i].amount_ml);
+        if (isFinite(n)) totals[idx] += n;
+      }
+      var max = 0;
+      for (var m = 0; m < 7; m++) if (totals[m] > max) max = totals[m];
+      var todayIdx = Math.floor((startOfDay().getTime() - feedWeekStart.getTime()) / 86400000);
+      var bars = "";
+      for (var b = 0; b < 7; b++) {
+        var pct = max > 0 ? Math.round((totals[b] / max) * 100) : 0;
+        var ml = totals[b];
+        var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
+        var cls = "chart-bar";
+        if (b === todayIdx) cls += " today";
+        if (b === feedSelectedDay) cls += " selected";
+        bars += '<div class="' + cls + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === feedSelectedDay) + '">' +
+          '<div class="chart-bar-val">' + (ml > 0 ? escapeHtml(mlStr) : "") + '</div>' +
+          '<div class="chart-bar-fill" style="height:' + pct + '%"></div>' +
+          '<div class="chart-bar-label">' + WEEK_DAY_LABELS[b] + '</div>' +
+        '</div>';
+      }
+      var isCurrent = feedWeekStart.getTime() === startOfWeek().getTime();
+      var weekEnd = new Date(feedWeekStart.getTime());
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      var title = (isCurrent ? "This week" : "Week") + " &mdash; " +
+        escapeHtml(fmtDayMonth(feedWeekStart) + " – " + fmtDayMonth(weekEnd));
+      el.innerHTML =
+        '<div class="chart-head">' +
+          '<button type="button" class="chart-nav" data-week="-1" aria-label="Previous week">&#9664;</button>' +
+          '<div class="card-title chart-title">' + title + '</div>' +
+          '<button type="button" class="chart-nav" data-week="1" aria-label="Next week"' + (isCurrent ? " disabled" : "") + '>&#9654;</button>' +
+        '</div>' +
+        '<div class="chart-bars">' + bars + '</div>';
+    }
+
+    function renderFeedingList() {
+      var items = feedWeekItems;
+      if (feedSelectedDay !== null) {
+        var dayStart = new Date(feedWeekStart.getTime());
+        dayStart.setDate(dayStart.getDate() + feedSelectedDay);
+        var dayEnd = dayStart.getTime() + 86400000;
+        items = items.filter(function(it) {
+          var t = new Date(it.ts).getTime();
+          return t >= dayStart.getTime() && t < dayEnd;
+        });
+      }
+      renderList("feedings", items);
+    }
+
+    // Chart navigation (prev/next week) and day selection.
+    document.getElementById("feedings-chart").addEventListener("click", function(e) {
+      handleChartActivate(e.target);
+    });
+    document.getElementById("feedings-chart").addEventListener("keydown", function(e) {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+        var bar = e.target && e.target.closest ? e.target.closest(".chart-bar") : null;
+        if (bar) { e.preventDefault(); handleChartActivate(bar); }
+      }
+    });
+
+    function handleChartActivate(target) {
+      if (!target || !target.closest) return;
+      var nav = target.closest(".chart-nav");
+      if (nav && !nav.disabled) {
+        var delta = parseInt(nav.getAttribute("data-week"), 10);
+        feedWeekStart = new Date(feedWeekStart.getTime());
+        feedWeekStart.setDate(feedWeekStart.getDate() + delta * 7);
+        feedSelectedDay = null;
+        loadFeedingWeek();
+        return;
+      }
+      var bar = target.closest(".chart-bar");
+      if (bar) {
+        var day = parseInt(bar.getAttribute("data-day"), 10);
+        feedSelectedDay = (feedSelectedDay === day) ? null : day; // toggle
+        renderFeedingWeek(); // re-render from cached data, no refetch
       }
     }
 
@@ -3366,6 +3567,7 @@ ${WHEN_BLOCK}
       if (name === "today") {
         loadDashboard();
       } else if (entities[name]) {
+        if (name === "feedings") { feedWeekStart = startOfWeek(); feedSelectedDay = null; }
         loadList(name);
       }
     }
@@ -3542,6 +3744,7 @@ ${WHEN_BLOCK}
           await postJson(entities[entity].endpoint, body);
           form.reset();
           toast("Saved");
+          if (entity === "feedings") { feedWeekStart = startOfWeek(); feedSelectedDay = null; }
           loadList(entity);
         } catch (err) {
           if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
