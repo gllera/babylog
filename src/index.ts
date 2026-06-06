@@ -2684,7 +2684,26 @@ const APP_HTML = `<!DOCTYPE html>
       padding: 16px;
       margin-bottom: 16px;
     }
-    .week-chart .card-title { margin-bottom: 12px; }
+    .chart-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chart-head .card-title { margin: 0; flex: 1; text-align: center; }
+    .chart-nav {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      font-family: inherit;
+    }
+    .chart-nav:hover:not(:disabled) { background: #f0f0f0; }
+    .chart-nav:disabled { opacity: 0.35; cursor: not-allowed; }
     .chart-bars {
       display: flex;
       align-items: flex-end;
@@ -2699,7 +2718,12 @@ const APP_HTML = `<!DOCTYPE html>
       justify-content: flex-end;
       height: 100%;
       min-width: 0;
+      cursor: pointer;
+      border-radius: 6px;
     }
+    .chart-bar:hover { background: #f5f5f5; }
+    .chart-bar.selected { background: #eaf2ff; }
+    .chart-bar.selected .chart-bar-label { color: var(--primary); font-weight: 700; }
     .chart-bar-val {
       font-size: 11px;
       font-variant-numeric: tabular-nums;
@@ -3190,6 +3214,7 @@ ${WHEN_BLOCK}
     }
 
     async function loadList(entity) {
+      if (entity === "feedings") return loadFeedingWeek();
       var cfg = entities[entity];
       var container = document.getElementById("list-" + entity);
       try {
@@ -3199,10 +3224,9 @@ ${WHEN_BLOCK}
         if (err.message === "Unauthorized") return;
         container.innerHTML = '<div class="list-empty">Error loading: ' + escapeHtml(err.message) + "</div>";
       }
-      if (entity === "feedings") loadFeedingChart();
     }
 
-    // --- Weekly feeding chart (ml per day, current week, Mon-Sun) ---
+    // --- Weekly feeding chart (ml per day, Mon-Sun) + day filter for the list ---
     function startOfWeek() {
       var d = startOfDay();
       var dow = (d.getDay() + 6) % 7; // 0 = Monday
@@ -3211,18 +3235,26 @@ ${WHEN_BLOCK}
     }
 
     var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    var feedWeekStart = startOfWeek();
+    var feedSelectedDay = null; // 0-6, or null for the whole week
+    var feedWeekItems = [];
 
-    async function loadFeedingChart() {
+    function fmtDayMonth(d) {
+      var pad = function(n) { return n < 10 ? "0" + n : String(n); };
+      return pad(d.getDate()) + "/" + pad(d.getMonth() + 1);
+    }
+
+    async function loadFeedingWeek() {
       var el = document.getElementById("feedings-chart");
       if (!el) return;
-      var weekStart = startOfWeek();
-      var weekEnd = new Date(weekStart.getTime());
+      var weekEnd = new Date(feedWeekStart.getTime());
       weekEnd.setDate(weekEnd.getDate() + 7);
-      var qs = "since=" + encodeURIComponent(weekStart.toISOString()) +
+      var qs = "since=" + encodeURIComponent(feedWeekStart.toISOString()) +
         "&until=" + encodeURIComponent(weekEnd.toISOString()) + "&limit=500";
       try {
         var data = await fetchJson("/api/feedings?" + qs);
-        renderFeedingChart(el, data.items || [], weekStart);
+        feedWeekItems = data.items || [];
+        renderFeedingWeek();
       } catch (err) {
         if (err.message === "Unauthorized") return;
         el.innerHTML = '<div class="card-title">This week &mdash; ml per day</div>' +
@@ -3230,32 +3262,94 @@ ${WHEN_BLOCK}
       }
     }
 
-    function renderFeedingChart(el, items, weekStart) {
+    function renderFeedingWeek() {
+      renderFeedingChart(document.getElementById("feedings-chart"));
+      renderFeedingList();
+    }
+
+    function renderFeedingChart(el) {
       var totals = [0, 0, 0, 0, 0, 0, 0];
-      for (var i = 0; i < items.length; i++) {
-        var d = new Date(items[i].ts);
+      for (var i = 0; i < feedWeekItems.length; i++) {
+        var d = new Date(feedWeekItems[i].ts);
         if (isNaN(d.getTime())) continue;
-        var idx = Math.floor((d.getTime() - weekStart.getTime()) / 86400000);
+        var idx = Math.floor((d.getTime() - feedWeekStart.getTime()) / 86400000);
         if (idx < 0 || idx > 6) continue;
-        var n = Number(items[i].amount_ml);
+        var n = Number(feedWeekItems[i].amount_ml);
         if (isFinite(n)) totals[idx] += n;
       }
       var max = 0;
       for (var m = 0; m < 7; m++) if (totals[m] > max) max = totals[m];
-      var todayIdx = Math.floor((startOfDay().getTime() - weekStart.getTime()) / 86400000);
+      var todayIdx = Math.floor((startOfDay().getTime() - feedWeekStart.getTime()) / 86400000);
       var bars = "";
       for (var b = 0; b < 7; b++) {
         var pct = max > 0 ? Math.round((totals[b] / max) * 100) : 0;
         var ml = totals[b];
         var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
-        bars += '<div class="chart-bar' + (b === todayIdx ? " today" : "") + '">' +
+        var cls = "chart-bar";
+        if (b === todayIdx) cls += " today";
+        if (b === feedSelectedDay) cls += " selected";
+        bars += '<div class="' + cls + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === feedSelectedDay) + '">' +
           '<div class="chart-bar-val">' + (ml > 0 ? escapeHtml(mlStr) : "") + '</div>' +
           '<div class="chart-bar-fill" style="height:' + pct + '%"></div>' +
           '<div class="chart-bar-label">' + WEEK_DAY_LABELS[b] + '</div>' +
         '</div>';
       }
-      el.innerHTML = '<div class="card-title">This week &mdash; ml per day</div>' +
+      var isCurrent = feedWeekStart.getTime() === startOfWeek().getTime();
+      var weekEnd = new Date(feedWeekStart.getTime());
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      var title = (isCurrent ? "This week" : "Week") + " &mdash; " +
+        escapeHtml(fmtDayMonth(feedWeekStart) + " – " + fmtDayMonth(weekEnd));
+      el.innerHTML =
+        '<div class="chart-head">' +
+          '<button type="button" class="chart-nav" data-week="-1" aria-label="Previous week">&#9664;</button>' +
+          '<div class="card-title chart-title">' + title + '</div>' +
+          '<button type="button" class="chart-nav" data-week="1" aria-label="Next week"' + (isCurrent ? " disabled" : "") + '>&#9654;</button>' +
+        '</div>' +
         '<div class="chart-bars">' + bars + '</div>';
+    }
+
+    function renderFeedingList() {
+      var items = feedWeekItems;
+      if (feedSelectedDay !== null) {
+        var dayStart = new Date(feedWeekStart.getTime());
+        dayStart.setDate(dayStart.getDate() + feedSelectedDay);
+        var dayEnd = dayStart.getTime() + 86400000;
+        items = items.filter(function(it) {
+          var t = new Date(it.ts).getTime();
+          return t >= dayStart.getTime() && t < dayEnd;
+        });
+      }
+      renderList("feedings", items);
+    }
+
+    // Chart navigation (prev/next week) and day selection.
+    document.getElementById("feedings-chart").addEventListener("click", function(e) {
+      handleChartActivate(e.target);
+    });
+    document.getElementById("feedings-chart").addEventListener("keydown", function(e) {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+        var bar = e.target && e.target.closest ? e.target.closest(".chart-bar") : null;
+        if (bar) { e.preventDefault(); handleChartActivate(bar); }
+      }
+    });
+
+    function handleChartActivate(target) {
+      if (!target || !target.closest) return;
+      var nav = target.closest(".chart-nav");
+      if (nav && !nav.disabled) {
+        var delta = parseInt(nav.getAttribute("data-week"), 10);
+        feedWeekStart = new Date(feedWeekStart.getTime());
+        feedWeekStart.setDate(feedWeekStart.getDate() + delta * 7);
+        feedSelectedDay = null;
+        loadFeedingWeek();
+        return;
+      }
+      var bar = target.closest(".chart-bar");
+      if (bar) {
+        var day = parseInt(bar.getAttribute("data-day"), 10);
+        feedSelectedDay = (feedSelectedDay === day) ? null : day; // toggle
+        renderFeedingWeek(); // re-render from cached data, no refetch
+      }
     }
 
     function renderList(entity, items) {
@@ -3473,6 +3567,7 @@ ${WHEN_BLOCK}
       if (name === "today") {
         loadDashboard();
       } else if (entities[name]) {
+        if (name === "feedings") { feedWeekStart = startOfWeek(); feedSelectedDay = null; }
         loadList(name);
       }
     }
@@ -3649,6 +3744,7 @@ ${WHEN_BLOCK}
           await postJson(entities[entity].endpoint, body);
           form.reset();
           toast("Saved");
+          if (entity === "feedings") { feedWeekStart = startOfWeek(); feedSelectedDay = null; }
           loadList(entity);
         } catch (err) {
           if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
