@@ -2747,6 +2747,45 @@ const APP_HTML = `<!DOCTYPE html>
       white-space: nowrap;
     }
     .chart-bar.today .chart-bar-label { color: var(--text); font-weight: 700; }
+    /* Diaper chart: two bars (pee/poop) per day */
+    .chart-pair {
+      flex: 1 1 auto;
+      width: 100%;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 3px;
+    }
+    .chart-sub {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      height: 100%;
+    }
+    .chart-pair .chart-bar-fill { max-width: 20px; }
+    .chart-bar-fill.pee { background: var(--primary); }
+    .chart-bar-fill.poop { background: #b5651d; }
+    .chart-bar.today .chart-bar-fill.poop { background: #8f4f17; }
+    .chart-legend {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .chart-legend i {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+    .chart-legend i.pee { background: var(--primary); }
+    .chart-legend i.poop { background: #b5651d; }
     .quick-row {
       display: flex;
       gap: 8px;
@@ -3003,6 +3042,10 @@ ${WHEN_BLOCK}
         </label>
         <button type="submit">Add</button>
       </form>
+      <div class="week-chart" id="diapers-chart">
+        <div class="card-title">This week &mdash; diapers per day</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
       <div class="list" id="list-diapers"><div class="list-loading">Loading...</div></div>
     </section>
 
@@ -3214,7 +3257,7 @@ ${WHEN_BLOCK}
     }
 
     async function loadList(entity) {
-      if (entity === "feedings") return loadFeedingWeek();
+      if (entity === "feedings" || entity === "diapers") return loadWeek(entity);
       var cfg = entities[entity];
       var container = document.getElementById("list-" + entity);
       try {
@@ -3226,7 +3269,7 @@ ${WHEN_BLOCK}
       }
     }
 
-    // --- Weekly feeding chart (ml per day, Mon-Sun) + day filter for the list ---
+    // --- Weekly charts (Mon-Sun) with prev/next nav + day-filtering of the list ---
     function startOfWeek() {
       var d = startOfDay();
       var dow = (d.getDay() + 6) % 7; // 0 = Monday
@@ -3235,122 +3278,182 @@ ${WHEN_BLOCK}
     }
 
     var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    var feedWeekStart = startOfWeek();
-    var feedSelectedDay = null; // 0-6, or null for the whole week
-    var feedWeekItems = [];
+
+    var charts = {
+      feedings: { elId: "feedings-chart", endpoint: "/api/feedings", renderBars: renderFeedingBars,
+        weekStart: startOfWeek(), selectedDay: null, items: [] },
+      diapers: { elId: "diapers-chart", endpoint: "/api/diapers", renderBars: renderDiaperBars,
+        weekStart: startOfWeek(), selectedDay: null, items: [] }
+    };
+
+    function resetChartWeek(key) {
+      charts[key].weekStart = startOfWeek();
+      charts[key].selectedDay = null;
+    }
 
     function fmtDayMonth(d) {
       var pad = function(n) { return n < 10 ? "0" + n : String(n); };
       return pad(d.getDate()) + "/" + pad(d.getMonth() + 1);
     }
 
-    async function loadFeedingWeek() {
-      var el = document.getElementById("feedings-chart");
+    function dayIndexOf(ts, weekStart) {
+      var d = new Date(ts);
+      if (isNaN(d.getTime())) return -1;
+      return Math.floor((d.getTime() - weekStart.getTime()) / 86400000);
+    }
+
+    async function loadWeek(key) {
+      var c = charts[key];
+      var el = document.getElementById(c.elId);
       if (!el) return;
-      var weekEnd = new Date(feedWeekStart.getTime());
+      var weekEnd = new Date(c.weekStart.getTime());
       weekEnd.setDate(weekEnd.getDate() + 7);
-      var qs = "since=" + encodeURIComponent(feedWeekStart.toISOString()) +
+      var qs = "since=" + encodeURIComponent(c.weekStart.toISOString()) +
         "&until=" + encodeURIComponent(weekEnd.toISOString()) + "&limit=500";
       try {
-        var data = await fetchJson("/api/feedings?" + qs);
-        feedWeekItems = data.items || [];
-        renderFeedingWeek();
+        var data = await fetchJson(c.endpoint + "?" + qs);
+        c.items = data.items || [];
+        renderWeek(key);
       } catch (err) {
         if (err.message === "Unauthorized") return;
-        el.innerHTML = '<div class="card-title">This week &mdash; ml per day</div>' +
-          '<div class="card-empty">Error loading chart: ' + escapeHtml(err.message) + '</div>';
+        el.innerHTML = '<div class="card-empty">Error loading chart: ' + escapeHtml(err.message) + '</div>';
       }
     }
 
-    function renderFeedingWeek() {
-      renderFeedingChart(document.getElementById("feedings-chart"));
-      renderFeedingList();
-    }
-
-    function renderFeedingChart(el) {
-      var totals = [0, 0, 0, 0, 0, 0, 0];
-      for (var i = 0; i < feedWeekItems.length; i++) {
-        var d = new Date(feedWeekItems[i].ts);
-        if (isNaN(d.getTime())) continue;
-        var idx = Math.floor((d.getTime() - feedWeekStart.getTime()) / 86400000);
-        if (idx < 0 || idx > 6) continue;
-        var n = Number(feedWeekItems[i].amount_ml);
-        if (isFinite(n)) totals[idx] += n;
-      }
-      var max = 0;
-      for (var m = 0; m < 7; m++) if (totals[m] > max) max = totals[m];
-      var todayIdx = Math.floor((startOfDay().getTime() - feedWeekStart.getTime()) / 86400000);
-      var bars = "";
-      for (var b = 0; b < 7; b++) {
-        var pct = max > 0 ? Math.round((totals[b] / max) * 100) : 0;
-        var ml = totals[b];
-        var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
-        var cls = "chart-bar";
-        if (b === todayIdx) cls += " today";
-        if (b === feedSelectedDay) cls += " selected";
-        bars += '<div class="' + cls + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === feedSelectedDay) + '">' +
-          '<div class="chart-bar-val">' + (ml > 0 ? escapeHtml(mlStr) : "") + '</div>' +
-          '<div class="chart-bar-fill" style="height:' + pct + '%"></div>' +
-          '<div class="chart-bar-label">' + WEEK_DAY_LABELS[b] + '</div>' +
-        '</div>';
-      }
-      var isCurrent = feedWeekStart.getTime() === startOfWeek().getTime();
-      var weekEnd = new Date(feedWeekStart.getTime());
+    function renderWeek(key) {
+      var c = charts[key];
+      var el = document.getElementById(c.elId);
+      var isCurrent = c.weekStart.getTime() === startOfWeek().getTime();
+      var weekEnd = new Date(c.weekStart.getTime());
       weekEnd.setDate(weekEnd.getDate() + 6);
       var title = (isCurrent ? "This week" : "Week") + " &mdash; " +
-        escapeHtml(fmtDayMonth(feedWeekStart) + " – " + fmtDayMonth(weekEnd));
+        escapeHtml(fmtDayMonth(c.weekStart) + " – " + fmtDayMonth(weekEnd));
       el.innerHTML =
         '<div class="chart-head">' +
           '<button type="button" class="chart-nav" data-week="-1" aria-label="Previous week">&#9664;</button>' +
           '<div class="card-title chart-title">' + title + '</div>' +
           '<button type="button" class="chart-nav" data-week="1" aria-label="Next week"' + (isCurrent ? " disabled" : "") + '>&#9654;</button>' +
         '</div>' +
-        '<div class="chart-bars">' + bars + '</div>';
+        c.renderBars(c);
+      renderWeekList(key);
     }
 
-    function renderFeedingList() {
-      var items = feedWeekItems;
-      if (feedSelectedDay !== null) {
-        var dayStart = new Date(feedWeekStart.getTime());
-        dayStart.setDate(dayStart.getDate() + feedSelectedDay);
+    function renderWeekList(key) {
+      var c = charts[key];
+      var items = c.items;
+      if (c.selectedDay !== null) {
+        var dayStart = new Date(c.weekStart.getTime());
+        dayStart.setDate(dayStart.getDate() + c.selectedDay);
         var dayEnd = dayStart.getTime() + 86400000;
         items = items.filter(function(it) {
           var t = new Date(it.ts).getTime();
           return t >= dayStart.getTime() && t < dayEnd;
         });
       }
-      renderList("feedings", items);
+      renderList(key, items);
     }
 
-    // Chart navigation (prev/next week) and day selection.
-    document.getElementById("feedings-chart").addEventListener("click", function(e) {
-      handleChartActivate(e.target);
-    });
-    document.getElementById("feedings-chart").addEventListener("keydown", function(e) {
-      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
-        var bar = e.target && e.target.closest ? e.target.closest(".chart-bar") : null;
-        if (bar) { e.preventDefault(); handleChartActivate(bar); }
-      }
-    });
+    // Build one clickable day column; inner is the bar(s) markup for the column.
+    function dayColumn(c, b, inner) {
+      var cls = "chart-bar";
+      if (b === dayIndexOf(startOfDay().toISOString(), c.weekStart)) cls += " today";
+      if (b === c.selectedDay) cls += " selected";
+      return '<div class="' + cls + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === c.selectedDay) + '">' +
+        inner +
+        '<div class="chart-bar-label">' + WEEK_DAY_LABELS[b] + '</div>' +
+      '</div>';
+    }
 
-    function handleChartActivate(target) {
+    function renderFeedingBars(c) {
+      var totals = [0, 0, 0, 0, 0, 0, 0];
+      for (var i = 0; i < c.items.length; i++) {
+        var idx = dayIndexOf(c.items[i].ts, c.weekStart);
+        if (idx < 0 || idx > 6) continue;
+        var n = Number(c.items[i].amount_ml);
+        if (isFinite(n)) totals[idx] += n;
+      }
+      var max = 0;
+      for (var m = 0; m < 7; m++) if (totals[m] > max) max = totals[m];
+      var bars = "";
+      for (var b = 0; b < 7; b++) {
+        var pct = max > 0 ? Math.round((totals[b] / max) * 100) : 0;
+        var ml = totals[b];
+        var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
+        bars += dayColumn(c, b,
+          '<div class="chart-bar-val">' + (ml > 0 ? escapeHtml(mlStr) : "") + '</div>' +
+          '<div class="chart-bar-fill" style="height:' + pct + '%"></div>');
+      }
+      return '<div class="chart-bars">' + bars + '</div>';
+    }
+
+    function renderDiaperBars(c) {
+      var pees = [0, 0, 0, 0, 0, 0, 0];
+      var poops = [0, 0, 0, 0, 0, 0, 0];
+      for (var i = 0; i < c.items.length; i++) {
+        var idx = dayIndexOf(c.items[i].ts, c.weekStart);
+        if (idx < 0 || idx > 6) continue;
+        var k = c.items[i].kind;
+        if (k === "pee" || k === "both") pees[idx]++;
+        if (k === "poop" || k === "both") poops[idx]++;
+      }
+      var max = 0;
+      for (var m = 0; m < 7; m++) {
+        if (pees[m] > max) max = pees[m];
+        if (poops[m] > max) max = poops[m];
+      }
+      function subBar(count, kindCls) {
+        var pct = max > 0 ? Math.round((count / max) * 100) : 0;
+        return '<div class="chart-sub">' +
+          '<div class="chart-bar-val">' + (count > 0 ? count : "") + '</div>' +
+          '<div class="chart-bar-fill ' + kindCls + '" style="height:' + pct + '%"></div>' +
+        '</div>';
+      }
+      var bars = "";
+      for (var b = 0; b < 7; b++) {
+        bars += dayColumn(c, b,
+          '<div class="chart-pair">' + subBar(pees[b], "pee") + subBar(poops[b], "poop") + '</div>');
+      }
+      var legend = '<div class="chart-legend">' +
+        '<span><i class="pee"></i>Pee</span><span><i class="poop"></i>Poop</span>' +
+      '</div>';
+      return legend + '<div class="chart-bars">' + bars + '</div>';
+    }
+
+    // Chart navigation (prev/next week) and day selection — shared by all charts.
+    function bindChart(key) {
+      var el = document.getElementById(charts[key].elId);
+      if (!el) return;
+      el.addEventListener("click", function(e) { handleChartActivate(key, e.target); });
+      el.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+          var bar = e.target && e.target.closest ? e.target.closest(".chart-bar") : null;
+          if (bar) { e.preventDefault(); handleChartActivate(key, bar); }
+        }
+      });
+    }
+
+    function handleChartActivate(key, target) {
       if (!target || !target.closest) return;
+      var c = charts[key];
       var nav = target.closest(".chart-nav");
       if (nav && !nav.disabled) {
         var delta = parseInt(nav.getAttribute("data-week"), 10);
-        feedWeekStart = new Date(feedWeekStart.getTime());
-        feedWeekStart.setDate(feedWeekStart.getDate() + delta * 7);
-        feedSelectedDay = null;
-        loadFeedingWeek();
+        c.weekStart = new Date(c.weekStart.getTime());
+        c.weekStart.setDate(c.weekStart.getDate() + delta * 7);
+        c.selectedDay = null;
+        loadWeek(key);
         return;
       }
       var bar = target.closest(".chart-bar");
       if (bar) {
         var day = parseInt(bar.getAttribute("data-day"), 10);
-        feedSelectedDay = (feedSelectedDay === day) ? null : day; // toggle
-        renderFeedingWeek(); // re-render from cached data, no refetch
+        c.selectedDay = (c.selectedDay === day) ? null : day; // toggle
+        renderWeek(key); // re-render from cached data, no refetch
       }
     }
+
+    bindChart("feedings");
+    bindChart("diapers");
 
     function renderList(entity, items) {
       var cfg = entities[entity];
@@ -3564,10 +3667,11 @@ ${WHEN_BLOCK}
         tabs[j].classList.toggle("active", tabs[j].id === "tab-" + name);
       }
       closeMoreDropdown();
+      try { history.replaceState(null, "", "#" + name); } catch (_) {}
       if (name === "today") {
         loadDashboard();
       } else if (entities[name]) {
-        if (name === "feedings") { feedWeekStart = startOfWeek(); feedSelectedDay = null; }
+        if (charts[name]) resetChartWeek(name);
         loadList(name);
       }
     }
@@ -3744,7 +3848,7 @@ ${WHEN_BLOCK}
           await postJson(entities[entity].endpoint, body);
           form.reset();
           toast("Saved");
-          if (entity === "feedings") { feedWeekStart = startOfWeek(); feedSelectedDay = null; }
+          if (charts[entity]) resetChartWeek(entity);
           loadList(entity);
         } catch (err) {
           if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
@@ -3832,7 +3936,13 @@ ${WHEN_BLOCK}
       }
     });
 
-    showTab("today");
+    // Restore the tab from the URL hash so a refresh keeps the selected tab.
+    function tabFromHash() {
+      var h = (location.hash || "").replace(/^#/, "");
+      return (h === "today" || entities[h]) ? h : "today";
+    }
+    window.addEventListener("hashchange", function() { showTab(tabFromHash()); });
+    showTab(tabFromHash());
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
