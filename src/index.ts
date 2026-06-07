@@ -2704,50 +2704,7 @@ const APP_HTML = `<!DOCTYPE html>
     }
     .chart-nav:hover:not(:disabled) { background: #f0f0f0; }
     .chart-nav:disabled { opacity: 0.35; cursor: not-allowed; }
-    .chart-bars {
-      display: flex;
-      align-items: flex-end;
-      gap: 6px;
-      height: 160px;
-    }
-    .chart-bar {
-      flex: 1 1 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-end;
-      height: 100%;
-      min-width: 0;
-      cursor: pointer;
-      border-radius: 6px;
-    }
-    .chart-bar:hover { background: #f5f5f5; }
-    .chart-bar.selected { background: #eaf2ff; }
-    .chart-bar.selected .chart-bar-label { color: var(--primary); font-weight: 700; }
-    .chart-bar-val {
-      font-size: 11px;
-      font-variant-numeric: tabular-nums;
-      color: var(--muted);
-      margin-bottom: 4px;
-      white-space: nowrap;
-    }
-    .chart-bar-fill {
-      width: 100%;
-      max-width: 44px;
-      background: var(--primary);
-      border-radius: 4px 4px 0 0;
-      min-height: 2px;
-      transition: height .2s;
-    }
-    .chart-bar.today .chart-bar-fill { background: var(--primary-dark); }
-    .chart-bar-label {
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 6px;
-      white-space: nowrap;
-    }
-    .chart-bar.today .chart-bar-label { color: var(--text); font-weight: 700; }
-    /* Diaper chart: pee/poop line chart (SVG) */
+    /* Weekly charts: shared SVG line chart (feeding total ml + diaper pee/poop) */
     .chart-lines {
       display: block;
       width: 100%;
@@ -2760,6 +2717,7 @@ const APP_HTML = `<!DOCTYPE html>
     .chart-bar.selected .cl-hit { fill: #eaf2ff; }
     .cl-line {
       fill: none;
+      stroke: var(--primary);
       stroke-width: 2;
       stroke-linejoin: round;
       stroke-linecap: round;
@@ -2768,6 +2726,7 @@ const APP_HTML = `<!DOCTYPE html>
     .cl-line.pee { stroke: var(--primary); }
     .cl-line.poop { stroke: #b5651d; }
     .cl-dot {
+      fill: var(--primary);
       stroke: var(--card);
       stroke-width: 1.5;
       vector-effect: non-scaling-stroke;
@@ -2778,6 +2737,7 @@ const APP_HTML = `<!DOCTYPE html>
       font-size: 10px;
       font-family: inherit;
       font-weight: 600;
+      fill: var(--muted);
       text-anchor: middle;
       font-variant-numeric: tabular-nums;
     }
@@ -3302,7 +3262,7 @@ ${WHEN_BLOCK}
     var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
     var charts = {
-      feedings: { elId: "feedings-chart", endpoint: "/api/feedings", renderBars: renderFeedingBars,
+      feedings: { elId: "feedings-chart", endpoint: "/api/feedings", renderBars: renderFeedingLines,
         weekStart: startOfWeek(), selectedDay: null, items: [] },
       diapers: { elId: "diapers-chart", endpoint: "/api/diapers", renderBars: renderDiaperLines,
         weekStart: startOfWeek(), selectedDay: null, items: [] }
@@ -3375,18 +3335,9 @@ ${WHEN_BLOCK}
       renderList(key, items);
     }
 
-    // Build one clickable day column; inner is the bar(s) markup for the column.
-    function dayColumn(c, b, inner) {
-      var cls = "chart-bar";
-      if (b === dayIndexOf(startOfDay().toISOString(), c.weekStart)) cls += " today";
-      if (b === c.selectedDay) cls += " selected";
-      return '<div class="' + cls + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === c.selectedDay) + '">' +
-        inner +
-        '<div class="chart-bar-label">' + WEEK_DAY_LABELS[b] + '</div>' +
-      '</div>';
-    }
-
-    function renderFeedingBars(c) {
+    // Feeding chart: a single SVG line of total ml per day over the week.
+    // Same clickable-column / day-filtering model as the diaper chart.
+    function renderFeedingLines(c) {
       var totals = [0, 0, 0, 0, 0, 0, 0];
       for (var i = 0; i < c.items.length; i++) {
         var idx = dayIndexOf(c.items[i].ts, c.weekStart);
@@ -3396,16 +3347,33 @@ ${WHEN_BLOCK}
       }
       var max = 0;
       for (var m = 0; m < 7; m++) if (totals[m] > max) max = totals[m];
-      var bars = "";
+      // viewBox is 350x170; columns are 50 wide, plot band spans y 20..144.
+      var BAND = 50, TOP = 20, BOT = 144, LABEL_Y = 164;
+      function cx(b) { return b * BAND + BAND / 2; }
+      function cy(v) { return max > 0 ? +(BOT - (v / max) * (BOT - TOP)).toFixed(1) : BOT; }
+      var pts = "";
+      for (var p = 0; p < 7; p++) pts += cx(p) + "," + cy(totals[p]) + " ";
+      var today = dayIndexOf(startOfDay().toISOString(), c.weekStart);
+      var hits = "", marks = "", labels = "";
       for (var b = 0; b < 7; b++) {
-        var pct = max > 0 ? Math.round((totals[b] / max) * 100) : 0;
-        var ml = totals[b];
-        var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
-        bars += dayColumn(c, b,
-          '<div class="chart-bar-val">' + (ml > 0 ? escapeHtml(mlStr) : "") + '</div>' +
-          '<div class="chart-bar-fill" style="height:' + pct + '%"></div>');
+        var state = (b === today ? " today" : "") + (b === c.selectedDay ? " selected" : "");
+        hits += '<g class="chart-bar' + state + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === c.selectedDay) + '">' +
+          '<rect class="cl-hit" x="' + (b * BAND) + '" y="0" width="' + BAND + '" height="170"></rect>' +
+        '</g>';
+        var x = cx(b), y = cy(totals[b]), ml = totals[b];
+        marks += '<circle class="cl-dot" cx="' + x + '" cy="' + y + '" r="3.5"></circle>';
+        if (ml > 0) {
+          var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
+          marks += '<text class="cl-val" x="' + x + '" y="' + (y - 7) + '">' + escapeHtml(mlStr) + '</text>';
+        }
+        labels += '<text class="cl-daylabel' + state + '" x="' + x + '" y="' + LABEL_Y + '">' + WEEK_DAY_LABELS[b] + '</text>';
       }
-      return '<div class="chart-bars">' + bars + '</div>';
+      return '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Weekly feeding totals in millilitres">' +
+        '<g class="cl-hits">' + hits + '</g>' +
+        '<polyline class="cl-line" points="' + pts.trim() + '"></polyline>' +
+        marks +
+        labels +
+      '</svg>';
     }
 
     // Diaper chart rendered as two SVG lines (pee/poop) over the 7-day week.
