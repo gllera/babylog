@@ -254,6 +254,10 @@ const ROUTINE_CANONICAL: Record<string, string> = {
   vitamina: "Vitamin D",
   "gotas de vitamina": "Vitamin D",
   "gotas de vitamina d": "Vitamin D",
+  // Alexa often segments "le di vitamina D" as carrier "le di vitamina" + a
+  // bare "d"/"de" slot, which resolves to no synonym — map it back here.
+  d: "Vitamin D",
+  de: "Vitamin D",
   bath: "Bath",
   "baño": "Bath",
   bano: "Bath",
