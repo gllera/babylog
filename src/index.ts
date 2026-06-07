@@ -2747,28 +2747,50 @@ const APP_HTML = `<!DOCTYPE html>
       white-space: nowrap;
     }
     .chart-bar.today .chart-bar-label { color: var(--text); font-weight: 700; }
-    /* Diaper chart: two bars (pee/poop) per day */
-    .chart-pair {
-      flex: 1 1 auto;
+    /* Diaper chart: pee/poop line chart (SVG) */
+    .chart-lines {
+      display: block;
       width: 100%;
-      display: flex;
-      align-items: flex-end;
-      justify-content: center;
-      gap: 3px;
+      height: auto;
+      overflow: visible;
     }
-    .chart-sub {
-      flex: 1 1 0;
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-end;
-      height: 100%;
+    .cl-line, .cl-dot, .cl-val, .cl-daylabel { pointer-events: none; }
+    .cl-hit { fill: transparent; pointer-events: all; cursor: pointer; }
+    .chart-bar.today .cl-hit { fill: #f2f7ff; }
+    .chart-bar.selected .cl-hit { fill: #eaf2ff; }
+    .cl-line {
+      fill: none;
+      stroke-width: 2;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
     }
-    .chart-pair .chart-bar-fill { max-width: 20px; }
-    .chart-bar-fill.pee { background: var(--primary); }
-    .chart-bar-fill.poop { background: #b5651d; }
-    .chart-bar.today .chart-bar-fill.poop { background: #8f4f17; }
+    .cl-line.pee { stroke: var(--primary); }
+    .cl-line.poop { stroke: #b5651d; }
+    .cl-dot {
+      stroke: var(--card);
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+    }
+    .cl-dot.pee { fill: var(--primary); }
+    .cl-dot.poop { fill: #b5651d; }
+    .cl-val {
+      font-size: 10px;
+      font-family: inherit;
+      font-weight: 600;
+      text-anchor: middle;
+      font-variant-numeric: tabular-nums;
+    }
+    .cl-val.pee { fill: var(--primary); }
+    .cl-val.poop { fill: #b5651d; }
+    .cl-daylabel {
+      font-size: 11px;
+      font-family: inherit;
+      text-anchor: middle;
+      fill: var(--muted);
+    }
+    .cl-daylabel.today { fill: var(--text); font-weight: 700; }
+    .cl-daylabel.selected { fill: var(--primary); font-weight: 700; }
     .chart-legend {
       display: flex;
       gap: 16px;
@@ -3282,7 +3304,7 @@ ${WHEN_BLOCK}
     var charts = {
       feedings: { elId: "feedings-chart", endpoint: "/api/feedings", renderBars: renderFeedingBars,
         weekStart: startOfWeek(), selectedDay: null, items: [] },
-      diapers: { elId: "diapers-chart", endpoint: "/api/diapers", renderBars: renderDiaperBars,
+      diapers: { elId: "diapers-chart", endpoint: "/api/diapers", renderBars: renderDiaperLines,
         weekStart: startOfWeek(), selectedDay: null, items: [] }
     };
 
@@ -3386,7 +3408,10 @@ ${WHEN_BLOCK}
       return '<div class="chart-bars">' + bars + '</div>';
     }
 
-    function renderDiaperBars(c) {
+    // Diaper chart rendered as two SVG lines (pee/poop) over the 7-day week.
+    // Each day is a transparent clickable column (.chart-bar) so the prev/next
+    // nav + day-filtering shared with the feeding chart keep working unchanged.
+    function renderDiaperLines(c) {
       var pees = [0, 0, 0, 0, 0, 0, 0];
       var poops = [0, 0, 0, 0, 0, 0, 0];
       for (var i = 0; i < c.items.length; i++) {
@@ -3401,22 +3426,46 @@ ${WHEN_BLOCK}
         if (pees[m] > max) max = pees[m];
         if (poops[m] > max) max = poops[m];
       }
-      function subBar(count, kindCls) {
-        var pct = max > 0 ? Math.round((count / max) * 100) : 0;
-        return '<div class="chart-sub">' +
-          '<div class="chart-bar-val">' + (count > 0 ? count : "") + '</div>' +
-          '<div class="chart-bar-fill ' + kindCls + '" style="height:' + pct + '%"></div>' +
-        '</div>';
+      // viewBox is 350x170; columns are 50 wide, plot band spans y 20..144.
+      var BAND = 50, TOP = 20, BOT = 144, LABEL_Y = 164;
+      function cx(b) { return b * BAND + BAND / 2; }
+      function cy(v) { return max > 0 ? +(BOT - (v / max) * (BOT - TOP)).toFixed(1) : BOT; }
+      function linePts(arr) {
+        var s = "";
+        for (var b = 0; b < 7; b++) s += cx(b) + "," + cy(arr[b]) + " ";
+        return s.trim();
       }
-      var bars = "";
+      function series(arr, kind, above) {
+        var out = "";
+        for (var b = 0; b < 7; b++) {
+          var x = cx(b), y = cy(arr[b]);
+          out += '<circle class="cl-dot ' + kind + '" cx="' + x + '" cy="' + y + '" r="3.5"></circle>';
+          if (arr[b] > 0) {
+            out += '<text class="cl-val ' + kind + '" x="' + x + '" y="' + (above ? y - 7 : y + 13) + '">' + arr[b] + '</text>';
+          }
+        }
+        return out;
+      }
+      var today = dayIndexOf(startOfDay().toISOString(), c.weekStart);
+      var hits = "", labels = "";
       for (var b = 0; b < 7; b++) {
-        bars += dayColumn(c, b,
-          '<div class="chart-pair">' + subBar(pees[b], "pee") + subBar(poops[b], "poop") + '</div>');
+        var state = (b === today ? " today" : "") + (b === c.selectedDay ? " selected" : "");
+        hits += '<g class="chart-bar' + state + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === c.selectedDay) + '">' +
+          '<rect class="cl-hit" x="' + (b * BAND) + '" y="0" width="' + BAND + '" height="170"></rect>' +
+        '</g>';
+        labels += '<text class="cl-daylabel' + state + '" x="' + cx(b) + '" y="' + LABEL_Y + '">' + WEEK_DAY_LABELS[b] + '</text>';
       }
+      var svg = '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Weekly pee and poop counts">' +
+        '<g class="cl-hits">' + hits + '</g>' +
+        '<polyline class="cl-line pee" points="' + linePts(pees) + '"></polyline>' +
+        '<polyline class="cl-line poop" points="' + linePts(poops) + '"></polyline>' +
+        series(pees, "pee", true) + series(poops, "poop", false) +
+        labels +
+      '</svg>';
       var legend = '<div class="chart-legend">' +
         '<span><i class="pee"></i>Pee</span><span><i class="poop"></i>Poop</span>' +
       '</div>';
-      return legend + '<div class="chart-bars">' + bars + '</div>';
+      return legend + svg;
     }
 
     // Chart navigation (prev/next week) and day selection — shared by all charts.
