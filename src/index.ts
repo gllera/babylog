@@ -2768,6 +2768,31 @@ const APP_HTML = `<!DOCTYPE html>
     }
     .chart-legend i.pee { background: var(--primary); }
     .chart-legend i.poop { background: #b5651d; }
+    /* Day-comparison chart: selected day (d0) vs the 2 days before (d1, d2) */
+    .daychart-title { text-align: center; margin-bottom: 12px; }
+    .dl-line {
+      fill: none;
+      stroke-width: 2;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+    .dl-line.d0 { stroke: var(--primary); stroke-width: 2.5; }
+    .dl-line.d1 { stroke: #f5a623; }
+    .dl-line.d2 { stroke: #9aa0a6; stroke-dasharray: 4 3; }
+    .dl-dot {
+      stroke: var(--card);
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+    .dl-dot.d0 { fill: var(--primary); }
+    .dl-dot.d1 { fill: #f5a623; }
+    .dl-dot.d2 { fill: #9aa0a6; }
+    .chart-legend i.d0 { background: var(--primary); }
+    .chart-legend i.d1 { background: #f5a623; }
+    .chart-legend i.d2 { background: #9aa0a6; }
     .quick-row {
       display: flex;
       gap: 8px;
@@ -3006,6 +3031,10 @@ ${WHEN_BLOCK}
         <div class="card-title">This week &mdash; ml per day</div>
         <div class="card-empty">Loading&hellip;</div>
       </div>
+      <div class="week-chart" id="feedings-daychart">
+        <div class="card-title">Selected day &mdash; vs 2 days before</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
       <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
     </section>
 
@@ -3026,6 +3055,10 @@ ${WHEN_BLOCK}
       </form>
       <div class="week-chart" id="diapers-chart">
         <div class="card-title">This week &mdash; diapers per day</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
+      <div class="week-chart" id="diapers-daychart">
+        <div class="card-title">Selected day &mdash; vs 2 days before</div>
         <div class="card-empty">Loading&hellip;</div>
       </div>
       <div class="list" id="list-diapers"><div class="list-loading">Loading...</div></div>
@@ -3262,9 +3295,11 @@ ${WHEN_BLOCK}
     var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
     var charts = {
-      feedings: { elId: "feedings-chart", endpoint: "/api/feedings", renderBars: renderFeedingLines,
+      feedings: { elId: "feedings-chart", dayElId: "feedings-daychart", endpoint: "/api/feedings",
+        renderBars: renderFeedingLines, renderDay: renderFeedingDay,
         weekStart: startOfWeek(), selectedDay: null, items: [] },
-      diapers: { elId: "diapers-chart", endpoint: "/api/diapers", renderBars: renderDiaperLines,
+      diapers: { elId: "diapers-chart", dayElId: "diapers-daychart", endpoint: "/api/diapers",
+        renderBars: renderDiaperLines, renderDay: renderDiaperDay,
         weekStart: startOfWeek(), selectedDay: null, items: [] }
     };
 
@@ -3288,9 +3323,13 @@ ${WHEN_BLOCK}
       var c = charts[key];
       var el = document.getElementById(c.elId);
       if (!el) return;
+      // Fetch 2 days before the week too, so the day-comparison chart can show
+      // the selected day vs the 2 prior days even across the week boundary.
+      var fetchStart = new Date(c.weekStart.getTime());
+      fetchStart.setDate(fetchStart.getDate() - 2);
       var weekEnd = new Date(c.weekStart.getTime());
       weekEnd.setDate(weekEnd.getDate() + 7);
-      var qs = "since=" + encodeURIComponent(c.weekStart.toISOString()) +
+      var qs = "since=" + encodeURIComponent(fetchStart.toISOString()) +
         "&until=" + encodeURIComponent(weekEnd.toISOString()) + "&limit=500";
       try {
         var data = await fetchJson(c.endpoint + "?" + qs);
@@ -3317,6 +3356,7 @@ ${WHEN_BLOCK}
           '<button type="button" class="chart-nav" data-week="1" aria-label="Next week"' + (isCurrent ? " disabled" : "") + '>&#9654;</button>' +
         '</div>' +
         c.renderBars(c);
+      renderDayChart(key);
       renderWeekList(key);
     }
 
@@ -3330,6 +3370,15 @@ ${WHEN_BLOCK}
         items = items.filter(function(it) {
           var t = new Date(it.ts).getTime();
           return t >= dayStart.getTime() && t < dayEnd;
+        });
+      } else {
+        // c.items also carries the 2 days before the week (for the day chart);
+        // keep only this week's rows when no single day is selected.
+        var wStart = c.weekStart.getTime();
+        var wEnd = wStart + 7 * 86400000;
+        items = items.filter(function(it) {
+          var t = new Date(it.ts).getTime();
+          return t >= wStart && t < wEnd;
         });
       }
       renderList(key, items);
@@ -3434,6 +3483,103 @@ ${WHEN_BLOCK}
         '<span><i class="pee"></i>Pee</span><span><i class="poop"></i>Poop</span>' +
       '</div>';
       return legend + svg;
+    }
+
+    // Day-comparison chart: the selected day (or today, if none selected) plotted
+    // against the 2 calendar days before it, as cumulative-through-the-day lines.
+    function renderDayChart(key) {
+      var c = charts[key];
+      var el = document.getElementById(c.dayElId);
+      if (!el) return;
+      var refIdx = c.selectedDay;
+      if (refIdx === null) {
+        var t = dayIndexOf(startOfDay().toISOString(), c.weekStart);
+        refIdx = (t >= 0 && t <= 6) ? t : 6; // default to today, else last day of week
+      }
+      // Oldest first: [refIdx-2, refIdx-1, refIdx]
+      var days = [];
+      for (var k = 2; k >= 0; k--) {
+        var ds = new Date(c.weekStart.getTime());
+        ds.setDate(ds.getDate() + refIdx - k);
+        days.push(ds);
+      }
+      var refDate = days[days.length - 1];
+      var title = WEEK_DAY_LABELS[refIdx] + " " + fmtDayMonth(refDate) + " &mdash; vs 2 days before";
+      el.innerHTML =
+        '<div class="card-title daychart-title">' + title + '</div>' +
+        c.renderDay(c, days);
+    }
+
+    // Sum each record's value into 24 hourly buckets of one day, then return the
+    // running total at hours 0..24 (length 25; index 24 is the day total).
+    function dayCumulative(items, dayStartMs, valueFn) {
+      var buckets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      var dayEndMs = dayStartMs + 86400000;
+      for (var i = 0; i < items.length; i++) {
+        var ms = new Date(items[i].ts).getTime();
+        if (isNaN(ms) || ms < dayStartMs || ms >= dayEndMs) continue;
+        var h = Math.floor((ms - dayStartMs) / 3600000);
+        if (h < 0) h = 0; else if (h > 23) h = 23;
+        buckets[h] += valueFn(items[i]);
+      }
+      var cum = [0], run = 0;
+      for (var b = 0; b < 24; b++) { run += buckets[b]; cum.push(run); }
+      return cum;
+    }
+
+    // Shared SVG builder for both day-comparison charts. days is oldest-first.
+    function renderDayComparison(c, days, valueFn, fmtTotal, ariaLabel) {
+      var cls = ["d2", "d1", "d0"]; // matches oldest-first days; d0 = selected day
+      var series = days.map(function(ds) { return dayCumulative(c.items, ds.getTime(), valueFn); });
+      var max = 0;
+      for (var s = 0; s < series.length; s++) {
+        var tot = series[s][24];
+        if (tot > max) max = tot;
+      }
+      // viewBox 350x170: plot band x 25..325 (24h), y 20..144, hour labels at y 164.
+      var LX = 25, RX = 325, TOP = 20, BOT = 144, LABEL_Y = 164;
+      function hx(h) { return +(LX + (h / 24) * (RX - LX)).toFixed(1); }
+      function cy(v) { return max > 0 ? +(BOT - (v / max) * (BOT - TOP)).toFixed(1) : BOT; }
+      function poly(cum) {
+        var p = "";
+        for (var h = 0; h <= 24; h++) p += hx(h) + "," + cy(cum[h]) + " ";
+        return p.trim();
+      }
+      var lines = "", dots = "";
+      for (var i = 0; i < series.length; i++) {
+        lines += '<polyline class="dl-line ' + cls[i] + '" points="' + poly(series[i]) + '"></polyline>';
+        if (series[i][24] > 0) {
+          dots += '<circle class="dl-dot ' + cls[i] + '" cx="' + hx(24) + '" cy="' + cy(series[i][24]) + '" r="3"></circle>';
+        }
+      }
+      var ticks = [0, 6, 12, 18, 24], hourLabels = "";
+      for (var h = 0; h < ticks.length; h++) {
+        var lbl = ticks[h] < 10 ? "0" + ticks[h] : String(ticks[h]);
+        hourLabels += '<text class="cl-daylabel" x="' + hx(ticks[h]) + '" y="' + LABEL_Y + '">' + lbl + '</text>';
+      }
+      var svg = '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + ariaLabel + '">' +
+        lines + dots + hourLabels +
+      '</svg>';
+      var legend = '<div class="chart-legend">';
+      for (var j = series.length - 1; j >= 0; j--) { // newest first in the legend
+        legend += '<span><i class="' + cls[j] + '"></i>' + escapeHtml(fmtDayMonth(days[j])) + ': ' + escapeHtml(fmtTotal(series[j][24])) + '</span>';
+      }
+      legend += '</div>';
+      return legend + svg;
+    }
+
+    function renderFeedingDay(c, days) {
+      return renderDayComparison(c, days,
+        function(it) { var n = Number(it.amount_ml); return isFinite(n) ? n : 0; },
+        function(v) { return (v % 1 === 0 ? String(v) : v.toFixed(1)) + " ml"; },
+        "Selected day cumulative feeding total in millilitres vs the prior two days");
+    }
+
+    function renderDiaperDay(c, days) {
+      return renderDayComparison(c, days,
+        function() { return 1; }, // each diaper record is one change
+        function(v) { return String(v); },
+        "Selected day cumulative diaper count vs the prior two days");
     }
 
     // Chart navigation (prev/next week) and day selection — shared by all charts.
