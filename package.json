@@ -9,6 +9,7 @@
     "start": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "cf-typegen": "wrangler types",
     "db:create": "wrangler d1 create baby-feedings",
     "db:migrate:local": "wrangler d1 migrations apply baby-feedings --local",
@@ -25,6 +26,7 @@
     "@cloudflare/workers-types": "^4.20250109.0",
     "@types/node": "^25.9.0",
     "typescript": "^5.7.2",
+    "vitest": "^4.1.8",
     "wrangler": "^4.0.0"
   }
 }

@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baby diary</title>
+  <link rel="icon" href="/icon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0070f3">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Baby diary">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <style>
+    :root {
+      --primary: #0070f3;
+      --primary-dark: #0058c4;
+      --bg: #fafafa;
+      --card: #fff;
+      --border: #e2e2e2;
+      --text: #1a1a1a;
+      --muted: #666;
+      --danger: #d33;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    nav {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+    nav button {
+      background: transparent;
+      border: 1px solid transparent;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      color: var(--muted);
+      font-family: inherit;
+    }
+    nav button:hover { background: #f0f0f0; }
+    nav button.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    nav button.active:hover { background: var(--primary-dark); }
+    /* Desktop default: More menu vanishes, its tabs flow inline as nav children. */
+    .more-menu,
+    .more-dropdown,
+    .more-dropdown[hidden] { display: contents; }
+    #more-btn { display: none; }
+    main {
+      max-width: 920px;
+      margin: 24px auto;
+      padding: 0 16px 40px;
+    }
+    .tab { display: none; }
+    .tab.active { display: block; }
+    form.entry-form {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    form.entry-form label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      flex: 1 1 140px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    form.entry-form input,
+    form.entry-form select {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 400;
+    }
+    form.entry-form input:focus,
+    form.entry-form select:focus {
+      outline: 2px solid var(--primary);
+      outline-offset: -1px;
+      border-color: var(--primary);
+    }
+    form.entry-form button[type=submit] {
+      background: var(--primary);
+      color: white;
+      border: 0;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      align-self: flex-end;
+    }
+    form.entry-form button[type=submit]:hover { background: var(--primary-dark); }
+    form.entry-form button[type=submit]:disabled { opacity: 0.5; cursor: not-allowed; }
+    .list {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .list-empty,
+    .list-loading {
+      padding: 28px 16px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      vertical-align: top;
+    }
+    th {
+      background: #f7f7f8;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #fafafa; }
+    .ts-col { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .num-col { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .actions-col { text-align: right; width: 1%; white-space: nowrap; }
+    .delete-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--danger);
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .delete-btn:hover { background: #fee; border-color: var(--danger); }
+    .toast {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #222;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.2);
+      opacity: 0;
+      transition: opacity .2s;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .toast.show { opacity: 1; }
+    .toast.error { background: var(--danger); }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    .card-main {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .card-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .card-empty {
+      font-size: 14px;
+      color: var(--muted);
+      font-style: italic;
+    }
+    .week-chart {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .chart-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chart-head .card-title { margin: 0; flex: 1; text-align: center; }
+    .chart-nav {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      font-family: inherit;
+    }
+    .chart-nav:hover:not(:disabled) { background: #f0f0f0; }
+    .chart-nav:disabled { opacity: 0.35; cursor: not-allowed; }
+    /* Weekly charts: shared SVG line chart (feeding total ml + diaper pee/poop) */
+    .chart-lines {
+      display: block;
+      width: 100%;
+      height: auto;
+      overflow: visible;
+    }
+    .cl-line, .cl-dot, .cl-val, .cl-daylabel { pointer-events: none; }
+    .cl-hit { fill: transparent; pointer-events: all; cursor: pointer; }
+    .chart-bar.today .cl-hit { fill: #f2f7ff; }
+    .chart-bar.selected .cl-hit { fill: #eaf2ff; }
+    .cl-line {
+      fill: none;
+      stroke: var(--primary);
+      stroke-width: 2;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+    }
+    .cl-line.pee { stroke: var(--primary); }
+    .cl-line.poop { stroke: #b5651d; }
+    .cl-dot {
+      fill: var(--primary);
+      stroke: var(--card);
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+    }
+    .cl-dot.pee { fill: var(--primary); }
+    .cl-dot.poop { fill: #b5651d; }
+    .cl-val {
+      font-size: 10px;
+      font-family: inherit;
+      font-weight: 600;
+      fill: var(--muted);
+      text-anchor: middle;
+      font-variant-numeric: tabular-nums;
+    }
+    .cl-val.pee { fill: var(--primary); }
+    .cl-val.poop { fill: #b5651d; }
+    .cl-daylabel {
+      font-size: 11px;
+      font-family: inherit;
+      text-anchor: middle;
+      fill: var(--muted);
+    }
+    .cl-daylabel.today { fill: var(--text); font-weight: 700; }
+    .cl-daylabel.selected { fill: var(--primary); font-weight: 700; }
+    .chart-legend {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .chart-legend i {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+    .chart-legend i.pee { background: var(--primary); }
+    .chart-legend i.poop { background: #b5651d; }
+    /* Day-comparison chart: selected day (d0) vs the 2 days before (d1, d2) */
+    .daychart-title { text-align: center; margin-bottom: 12px; }
+    .dl-line {
+      fill: none;
+      stroke-width: 2;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+    .dl-line.d0 { stroke: var(--primary); stroke-width: 2.5; }
+    .dl-line.d1 { stroke: #f5a623; }
+    .dl-line.d2 { stroke: #9aa0a6; stroke-dasharray: 4 3; }
+    .dl-dot {
+      stroke: var(--card);
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+    .dl-dot.d0 { fill: var(--primary); }
+    .dl-dot.d1 { fill: #f5a623; }
+    .dl-dot.d2 { fill: #9aa0a6; }
+    .chart-legend i.d0 { background: var(--primary); }
+    .chart-legend i.d1 { background: #f5a623; }
+    .chart-legend i.d2 { background: #9aa0a6; }
+    .quick-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .quick-btn {
+      background: var(--primary);
+      color: #fff;
+      border: 0;
+      padding: 9px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      min-height: 38px;
+    }
+    .quick-btn:hover { background: var(--primary-dark); }
+    .quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .totals-row {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .totals-item .totals-num {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .totals-item .totals-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-top: 2px;
+    }
+    .when-quick {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .when-quick button {
+      background: #f0f0f0;
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      color: var(--muted);
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 500;
+    }
+    .when-quick button:hover { background: #e5e5e5; color: var(--text); }
+    .when-quick button[data-now] {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    .when-quick button[data-now]:hover {
+      background: var(--primary-dark);
+      color: #fff;
+    }
+    .choice-group {
+      display: flex;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .choice-btn {
+      flex: 1 1 0;
+      background: #f7f7f8;
+      border: 1px solid var(--border);
+      padding: 10px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      text-transform: none;
+      letter-spacing: normal;
+      min-height: 40px;
+    }
+    .choice-btn:hover { background: #efeff1; color: var(--text); }
+    .choice-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .choice-btn.active:hover { background: var(--primary-dark); color: #fff; }
+    .when-display {
+      display: block;
+      padding: 6px 10px;
+      background: #f4f4f6;
+      border-radius: 4px;
+      font-size: 16px;
+      font-family: inherit;
+      color: var(--text);
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 400;
+      text-align: center;
+    }
+    .delete-btn.pending {
+      background: var(--danger);
+      color: #fff;
+      border-color: var(--danger);
+      font-weight: 600;
+    }
+    .delete-btn.pending:hover { background: #b22; }
+    @media (max-width: 640px) {
+      header { padding: 8px 10px; gap: 8px; }
+      nav { gap: 3px; }
+      nav button { padding: 5px 9px; font-size: 13px; border-radius: 5px; }
+      /* Mobile: restore the More dropdown — its tabs live behind the ⋯ button. */
+      .more-menu { display: inline-block; position: relative; }
+      #more-btn { display: inline-block; font-size: 18px; line-height: 1; padding: 5px 9px; }
+      .more-dropdown {
+        display: flex;
+        flex-direction: column;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 4px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,.08);
+        padding: 4px;
+        min-width: 140px;
+        z-index: 20;
+      }
+      .more-dropdown[hidden] { display: none; }
+      .more-dropdown button { text-align: left; width: 100%; }
+      main { margin: 14px auto; padding: 0 10px 24px; }
+      th, td { padding: 8px 10px; }
+      .hide-sm { display: none; }
+
+      .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      #card-today-totals { grid-column: 1 / -1; }
+      .card { padding: 10px 12px; }
+      .card-title { margin-bottom: 4px; font-size: 10px; }
+      .card-main { font-size: 16px; }
+      .card-sub { font-size: 12px; }
+      .card-empty { font-size: 13px; }
+      .quick-row { gap: 6px; margin-top: 8px; }
+      .quick-btn { padding: 7px 10px; font-size: 13px; min-height: 32px; }
+      .totals-row { gap: 12px; }
+      .totals-item .totals-num { font-size: 17px; }
+      .totals-item .totals-label { font-size: 10px; }
+
+      form.entry-form { padding: 12px; gap: 8px; margin-bottom: 14px; }
+      form.entry-form label { font-size: 11px; flex: 1 1 100%; }
+      form.entry-form button[type=submit] { width: 100%; padding: 11px; }
+      .when-display { font-size: 15px; }
+      .when-quick { gap: 3px; }
+      .when-quick button { padding: 5px 7px; font-size: 12px; min-height: 30px; flex: 1 1 auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav id="nav">
+      <button data-tab="today" class="active">Today</button>
+      <button data-tab="feedings">Feeding</button>
+      <button data-tab="diapers">Diaper</button>
+      <button data-tab="routines">Routine</button>
+      <div class="more-menu">
+        <button type="button" id="more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More tabs" title="More">&#8943;</button>
+        <div class="more-dropdown" id="more-dropdown" hidden>
+          <button data-tab="weights">Weight</button>
+          <button data-tab="heights">Height</button>
+          <button data-tab="notes">Note</button>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-today" class="tab active">
+      <div class="dashboard-grid">
+        <div class="card" id="card-today-totals">
+          <div class="card-title">Today</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
+        <div class="card" id="card-last-feeding">
+          <div class="card-title">Last feeding</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
+        <div class="card" id="card-last-diaper">
+          <div class="card-title">Last diaper</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
+        <div class="card" id="card-vitamin-d">
+          <div class="card-title">Vitamin D</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
+        <div class="card" id="card-last-tummy">
+          <div class="card-title">Last tummy time</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
+        <div class="card" id="card-last-bath">
+          <div class="card-title">Last bath</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
+        <div class="card" id="card-last-weight">
+          <div class="card-title">Last weight</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
+        <div class="card" id="card-last-height">
+          <div class="card-title">Last height</div>
+          <div class="card-empty">Loading&hellip;</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-feedings" class="tab">
+      <form class="entry-form" data-entity="feedings">
+        <label>Amount (ml)
+          <input type="number" name="amount_ml" step="0.1" min="0.1" inputmode="decimal" required placeholder="120">
+        </label>
+        <label>When
+<!-- WHEN_BLOCK -->
+        </label>
+        <button type="submit">Add</button>
+      </form>
+      <div class="week-chart" id="feedings-chart">
+        <div class="card-title">This week &mdash; ml per day</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
+      <div class="week-chart" id="feedings-daychart">
+        <div class="card-title">Selected day &mdash; vs 2 days before</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
+      <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-diapers" class="tab">
+      <form class="entry-form" data-entity="diapers">
+        <label>Type
+          <input type="hidden" name="kind" value="pee">
+          <div class="choice-group">
+            <button type="button" class="choice-btn active" data-value="pee">Pee</button>
+            <button type="button" class="choice-btn" data-value="poop">Poop</button>
+            <button type="button" class="choice-btn" data-value="both">Both</button>
+          </div>
+        </label>
+        <label>When
+<!-- WHEN_BLOCK -->
+        </label>
+        <button type="submit">Add</button>
+      </form>
+      <div class="week-chart" id="diapers-chart">
+        <div class="card-title">This week &mdash; diapers per day</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
+      <div class="week-chart" id="diapers-daychart">
+        <div class="card-title">Selected day &mdash; vs 2 days before</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
+      <div class="list" id="list-diapers"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-routines" class="tab">
+      <form class="entry-form" data-entity="routines">
+        <label>Type
+          <input type="hidden" name="name" value="Vitamin D">
+          <div class="choice-group">
+            <button type="button" class="choice-btn active" data-value="Vitamin D">Vitamin D</button>
+            <button type="button" class="choice-btn" data-value="Bath">Bath</button>
+            <button type="button" class="choice-btn" data-value="Tummy">Tummy</button>
+          </div>
+        </label>
+        <label>When
+<!-- WHEN_BLOCK -->
+        </label>
+        <button type="submit">Add</button>
+      </form>
+      <div class="list" id="list-routines"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-weights" class="tab">
+      <form class="entry-form" data-entity="weights">
+        <label>Weight (g)
+          <input type="number" name="weight_g" step="1" min="1" inputmode="numeric" required placeholder="4250">
+        </label>
+        <label>When
+<!-- WHEN_BLOCK -->
+        </label>
+        <button type="submit">Add</button>
+      </form>
+      <div class="list" id="list-weights"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-heights" class="tab">
+      <form class="entry-form" data-entity="heights">
+        <label>Height (cm)
+          <input type="number" name="height_cm" step="1" min="1" inputmode="numeric" required placeholder="54">
+        </label>
+        <label>When
+<!-- WHEN_BLOCK -->
+        </label>
+        <button type="submit">Add</button>
+      </form>
+      <div class="list" id="list-heights"><div class="list-loading">Loading...</div></div>
+    </section>
+
+    <section id="tab-notes" class="tab">
+      <form class="entry-form" data-entity="notes">
+        <label>Note
+          <input type="text" name="text" maxlength="2000" required placeholder="first smile, rash, Bath...">
+        </label>
+        <label>When
+<!-- WHEN_BLOCK -->
+        </label>
+        <button type="submit">Add</button>
+      </form>
+      <div class="list" id="list-notes"><div class="list-loading">Loading...</div></div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    var NUMERIC_FIELDS = { amount_ml: true, weight_g: true, height_cm: true };
+    var DAY_MS = 86400000;
+
+    function fmtText(v) { return v == null ? "" : String(v); }
+
+    function fmtKind(v) {
+      if (v === "pee") return "Pee";
+      if (v === "poop") return "Poop";
+      if (v === "both") return "Both";
+      return v == null ? "" : String(v);
+    }
+
+    var entities = {
+      feedings: {
+        endpoint: "/api/feedings",
+        columns: [
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "amount_ml", label: "Amount", cls: "num-col", fmt: function(v) { return v + " ml"; } }
+        ]
+      },
+      diapers: {
+        endpoint: "/api/diapers",
+        columns: [
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "kind", label: "Type", fmt: fmtKind }
+        ]
+      },
+      routines: {
+        endpoint: "/api/routines",
+        columns: [
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "name", label: "Type", fmt: fmtText }
+        ]
+      },
+      notes: {
+        endpoint: "/api/notes",
+        columns: [
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "text", label: "Note", fmt: fmtText }
+        ]
+      },
+      weights: {
+        endpoint: "/api/weights",
+        columns: [
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "weight_g", label: "Weight", cls: "num-col", fmt: function(v) { return v + " g"; } }
+        ]
+      },
+      heights: {
+        endpoint: "/api/heights",
+        columns: [
+          { key: "ts", label: "When", cls: "ts-col" },
+          { key: "height_cm", label: "Height", cls: "num-col", fmt: function(v) { return v + " cm"; } }
+        ]
+      }
+    };
+
+    function timeAgo(s) {
+      if (!s) return "";
+      var t = new Date(s).getTime();
+      if (isNaN(t)) return String(s);
+      var diff = Date.now() - t;
+      if (diff < 45 * 1000) return "now";
+      if (diff >= 30 * DAY_MS) return new Date(s).toLocaleDateString();
+      return durationLabel(diff) + " ago";
+    }
+
+    function absoluteTs(s) {
+      if (!s) return "";
+      var d = new Date(s);
+      if (isNaN(d.getTime())) return String(s);
+      return d.toLocaleString();
+    }
+
+    function tableTs(s) {
+      if (!s) return "";
+      var d = new Date(s);
+      if (isNaN(d.getTime())) return String(s);
+      var pad = function(n) { return n < 10 ? "0" + n : String(n); };
+      var time = pad(d.getHours()) + ":" + pad(d.getMinutes());
+      var now = new Date();
+      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+        return time;
+      }
+      var datePart = pad(d.getDate()) + "/" + pad(d.getMonth() + 1);
+      if (d.getFullYear() !== now.getFullYear()) datePart += "/" + d.getFullYear();
+      return datePart + " " + time;
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function startOfDay() {
+      var d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+
+    function toLocalDatetimeString(d) {
+      function pad(n) { return n < 10 ? "0" + n : String(n); }
+      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+        "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+    }
+
+    var toastEl = document.getElementById("toast");
+    var toastTimer = null;
+    function toast(msg, isError) {
+      toastEl.textContent = msg;
+      toastEl.className = "toast show" + (isError ? " error" : "");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function() {
+        toastEl.className = "toast" + (isError ? " error" : "");
+      }, 2400);
+    }
+
+    function gotoLogin() {
+      location.href = "/app/login?next=" + encodeURIComponent(location.pathname);
+    }
+
+    async function fetchJson(url) {
+      var res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (res.status === 401) { gotoLogin(); throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    }
+
+    async function postJson(url, body) {
+      var res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (res.status === 401) { gotoLogin(); throw new Error("Unauthorized"); }
+      if (!res.ok) {
+        var msg = "";
+        try { msg = await res.text(); } catch (_) {}
+        throw new Error(msg || ("HTTP " + res.status));
+      }
+      return await res.json();
+    }
+
+    async function loadList(entity) {
+      if (entity === "feedings" || entity === "diapers") return loadWeek(entity);
+      var cfg = entities[entity];
+      var container = document.getElementById("list-" + entity);
+      try {
+        var data = await fetchJson(cfg.endpoint);
+        renderList(entity, data.items || []);
+      } catch (err) {
+        if (err.message === "Unauthorized") return;
+        container.innerHTML = '<div class="list-empty">Error loading: ' + escapeHtml(err.message) + "</div>";
+      }
+    }
+
+    // --- Weekly charts (Mon-Sun) with prev/next nav + day-filtering of the list ---
+    function startOfWeek() {
+      var d = startOfDay();
+      var dow = (d.getDay() + 6) % 7; // 0 = Monday
+      d.setDate(d.getDate() - dow);
+      return d;
+    }
+
+    var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    var charts = {
+      feedings: { elId: "feedings-chart", dayElId: "feedings-daychart", endpoint: "/api/feedings",
+        renderBars: renderFeedingLines, renderDay: renderFeedingDay,
+        weekStart: startOfWeek(), selectedDay: null, items: [] },
+      diapers: { elId: "diapers-chart", dayElId: "diapers-daychart", endpoint: "/api/diapers",
+        renderBars: renderDiaperLines, renderDay: renderDiaperDay,
+        weekStart: startOfWeek(), selectedDay: null, items: [] }
+    };
+
+    function resetChartWeek(key) {
+      charts[key].weekStart = startOfWeek();
+      charts[key].selectedDay = null;
+    }
+
+    function fmtDayMonth(d) {
+      var pad = function(n) { return n < 10 ? "0" + n : String(n); };
+      return pad(d.getDate()) + "/" + pad(d.getMonth() + 1);
+    }
+
+    function dayIndexOf(ts, weekStart) {
+      var d = new Date(ts);
+      if (isNaN(d.getTime())) return -1;
+      return Math.floor((d.getTime() - weekStart.getTime()) / DAY_MS);
+    }
+
+    async function loadWeek(key) {
+      var c = charts[key];
+      var el = document.getElementById(c.elId);
+      if (!el) return;
+      // Fetch 2 days before the week too, so the day-comparison chart can show
+      // the selected day vs the 2 prior days even across the week boundary.
+      var fetchStart = new Date(c.weekStart.getTime());
+      fetchStart.setDate(fetchStart.getDate() - 2);
+      var weekEnd = new Date(c.weekStart.getTime());
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      var qs = "since=" + encodeURIComponent(fetchStart.toISOString()) +
+        "&until=" + encodeURIComponent(weekEnd.toISOString()) + "&limit=500";
+      try {
+        var data = await fetchJson(c.endpoint + "?" + qs);
+        c.items = data.items || [];
+        renderWeek(key);
+      } catch (err) {
+        if (err.message === "Unauthorized") return;
+        el.innerHTML = '<div class="card-empty">Error loading chart: ' + escapeHtml(err.message) + '</div>';
+      }
+    }
+
+    function renderWeek(key) {
+      var c = charts[key];
+      var el = document.getElementById(c.elId);
+      var isCurrent = c.weekStart.getTime() === startOfWeek().getTime();
+      var weekEnd = new Date(c.weekStart.getTime());
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      var title = (isCurrent ? "This week" : "Week") + " &mdash; " +
+        escapeHtml(fmtDayMonth(c.weekStart) + " – " + fmtDayMonth(weekEnd));
+      el.innerHTML =
+        '<div class="chart-head">' +
+          '<button type="button" class="chart-nav" data-week="-1" aria-label="Previous week">&#9664;</button>' +
+          '<div class="card-title chart-title">' + title + '</div>' +
+          '<button type="button" class="chart-nav" data-week="1" aria-label="Next week"' + (isCurrent ? " disabled" : "") + '>&#9654;</button>' +
+        '</div>' +
+        c.renderBars(c);
+      renderDayChart(key);
+      renderWeekList(key);
+    }
+
+    function renderWeekList(key) {
+      var c = charts[key];
+      var items = c.items;
+      if (c.selectedDay !== null) {
+        var dayStart = new Date(c.weekStart.getTime());
+        dayStart.setDate(dayStart.getDate() + c.selectedDay);
+        var dayEnd = dayStart.getTime() + DAY_MS;
+        items = items.filter(function(it) {
+          var t = new Date(it.ts).getTime();
+          return t >= dayStart.getTime() && t < dayEnd;
+        });
+      } else {
+        // c.items also carries the 2 days before the week (for the day chart);
+        // keep only this week's rows when no single day is selected.
+        var wStart = c.weekStart.getTime();
+        var wEnd = wStart + 7 * DAY_MS;
+        items = items.filter(function(it) {
+          var t = new Date(it.ts).getTime();
+          return t >= wStart && t < wEnd;
+        });
+      }
+      renderList(key, items);
+    }
+
+    // Feeding chart: a single SVG line of total ml per day over the week.
+    // Same clickable-column / day-filtering model as the diaper chart.
+    function renderFeedingLines(c) {
+      var totals = [0, 0, 0, 0, 0, 0, 0];
+      for (var i = 0; i < c.items.length; i++) {
+        var idx = dayIndexOf(c.items[i].ts, c.weekStart);
+        if (idx < 0 || idx > 6) continue;
+        var n = Number(c.items[i].amount_ml);
+        if (isFinite(n)) totals[idx] += n;
+      }
+      var max = 0;
+      for (var m = 0; m < 7; m++) if (totals[m] > max) max = totals[m];
+      // viewBox is 350x170; columns are 50 wide, plot band spans y 20..144.
+      var BAND = 50, TOP = 20, BOT = 144, LABEL_Y = 164;
+      function cx(b) { return b * BAND + BAND / 2; }
+      function cy(v) { return max > 0 ? +(BOT - (v / max) * (BOT - TOP)).toFixed(1) : BOT; }
+      var pts = "";
+      for (var p = 0; p < 7; p++) pts += cx(p) + "," + cy(totals[p]) + " ";
+      var today = dayIndexOf(startOfDay().toISOString(), c.weekStart);
+      var hits = "", marks = "", labels = "";
+      for (var b = 0; b < 7; b++) {
+        var state = (b === today ? " today" : "") + (b === c.selectedDay ? " selected" : "");
+        hits += '<g class="chart-bar' + state + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === c.selectedDay) + '">' +
+          '<rect class="cl-hit" x="' + (b * BAND) + '" y="0" width="' + BAND + '" height="170"></rect>' +
+        '</g>';
+        var x = cx(b), y = cy(totals[b]), ml = totals[b];
+        marks += '<circle class="cl-dot" cx="' + x + '" cy="' + y + '" r="3.5"></circle>';
+        if (ml > 0) {
+          var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
+          marks += '<text class="cl-val" x="' + x + '" y="' + (y - 7) + '">' + escapeHtml(mlStr) + '</text>';
+        }
+        labels += '<text class="cl-daylabel' + state + '" x="' + x + '" y="' + LABEL_Y + '">' + WEEK_DAY_LABELS[b] + '</text>';
+      }
+      return '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Weekly feeding totals in millilitres">' +
+        '<g class="cl-hits">' + hits + '</g>' +
+        '<polyline class="cl-line" points="' + pts.trim() + '"></polyline>' +
+        marks +
+        labels +
+      '</svg>';
+    }
+
+    // Diaper chart rendered as two SVG lines (pee/poop) over the 7-day week.
+    // Each day is a transparent clickable column (.chart-bar) so the prev/next
+    // nav + day-filtering shared with the feeding chart keep working unchanged.
+    function renderDiaperLines(c) {
+      var pees = [0, 0, 0, 0, 0, 0, 0];
+      var poops = [0, 0, 0, 0, 0, 0, 0];
+      for (var i = 0; i < c.items.length; i++) {
+        var idx = dayIndexOf(c.items[i].ts, c.weekStart);
+        if (idx < 0 || idx > 6) continue;
+        var k = c.items[i].kind;
+        if (k === "pee" || k === "both") pees[idx]++;
+        if (k === "poop" || k === "both") poops[idx]++;
+      }
+      var max = 0;
+      for (var m = 0; m < 7; m++) {
+        if (pees[m] > max) max = pees[m];
+        if (poops[m] > max) max = poops[m];
+      }
+      // viewBox is 350x170; columns are 50 wide, plot band spans y 20..144.
+      var BAND = 50, TOP = 20, BOT = 144, LABEL_Y = 164;
+      function cx(b) { return b * BAND + BAND / 2; }
+      function cy(v) { return max > 0 ? +(BOT - (v / max) * (BOT - TOP)).toFixed(1) : BOT; }
+      function linePts(arr) {
+        var s = "";
+        for (var b = 0; b < 7; b++) s += cx(b) + "," + cy(arr[b]) + " ";
+        return s.trim();
+      }
+      function series(arr, kind, above) {
+        var out = "";
+        for (var b = 0; b < 7; b++) {
+          var x = cx(b), y = cy(arr[b]);
+          out += '<circle class="cl-dot ' + kind + '" cx="' + x + '" cy="' + y + '" r="3.5"></circle>';
+          if (arr[b] > 0) {
+            out += '<text class="cl-val ' + kind + '" x="' + x + '" y="' + (above ? y - 7 : y + 13) + '">' + arr[b] + '</text>';
+          }
+        }
+        return out;
+      }
+      var today = dayIndexOf(startOfDay().toISOString(), c.weekStart);
+      var hits = "", labels = "";
+      for (var b = 0; b < 7; b++) {
+        var state = (b === today ? " today" : "") + (b === c.selectedDay ? " selected" : "");
+        hits += '<g class="chart-bar' + state + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === c.selectedDay) + '">' +
+          '<rect class="cl-hit" x="' + (b * BAND) + '" y="0" width="' + BAND + '" height="170"></rect>' +
+        '</g>';
+        labels += '<text class="cl-daylabel' + state + '" x="' + cx(b) + '" y="' + LABEL_Y + '">' + WEEK_DAY_LABELS[b] + '</text>';
+      }
+      var svg = '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Weekly pee and poop counts">' +
+        '<g class="cl-hits">' + hits + '</g>' +
+        '<polyline class="cl-line pee" points="' + linePts(pees) + '"></polyline>' +
+        '<polyline class="cl-line poop" points="' + linePts(poops) + '"></polyline>' +
+        series(pees, "pee", true) + series(poops, "poop", false) +
+        labels +
+      '</svg>';
+      var legend = '<div class="chart-legend">' +
+        '<span><i class="pee"></i>Pee</span><span><i class="poop"></i>Poop</span>' +
+      '</div>';
+      return legend + svg;
+    }
+
+    // Day-comparison chart: the selected day (or today, if none selected) plotted
+    // against the 2 calendar days before it, as cumulative-through-the-day lines.
+    function renderDayChart(key) {
+      var c = charts[key];
+      var el = document.getElementById(c.dayElId);
+      if (!el) return;
+      var refIdx = c.selectedDay;
+      if (refIdx === null) {
+        var t = dayIndexOf(startOfDay().toISOString(), c.weekStart);
+        refIdx = (t >= 0 && t <= 6) ? t : 6; // default to today, else last day of week
+      }
+      // Oldest first: [refIdx-2, refIdx-1, refIdx]
+      var days = [];
+      for (var k = 2; k >= 0; k--) {
+        var ds = new Date(c.weekStart.getTime());
+        ds.setDate(ds.getDate() + refIdx - k);
+        days.push(ds);
+      }
+      var refDate = days[days.length - 1];
+      var title = WEEK_DAY_LABELS[refIdx] + " " + fmtDayMonth(refDate) + " &mdash; vs 2 days before";
+      el.innerHTML =
+        '<div class="card-title daychart-title">' + title + '</div>' +
+        c.renderDay(c, days);
+    }
+
+    // Sum each record's value into 24 hourly buckets of one day, then return the
+    // running total at hours 0..24 (length 25; index 24 is the day total).
+    function dayCumulative(items, dayStartMs, valueFn) {
+      var buckets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      var dayEndMs = dayStartMs + DAY_MS;
+      for (var i = 0; i < items.length; i++) {
+        var ms = new Date(items[i].ts).getTime();
+        if (isNaN(ms) || ms < dayStartMs || ms >= dayEndMs) continue;
+        var h = Math.floor((ms - dayStartMs) / 3600000);
+        if (h < 0) h = 0; else if (h > 23) h = 23;
+        buckets[h] += valueFn(items[i]);
+      }
+      var cum = [0], run = 0;
+      for (var b = 0; b < 24; b++) { run += buckets[b]; cum.push(run); }
+      return cum;
+    }
+
+    // Shared SVG builder for both day-comparison charts. days is oldest-first.
+    function renderDayComparison(c, days, valueFn, fmtTotal, ariaLabel) {
+      var cls = ["d2", "d1", "d0"]; // matches oldest-first days; d0 = selected day
+      var series = days.map(function(ds) { return dayCumulative(c.items, ds.getTime(), valueFn); });
+      var max = 0;
+      for (var s = 0; s < series.length; s++) {
+        var tot = series[s][24];
+        if (tot > max) max = tot;
+      }
+      // viewBox 350x170: plot band x 25..325 (24h), y 20..144, hour labels at y 164.
+      var LX = 25, RX = 325, TOP = 20, BOT = 144, LABEL_Y = 164;
+      function hx(h) { return +(LX + (h / 24) * (RX - LX)).toFixed(1); }
+      function cy(v) { return max > 0 ? +(BOT - (v / max) * (BOT - TOP)).toFixed(1) : BOT; }
+      function poly(cum) {
+        var p = "";
+        for (var h = 0; h <= 24; h++) p += hx(h) + "," + cy(cum[h]) + " ";
+        return p.trim();
+      }
+      var lines = "", dots = "";
+      for (var i = 0; i < series.length; i++) {
+        lines += '<polyline class="dl-line ' + cls[i] + '" points="' + poly(series[i]) + '"></polyline>';
+        if (series[i][24] > 0) {
+          dots += '<circle class="dl-dot ' + cls[i] + '" cx="' + hx(24) + '" cy="' + cy(series[i][24]) + '" r="3"></circle>';
+        }
+      }
+      var ticks = [0, 6, 12, 18, 24], hourLabels = "";
+      for (var h = 0; h < ticks.length; h++) {
+        var lbl = ticks[h] < 10 ? "0" + ticks[h] : String(ticks[h]);
+        hourLabels += '<text class="cl-daylabel" x="' + hx(ticks[h]) + '" y="' + LABEL_Y + '">' + lbl + '</text>';
+      }
+      var svg = '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + ariaLabel + '">' +
+        lines + dots + hourLabels +
+      '</svg>';
+      var legend = '<div class="chart-legend">';
+      for (var j = series.length - 1; j >= 0; j--) { // newest first in the legend
+        legend += '<span><i class="' + cls[j] + '"></i>' + escapeHtml(fmtDayMonth(days[j])) + ': ' + escapeHtml(fmtTotal(series[j][24])) + '</span>';
+      }
+      legend += '</div>';
+      return legend + svg;
+    }
+
+    function renderFeedingDay(c, days) {
+      return renderDayComparison(c, days,
+        function(it) { var n = Number(it.amount_ml); return isFinite(n) ? n : 0; },
+        function(v) { return (v % 1 === 0 ? String(v) : v.toFixed(1)) + " ml"; },
+        "Selected day cumulative feeding total in millilitres vs the prior two days");
+    }
+
+    function renderDiaperDay(c, days) {
+      return renderDayComparison(c, days,
+        function() { return 1; }, // each diaper record is one change
+        function(v) { return String(v); },
+        "Selected day cumulative diaper count vs the prior two days");
+    }
+
+    // Chart navigation (prev/next week) and day selection — shared by all charts.
+    function bindChart(key) {
+      var el = document.getElementById(charts[key].elId);
+      if (!el) return;
+      el.addEventListener("click", function(e) { handleChartActivate(key, e.target); });
+      el.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+          var bar = e.target && e.target.closest ? e.target.closest(".chart-bar") : null;
+          if (bar) { e.preventDefault(); handleChartActivate(key, bar); }
+        }
+      });
+    }
+
+    function handleChartActivate(key, target) {
+      if (!target || !target.closest) return;
+      var c = charts[key];
+      var nav = target.closest(".chart-nav");
+      if (nav && !nav.disabled) {
+        var delta = parseInt(nav.getAttribute("data-week"), 10);
+        c.weekStart = new Date(c.weekStart.getTime());
+        c.weekStart.setDate(c.weekStart.getDate() + delta * 7);
+        c.selectedDay = null;
+        loadWeek(key);
+        return;
+      }
+      var bar = target.closest(".chart-bar");
+      if (bar) {
+        var day = parseInt(bar.getAttribute("data-day"), 10);
+        c.selectedDay = (c.selectedDay === day) ? null : day; // toggle
+        renderWeek(key); // re-render from cached data, no refetch
+      }
+    }
+
+    bindChart("feedings");
+    bindChart("diapers");
+
+    function renderList(entity, items) {
+      var cfg = entities[entity];
+      var container = document.getElementById("list-" + entity);
+      if (!items.length) {
+        container.innerHTML = '<div class="list-empty">No entries yet.</div>';
+        return;
+      }
+      var head = "";
+      for (var i = 0; i < cfg.columns.length; i++) {
+        var c = cfg.columns[i];
+        head += "<th" + (c.cls ? ' class="' + c.cls + '"' : "") + ">" + escapeHtml(c.label) + "</th>";
+      }
+      head += '<th class="actions-col"></th>';
+
+      var body = "";
+      for (var j = 0; j < items.length; j++) {
+        var item = items[j];
+        var row = "";
+        for (var k = 0; k < cfg.columns.length; k++) {
+          var col = cfg.columns[k];
+          var val = item[col.key];
+          if (col.cls === "ts-col") {
+            row += '<td class="ts-col">' + escapeHtml(tableTs(val)) + '</td>';
+          } else {
+            var rendered = col.fmt ? col.fmt(val) : (val == null ? "" : val);
+            row += "<td" + (col.cls ? ' class="' + col.cls + '"' : "") + ">" + escapeHtml(rendered) + "</td>";
+          }
+        }
+        row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">Delete</button></td>';
+        body += "<tr>" + row + "</tr>";
+      }
+      container.innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+    }
+
+    // --- Dashboard ---
+    async function loadDashboard() {
+      var sinceToday = "since=" + encodeURIComponent(startOfDay().toISOString());
+      try {
+        var results = await Promise.all([
+          fetchJson("/api/feedings?limit=1"),
+          fetchJson("/api/feedings?" + sinceToday),
+          fetchJson("/api/diapers?limit=1"),
+          fetchJson("/api/diapers?" + sinceToday),
+          fetchJson("/api/routines?name=" + encodeURIComponent("Vitamin D") + "&limit=1"),
+          fetchJson("/api/routines?name=" + encodeURIComponent("Bath") + "&limit=1"),
+          fetchJson("/api/routines?name=" + encodeURIComponent("Tummy") + "&limit=1"),
+          fetchJson("/api/weights?limit=1"),
+          fetchJson("/api/heights?limit=1")
+        ]);
+        renderLastFeeding((results[0].items || [])[0]);
+        renderLastDiaper((results[2].items || [])[0]);
+        renderTodayTotals(results[1].items || [], results[3].items || []);
+        renderRoutineCard({ cardId: "card-vitamin-d", title: "Vitamin D", name: "Vitamin D", todayOnly: true, empty: "Not given today yet" }, (results[4].items || [])[0]);
+        renderRoutineCard({ cardId: "card-last-bath", title: "Last bath", name: "Bath", empty: "No baths yet" }, (results[5].items || [])[0]);
+        renderRoutineCard({ cardId: "card-last-tummy", title: "Last tummy time", name: "Tummy", empty: "No tummy time yet" }, (results[6].items || [])[0]);
+        renderLastMeasurement("card-last-weight", "Last weight", (results[7].items || [])[0], "weight_g", "g");
+        renderLastMeasurement("card-last-height", "Last height", (results[8].items || [])[0], "height_cm", "cm");
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast("Error loading dashboard: " + err.message, true);
+      }
+    }
+
+    // One renderer for the routine dashboard cards (Vitamin D / Bath / Tummy).
+    // todayOnly cards only count an entry from today (e.g. daily Vitamin D).
+    function renderRoutineCard(opts, item) {
+      var el = document.getElementById(opts.cardId);
+      var head = '<div class="card-title">' + escapeHtml(opts.title) + '</div>';
+      var show = item && (!opts.todayOnly || new Date(item.ts).getTime() >= startOfDay().getTime());
+      var body = show
+        ? '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
+          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
+        : '<div class="card-empty">' + escapeHtml(opts.empty) + '</div>';
+      var actions = '<div class="quick-row">' +
+        '<button class="quick-btn" data-quick="routine" data-name="' + escapeHtml(opts.name) + '">+ ' + escapeHtml(opts.name) + '</button>' +
+      '</div>';
+      el.innerHTML = head + body + actions;
+    }
+
+    var FEEDING_SHORTCUTS = [30, 60, 90];
+
+    function feedingShortcutsHtml() {
+      var html = '<div class="quick-row">';
+      for (var i = 0; i < FEEDING_SHORTCUTS.length; i++) {
+        var amt = FEEDING_SHORTCUTS[i];
+        html += '<button class="quick-btn" data-quick="feeding" data-amount="' + amt + '">+ ' + amt + ' ml</button>';
+      }
+      html += '</div>';
+      return html;
+    }
+
+    function renderLastFeeding(item) {
+      var el = document.getElementById("card-last-feeding");
+      if (!item) {
+        el.innerHTML = '<div class="card-title">Last feeding</div>' +
+          '<div class="card-empty">No feedings yet</div>' +
+          feedingShortcutsHtml();
+        return;
+      }
+      var amt = item.amount_ml;
+      var sub = escapeHtml(timeAgo(item.ts));
+      el.innerHTML = '<div class="card-title">Last feeding</div>' +
+        '<div class="card-main">' + escapeHtml(amt + " ml") + '</div>' +
+        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + sub + '</div>' +
+        feedingShortcutsHtml();
+    }
+
+    function renderLastDiaper(item) {
+      var el = document.getElementById("card-last-diaper");
+      var head = '<div class="card-title">Last diaper</div>';
+      var body = item
+        ? '<div class="card-main">' + escapeHtml(fmtKind(item.kind)) + '</div>' +
+          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
+        : '<div class="card-empty">No diapers yet</div>';
+      var actions = '<div class="quick-row">' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="pee">+ Pee</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="poop">+ Poop</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="both">+ Both</button>' +
+      '</div>';
+      el.innerHTML = head + body + actions;
+    }
+
+    function renderTodayTotals(todayFeedings, todayDiapers) {
+      var el = document.getElementById("card-today-totals");
+      var head = '<div class="card-title">Today</div>';
+      if (todayFeedings.length === 0 && todayDiapers.length === 0) {
+        el.innerHTML = head + '<div class="card-empty">Nothing recorded today</div>';
+        return;
+      }
+      var totalMl = 0;
+      for (var i = 0; i < todayFeedings.length; i++) {
+        var n = Number(todayFeedings[i].amount_ml);
+        if (isFinite(n)) totalMl += n;
+      }
+      var pee = 0, poop = 0, both = 0;
+      for (var j = 0; j < todayDiapers.length; j++) {
+        var k = todayDiapers[j].kind;
+        if (k === "pee") pee++;
+        else if (k === "poop") poop++;
+        else if (k === "both") both++;
+      }
+      var mlStr = totalMl % 1 === 0 ? totalMl + " ml" : totalMl.toFixed(1) + " ml";
+      var items = [
+        { num: todayFeedings.length, label: "Feedings" },
+        { num: mlStr, label: "Total" },
+        { num: pee, label: "Pee" },
+        { num: poop, label: "Poop" }
+      ];
+      if (both > 0) items.push({ num: both, label: "Both" });
+      var rows = "";
+      for (var x = 0; x < items.length; x++) {
+        rows += '<div class="totals-item"><div class="totals-num">' + escapeHtml(String(items[x].num)) + '</div><div class="totals-label">' + escapeHtml(items[x].label) + '</div></div>';
+      }
+      el.innerHTML = head + '<div class="totals-row">' + rows + '</div>';
+    }
+
+    function renderLastMeasurement(cardId, title, item, valueKey, unit) {
+      var el = document.getElementById(cardId);
+      var head = '<div class="card-title">' + escapeHtml(title) + '</div>';
+      if (!item) {
+        el.innerHTML = head + '<div class="card-empty">No measurements</div>';
+        return;
+      }
+      el.innerHTML = head +
+        '<div class="card-main">' + escapeHtml(item[valueKey] + " " + unit) + '</div>' +
+        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>';
+    }
+
+    var MORE_TABS = { weights: true, heights: true, notes: true };
+
+    function closeMoreDropdown() {
+      var d = document.getElementById("more-dropdown");
+      var b = document.getElementById("more-btn");
+      if (d) d.hidden = true;
+      if (b) b.setAttribute("aria-expanded", "false");
+    }
+
+    function showTab(name) {
+      var navBtns = document.querySelectorAll("#nav [data-tab]");
+      for (var i = 0; i < navBtns.length; i++) {
+        navBtns[i].classList.toggle("active", navBtns[i].getAttribute("data-tab") === name);
+      }
+      var moreBtn = document.getElementById("more-btn");
+      if (moreBtn) moreBtn.classList.toggle("active", !!MORE_TABS[name]);
+      var tabs = document.querySelectorAll(".tab");
+      for (var j = 0; j < tabs.length; j++) {
+        tabs[j].classList.toggle("active", tabs[j].id === "tab-" + name);
+      }
+      closeMoreDropdown();
+      try { history.replaceState(null, "", "#" + name); } catch (_) {}
+      if (name === "today") {
+        loadDashboard();
+      } else if (entities[name]) {
+        if (charts[name]) resetChartWeek(name);
+        loadList(name);
+      }
+    }
+
+    document.getElementById("nav").addEventListener("click", function(e) {
+      var t = e.target;
+      if (!t) return;
+      if (t.id === "more-btn") {
+        e.stopPropagation();
+        var d = document.getElementById("more-dropdown");
+        var willOpen = d.hidden;
+        d.hidden = !willOpen;
+        t.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        return;
+      }
+      if (t.tagName === "BUTTON" && t.getAttribute("data-tab")) {
+        showTab(t.getAttribute("data-tab"));
+      }
+    });
+
+    document.addEventListener("click", function(e) {
+      var d = document.getElementById("more-dropdown");
+      if (!d || d.hidden) return;
+      var menu = e.target && e.target.closest ? e.target.closest(".more-menu") : null;
+      if (!menu) closeMoreDropdown();
+    });
+
+    // --- "When" field: cumulative steppers + read-only display label ---
+    function durationLabel(absMs) {
+      var mins = Math.round(absMs / 60000);
+      if (mins < 60) return mins + " min";
+      var hrs = Math.floor(mins / 60);
+      var rem = mins % 60;
+      if (hrs < 24) return rem ? (hrs + "h " + rem + "m") : (hrs + "h");
+      var days = Math.floor(hrs / 24);
+      return days + (days === 1 ? " day" : " days");
+    }
+
+    function formatTimeOfDay(d) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    }
+
+    function formatWhenAbs(d) {
+      var now = new Date();
+      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+        return formatTimeOfDay(d);
+      }
+      var yest = new Date(now);
+      yest.setDate(yest.getDate() - 1);
+      if (d.getFullYear() === yest.getFullYear() && d.getMonth() === yest.getMonth() && d.getDate() === yest.getDate()) {
+        return "yesterday " + formatTimeOfDay(d);
+      }
+      return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + formatTimeOfDay(d);
+    }
+
+    function updateWhenDisplay(input) {
+      var label = input.closest("label");
+      var display = label ? label.querySelector("[data-when-display]") : null;
+      if (!display) return;
+      if (!input.value) { display.textContent = "Now"; return; }
+      var d = new Date(input.value);
+      if (isNaN(d.getTime())) { display.textContent = ""; return; }
+      var diff = d.getTime() - Date.now();
+      if (Math.abs(diff) < 30 * 1000) { display.textContent = "Now"; return; }
+      var abs = formatWhenAbs(d);
+      if (diff < 0) display.textContent = durationLabel(-diff) + " ago · " + abs;
+      else display.textContent = "In " + durationLabel(diff) + " · " + abs;
+    }
+
+    function stepWhen(input, deltaMin) {
+      var base = input.value ? new Date(input.value) : new Date();
+      if (isNaN(base.getTime())) base = new Date();
+      var next = new Date(base.getTime() + deltaMin * 60 * 1000);
+      if (Math.abs(next.getTime() - Date.now()) < 30 * 1000) {
+        input.value = "";
+      } else {
+        input.value = toLocalDatetimeString(next);
+      }
+      updateWhenDisplay(input);
+    }
+
+    document.addEventListener("click", function(e) {
+      var t = e.target;
+      if (!t || t.tagName !== "BUTTON") return;
+      if (!t.parentNode || !t.parentNode.classList || !t.parentNode.classList.contains("when-quick")) return;
+      e.preventDefault();
+      var label = t.closest("label");
+      var input = label ? label.querySelector('input[name="when"]') : null;
+      if (!input) return;
+      if (t.hasAttribute("data-now")) {
+        input.value = "";
+        updateWhenDisplay(input);
+        return;
+      }
+      var step = parseInt(t.getAttribute("data-step"), 10);
+      if (isFinite(step)) stepWhen(input, step);
+    });
+
+    var whenInputs = document.querySelectorAll('input[name="when"]');
+    for (var wi = 0; wi < whenInputs.length; wi++) {
+      updateWhenDisplay(whenInputs[wi]);
+    }
+
+    setInterval(function() {
+      for (var i = 0; i < whenInputs.length; i++) updateWhenDisplay(whenInputs[i]);
+    }, 30 * 1000);
+
+    // --- Choice button groups (segmented selectors backed by a hidden input) ---
+    document.addEventListener("click", function(e) {
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains("choice-btn")) return;
+      e.preventDefault();
+      var group = t.parentElement;
+      if (!group || !group.classList.contains("choice-group")) return;
+      var label = t.closest("label");
+      var hidden = label ? label.querySelector('input[type="hidden"]') : null;
+      if (!hidden) return;
+      hidden.value = t.getAttribute("data-value") || "";
+      var btns = group.querySelectorAll(".choice-btn");
+      for (var i = 0; i < btns.length; i++) btns[i].classList.toggle("active", btns[i] === t);
+    });
+
+    function resetChoiceGroups(form) {
+      var groups = form.querySelectorAll(".choice-group");
+      for (var g = 0; g < groups.length; g++) {
+        var grp = groups[g];
+        var grpLabel = grp.closest("label");
+        var hidden = grpLabel ? grpLabel.querySelector('input[type="hidden"]') : null;
+        var defaultVal = hidden ? hidden.value : null;
+        var btns = grp.querySelectorAll(".choice-btn");
+        for (var b = 0; b < btns.length; b++) {
+          btns[b].classList.toggle("active", btns[b].getAttribute("data-value") === defaultVal);
+        }
+      }
+    }
+
+    // --- Entry forms ---
+    var entryForms = document.querySelectorAll("form.entry-form");
+    for (var ef = 0; ef < entryForms.length; ef++) {
+      entryForms[ef].addEventListener("reset", function(e) {
+        var form = e.currentTarget;
+        setTimeout(function() {
+          var inp = form.querySelector('input[name="when"]');
+          if (inp) updateWhenDisplay(inp);
+          resetChoiceGroups(form);
+        }, 0);
+      });
+      entryForms[ef].addEventListener("submit", async function(e) {
+        e.preventDefault();
+        var form = e.currentTarget;
+        var entity = form.getAttribute("data-entity");
+        var fd = new FormData(form);
+        var body = {};
+        fd.forEach(function(v, k) {
+          var s = String(v).trim();
+          if (!s) return;
+          if (k === "when") {
+            var d = new Date(s);
+            if (!isNaN(d.getTime())) body[k] = d.toISOString();
+          } else if (NUMERIC_FIELDS[k]) {
+            var n = parseFloat(s);
+            if (!isNaN(n)) body[k] = n;
+          } else {
+            body[k] = s;
+          }
+        });
+        var submitBtn = form.querySelector('button[type=submit]');
+        submitBtn.disabled = true;
+        try {
+          await postJson(entities[entity].endpoint, body);
+          form.reset();
+          toast("Saved");
+          if (charts[entity]) resetChartWeek(entity);
+          loadList(entity);
+        } catch (err) {
+          if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    }
+
+    // --- Dashboard quick-add buttons ---
+    document.addEventListener("click", async function(e) {
+      var t = e.target;
+      if (!t || t.tagName !== "BUTTON" || t.disabled) return;
+      var which = t.getAttribute("data-quick");
+      if (which === "feeding") {
+        var amt = parseFloat(t.getAttribute("data-amount"));
+        if (!isFinite(amt) || amt <= 0) return;
+        quickPost(t, "/api/feedings", { amount_ml: amt }, "Recorded: " + amt + " ml");
+      } else if (which === "diaper") {
+        var kind = t.getAttribute("data-kind");
+        if (!kind) return;
+        quickPost(t, "/api/diapers", { kind: kind }, "Diaper: " + fmtKind(kind));
+      } else if (which === "routine") {
+        var routineName = t.getAttribute("data-name");
+        if (!routineName) return;
+        quickPost(t, "/api/routines", { name: routineName }, "Routine: " + routineName);
+      }
+    });
+
+    async function quickPost(btn, endpoint, body, doneMsg) {
+      btn.disabled = true;
+      try {
+        await postJson(endpoint, body);
+        toast(doneMsg);
+        loadDashboard();
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // --- Inline delete confirmation (two-tap) ---
+    function disarmAllDeletes(except) {
+      var pending = document.querySelectorAll(".delete-btn.pending");
+      for (var i = 0; i < pending.length; i++) {
+        if (pending[i] === except) continue;
+        pending[i].classList.remove("pending");
+        pending[i].textContent = "Delete";
+      }
+    }
+
+    document.addEventListener("click", async function(e) {
+      var t = e.target;
+      if (!t || !t.classList) return;
+      if (!t.classList.contains("delete-btn")) {
+        disarmAllDeletes(null);
+        return;
+      }
+      if (!t.classList.contains("pending")) {
+        disarmAllDeletes(t);
+        t.classList.add("pending");
+        t.textContent = "Confirm?";
+        setTimeout(function() {
+          if (t.classList.contains("pending")) {
+            t.classList.remove("pending");
+            t.textContent = "Delete";
+          }
+        }, 4000);
+        return;
+      }
+      var id = t.getAttribute("data-id");
+      var entity = t.getAttribute("data-entity");
+      t.disabled = true;
+      try {
+        var res = await fetch(entities[entity].endpoint + "/" + encodeURIComponent(id), { method: "DELETE" });
+        if (res.status === 401) { gotoLogin(); return; }
+        if (!res.ok) { toast("Delete error", true); return; }
+        toast("Deleted");
+        loadList(entity);
+      } catch (err) {
+        toast("Network error: " + err.message, true);
+      } finally {
+        t.disabled = false;
+      }
+    });
+
+    // Restore the tab from the URL hash so a refresh keeps the selected tab.
+    function tabFromHash() {
+      var h = (location.hash || "").replace(/^#/, "");
+      return (h === "today" || entities[h]) ? h : "today";
+    }
+    window.addEventListener("hashchange", function() { showTab(tabFromHash()); });
+    showTab(tabFromHash());
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

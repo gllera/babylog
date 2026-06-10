@@ -92,7 +92,7 @@ se hacen desde la web o el agente MCP.
 | --------------------------------------------- | ------------------------------------------------------------------ |
 | "120" / "ciento veinte" / "120 mililitros" / "tomó 120 mililitros" | `record_feeding(120)` (+ gap desde la anterior) |
 | "hizo pis" / "hizo caca" / "las dos cosas"    | `record_diaper(...)`                                               |
-| "le di vitamina D" / "ya hicimos el baño"     | `record_routine("Vitamina D" / "Baño" / …)`                        |
+| "le di vitamina D" / "ya hicimos el baño"     | `record_routine("Vitamin D" / "Bath" / …)` — se guarda el nombre canónico en inglés, igual que la web y el MCP |
 | "cómo vamos" / "resumen de hoy"               | Resumen de tomas + pañales + rutinas + última toma                 |
 | "cuándo fue la última toma"                   | Hora y volumen de la última toma + cuánto hace                     |
 
@@ -146,8 +146,10 @@ be that URL + `/alexa`.
 
 ### 5. Lock the endpoint to your skill
 
-Each Alexa request contains the skill's `applicationId`. The Worker
-rejects every request that doesn't match `ALEXA_APPLICATION_ID`.
+Each Alexa request contains the skill's `applicationId`. Once the
+`ALEXA_APPLICATION_ID` secret is set, the Worker rejects every request
+that doesn't match it (if the secret is unset, the check is skipped —
+signature verification still applies).
 
 1. Copy your skill ID from the Alexa console (top-left, under the skill
    name — `amzn1.ask.skill.…`).
