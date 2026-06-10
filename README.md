@@ -51,12 +51,19 @@ the Alexa skill's daily summary.
 
 ## Web UI
 
-A browser-based view is served at `/app`. It lets you register and remove
-feedings, diapers, routines, notes, weights, and heights without
-an MCP client. The Today tab shows last-event cards, daily totals, and
-one-tap quick-record buttons; the Feeding and Diaper tabs add weekly
-charts with day-comparison overlays. The app is installable as a PWA
-(web manifest + minimal pass-through service worker). Log in once with
+A browser-based view is served at `/app`. It lets you register, edit
+(tap a list row), and remove feedings, diapers, routines, notes, weights,
+and heights without an MCP client. The Today tab shows last-event cards,
+daily totals, and one-tap quick-record buttons (with an Undo toast); the
+feeding quick-add amounts adapt to recent entries, Vitamin D flips to a
+"done today" state once given, and an active `feeding_gap_max_min`
+indication tints the Last feeding card when the gap is exceeded. The
+Feeding and Diaper tabs add weekly charts with day-comparison overlays;
+Weight and Height get a growth trend chart. The Today data comes from a
+single aggregated `/api/dashboard` request, refetched whenever the app
+returns to the foreground. The UI follows the system light/dark theme.
+The app is installable as a PWA (web manifest, raster icons for
+iOS/Android, minimal pass-through service worker). Log in once with
 the `SHARED_SECRET` password and the session is remembered via an
 HttpOnly cookie. Visiting `/` redirects to `/app`.
 
@@ -165,6 +172,7 @@ Then try:
 │   ├── api.ts                      # JSON API for the web app (/api/*)
 │   ├── web.ts                      # OAuth consent, /app login + session auth
 │   ├── app.html                    # Browser app shell (served at /app)
+│   ├── icons.ts                    # PNG app icons (base64) for iOS/Android
 │   ├── alexa.ts                    # /alexa endpoint for the Alexa skill
 │   ├── lib.ts                      # Pure helpers (timezone, gaps, ages)
 │   ├── types.ts                    # Env + DB row types

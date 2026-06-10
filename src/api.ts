@@ -189,6 +189,32 @@ async function handleEntity(
     return jsonOk(row, 201);
   }
 
+  if (method === "PUT" && idStr) {
+    const id = parseIdParam(idStr);
+    if (id === null) return jsonError(400, "Invalid id.");
+    const parsed = await readBody(request, cfg.createSchema);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const value = parsed.value as Record<string, string | number> & {
+      when?: string;
+    };
+    // `when` omitted means "keep the stored timestamp" (unlike POST, where it
+    // means "now") — the edit form always sends it when the user changed it.
+    const sets = cfg.fields.map((f) => `${f} = ?`);
+    const params: (string | number)[] = cfg.fields.map((f) => value[f]);
+    if (value.when) {
+      sets.push("ts = ?");
+      params.push(normalizeTs(value.when));
+    }
+    params.push(id);
+    const row = await env.DB.prepare(
+      `UPDATE ${cfg.table} SET ${sets.join(", ")} WHERE id = ? RETURNING ${cols}`
+    )
+      .bind(...params)
+      .first();
+    if (!row) return jsonError(404, "Not found.");
+    return jsonOk(row);
+  }
+
   if (method === "DELETE" && idStr) {
     const id = parseIdParam(idStr);
     if (id === null) return jsonError(400, "Invalid id.");
@@ -204,6 +230,61 @@ async function handleEntity(
   return jsonError(405, "Method not allowed.");
 }
 
+// Everything the Today tab needs in a single D1 batch (one round trip)
+// instead of the nine separate fetches the dashboard used to make.
+// `since` is the client's local midnight, so "today" follows the phone's
+// clock rather than the server's.
+async function handleDashboard(url: URL, env: Env): Promise<Response> {
+  const since = url.searchParams.get("since");
+  if (!since || Number.isNaN(Date.parse(since))) {
+    return jsonError(400, "Missing or invalid since timestamp.");
+  }
+  const dayStart = normalizeTs(since);
+  const [
+    recentFeedings,
+    todayFeedings,
+    lastDiaper,
+    todayDiapers,
+    lastRoutines,
+    lastWeight,
+    lastHeight,
+    indications,
+  ] = await env.DB.batch([
+    env.DB.prepare(
+      "SELECT id, ts, amount_ml FROM feedings ORDER BY ts DESC LIMIT 20"
+    ),
+    env.DB.prepare(
+      "SELECT id, ts, amount_ml FROM feedings WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
+    ).bind(dayStart),
+    env.DB.prepare("SELECT id, ts, kind FROM diapers ORDER BY ts DESC LIMIT 1"),
+    env.DB.prepare(
+      "SELECT id, ts, kind FROM diapers WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
+    ).bind(dayStart),
+    env.DB.prepare(
+      "SELECT name, MAX(ts) AS ts FROM routines GROUP BY name"
+    ),
+    env.DB.prepare(
+      "SELECT id, ts, weight_g FROM weights ORDER BY ts DESC LIMIT 1"
+    ),
+    env.DB.prepare(
+      "SELECT id, ts, height_cm FROM heights ORDER BY ts DESC LIMIT 1"
+    ),
+    env.DB.prepare(
+      "SELECT id, label, metric, filter, target, comparison, period_days FROM indications WHERE active = 1"
+    ),
+  ]);
+  return jsonOk({
+    recent_feedings: recentFeedings.results,
+    today_feedings: todayFeedings.results,
+    last_diaper: lastDiaper.results[0] ?? null,
+    today_diapers: todayDiapers.results,
+    last_routines: lastRoutines.results,
+    last_weight: lastWeight.results[0] ?? null,
+    last_height: lastHeight.results[0] ?? null,
+    indications: indications.results,
+  });
+}
+
 export async function handleApi(
   request: Request,
   env: Env,
@@ -215,6 +296,12 @@ export async function handleApi(
   // /api/<entity>[/<id>]
   const parts = url.pathname.split("/").filter(Boolean); // ["api", "<entity>", "<id>?"]
   if (parts.length < 2 || parts.length > 3) return jsonError(404, "Not found.");
+  if (parts[1] === "dashboard" && parts.length === 2) {
+    if (request.method.toUpperCase() !== "GET") {
+      return jsonError(405, "Method not allowed.");
+    }
+    return handleDashboard(url, env);
+  }
   const cfg = ENTITIES[parts[1]];
   if (!cfg) return jsonError(404, "Unknown entity.");
   return handleEntity(

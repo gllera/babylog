@@ -39,7 +39,7 @@ export const WEB_MANIFEST = JSON.stringify({
   orientation: "portrait",
   background_color: "#fafafa",
   theme_color: "#0070f3",
-  lang: "es",
+  lang: "en",
   icons: [
     {
       src: "/icon.svg",
@@ -48,9 +48,21 @@ export const WEB_MANIFEST = JSON.stringify({
       purpose: "any",
     },
     {
-      src: "/icon.svg",
-      sizes: "any",
-      type: "image/svg+xml",
+      src: "/icon-192.png",
+      sizes: "192x192",
+      type: "image/png",
+      purpose: "any",
+    },
+    {
+      src: "/icon-512.png",
+      sizes: "512x512",
+      type: "image/png",
+      purpose: "any",
+    },
+    {
+      src: "/icon-512.png",
+      sizes: "512x512",
+      type: "image/png",
       purpose: "maskable",
     },
   ],
@@ -270,25 +282,34 @@ function renderAppLogin(error?: string, next?: string): Response {
   <title>Baby diary — Log in</title>
   <link rel="icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0070f3">
+  <meta name="theme-color" content="#0070f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#101214" media="(prefers-color-scheme: dark)">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Baby diary">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon-180.png">
   <style>
+    :root{color-scheme:light dark;
+      --bg:#fff;--card:#fff;--border:#ddd;--text:#222;--muted:#666;--field:#fff}
+    @media (prefers-color-scheme:dark){
+      :root{--bg:#101214;--card:#1a1d21;--border:#2e3338;--text:#e6e6e6;
+            --muted:#9ba3ab;--field:#14171a}
+    }
     body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-         max-width:420px;margin:60px auto;padding:24px;line-height:1.5;color:#222}
-    .card{border:1px solid #ddd;border-radius:8px;padding:28px;
-          box-shadow:0 2px 8px rgba(0,0,0,.06);background:#fff}
+         max-width:420px;margin:60px auto;padding:24px;line-height:1.5;
+         color:var(--text);background:var(--bg)}
+    .card{border:1px solid var(--border);border-radius:8px;padding:28px;
+          box-shadow:0 2px 8px rgba(0,0,0,.06);background:var(--card)}
     h1{margin:0 0 12px;font-size:1.25rem}
     label{display:block;margin:18px 0 6px;font-weight:600}
-    input[type=password]{width:100%;padding:10px;border:1px solid #ccc;
-          border-radius:4px;font-size:16px;box-sizing:border-box}
+    input[type=password]{width:100%;padding:10px;border:1px solid var(--border);
+          border-radius:4px;font-size:16px;box-sizing:border-box;
+          background:var(--field);color:var(--text)}
     button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:4px;
            background:#0070f3;color:#fff;font-size:16px;cursor:pointer}
     .err{background:#fee;border:1px solid #fcc;color:#900;padding:10px;
          border-radius:4px;margin-top:14px;font-size:14px}
-    p{color:#666;font-size:14px;margin:6px 0 0}
+    p{color:var(--muted);font-size:14px;margin:6px 0 0}
   </style>
 </head>
 <body>
