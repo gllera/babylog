@@ -13,7 +13,13 @@
 // -----------------------------------------------------------------------------
 
 import { X509Certificate, createVerify } from "node:crypto";
-import { insertAndLookupPrev } from "./lib";
+import {
+  insertAndLookupPrev,
+  madridDateOf,
+  madridMidnightUtc,
+  madridHHMM,
+} from "./lib";
+import type { DiaperKind } from "./types";
 
 export type AlexaEnv = {
   DB: D1Database;
@@ -21,9 +27,6 @@ export type AlexaEnv = {
   ALEXA_SKIP_SIGNATURE?: string;
 };
 
-type DiaperKind = "pee" | "poop" | "both";
-
-const MS_PER_HOUR = 3_600_000;
 const MAX_TIMESTAMP_SKEW_MS = 150_000;
 const CERT_CACHE_TTL_S = 86_400;
 
@@ -184,29 +187,6 @@ function slotNumber(slot: AlexaSlot | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const n = Number(raw.replace(",", "."));
   return Number.isFinite(n) ? n : undefined;
-}
-
-// ---- Madrid timezone helpers (no Intl in workers without a polyfill) -------
-//
-// CEST = UTC+2 from the last Sunday of March (03:00 local) to the last
-// Sunday of October (03:00 local). CET = UTC+1 the rest of the year.
-function madridOffsetHours(date: Date): number {
-  const year = date.getUTCFullYear();
-  const march = new Date(Date.UTC(year, 2, 31));
-  march.setUTCDate(31 - march.getUTCDay());
-  march.setUTCHours(1, 0, 0, 0);
-  const october = new Date(Date.UTC(year, 9, 31));
-  october.setUTCDate(31 - october.getUTCDay());
-  october.setUTCHours(1, 0, 0, 0);
-  return date >= march && date < october ? 2 : 1;
-}
-
-function madridHHMM(iso: string): string {
-  const d = new Date(iso);
-  const local = new Date(d.getTime() + madridOffsetHours(d) * MS_PER_HOUR);
-  const hh = local.getUTCHours();
-  const mm = local.getUTCMinutes().toString().padStart(2, "0");
-  return `${hh}:${mm}`;
 }
 
 // ---- Spanish formatters ----------------------------------------------------
@@ -685,16 +665,9 @@ async function handleRecordRoutine(
 }
 
 async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
-  // Window: "today" in Madrid local — convert local midnight back to UTC.
+  // Window: "today" in Madrid local — same day boundary as check_indications.
   const now = new Date();
-  const offsetH = madridOffsetHours(now);
-  const localNow = new Date(now.getTime() + offsetH * MS_PER_HOUR);
-  const localMidnightUtcMs = Date.UTC(
-    localNow.getUTCFullYear(),
-    localNow.getUTCMonth(),
-    localNow.getUTCDate()
-  );
-  const startIso = new Date(localMidnightUtcMs - offsetH * MS_PER_HOUR).toISOString();
+  const startIso = madridMidnightUtc(madridDateOf(now)).toISOString();
   const endIso = now.toISOString();
 
   const [feedAgg, diaperAgg, routineAgg] = await env.DB.batch([

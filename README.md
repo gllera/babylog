@@ -40,17 +40,25 @@ in the `OAUTH_KV` namespace.
 | `delete_indication` | Remove an indication by `id`                                            |
 | `check_indications` | Evaluate all active indications against a day's actuals (today by default) |
 | `get_stats`         | Feedings + diapers + routines + notes summary + latest weight & height. Pass `window` (`24h` / `today` / `7d` / `30d`) or custom `since`/`until` (default 24 h) |
-| `record_many`       | Batch-record up to 20 events of mixed types (`feeding`, `diaper`, `routine`, `note`) in one call, with an optional shared `when` |
+| `record_many`       | Batch-record up to 20 events of mixed types (`feeding`, `diaper`, `routine`, `note`) in one call, with an optional shared `when`. All-or-nothing: if any event is invalid, nothing is recorded |
 
-All timestamps are ISO 8601 UTC strings (e.g. `2026-05-14T07:30:00Z`).
+Timestamps are stored as ISO 8601 UTC strings (e.g. `2026-05-14T07:30:00Z`).
+Inputs may also carry a timezone offset (e.g. `2026-05-14T09:30:00+02:00`);
+the server normalizes them to UTC on write.
+"Days" (for `check_indications` and `get_stats window='today'`) are
+**Europe/Madrid** calendar days — the household timezone — consistent with
+the Alexa skill's daily summary.
 
 ## Web UI
 
 A browser-based view is served at `/app`. It lets you register and remove
 feedings, diapers, routines, notes, weights, and heights without
-an MCP client. Log in once with the `SHARED_SECRET` password and the
-session is remembered via an HttpOnly cookie. Visiting `/` redirects to
-`/app`.
+an MCP client. The Today tab shows last-event cards, daily totals, and
+one-tap quick-record buttons; the Feeding and Diaper tabs add weekly
+charts with day-comparison overlays. The app is installable as a PWA
+(web manifest + minimal pass-through service worker). Log in once with
+the `SHARED_SECRET` password and the session is remembered via an
+HttpOnly cookie. Visiting `/` redirects to `/app`.
 
 ## Alexa skill
 
@@ -75,7 +83,7 @@ npx wrangler d1 create baby-feedings
 ```
 
 Copy the `database_id` from the output into `wrangler.jsonc`, replacing
-`REPLACE_WITH_DATABASE_ID_FROM_wrangler_d1_create`.
+the existing `database_id` (which belongs to the original deployment).
 
 ### 3. Apply the schema
 
@@ -152,8 +160,17 @@ Then try:
 ```
 .
 ├── src/
-│   ├── index.ts                    # McpAgent + tools + web UI + OAuth gate
-│   └── alexa.ts                    # /alexa endpoint for the Alexa skill
+│   ├── index.ts                    # Router + OAuthProvider wiring
+│   ├── tools.ts                    # McpAgent (Durable Object) + MCP tools
+│   ├── api.ts                      # JSON API for the web app (/api/*)
+│   ├── web.ts                      # OAuth consent, /app login + session auth
+│   ├── app.html                    # Browser app shell (served at /app)
+│   ├── alexa.ts                    # /alexa endpoint for the Alexa skill
+│   ├── lib.ts                      # Pure helpers (timezone, gaps, ages)
+│   ├── types.ts                    # Env + DB row types
+│   └── html.d.ts                   # Type shim: import *.html as string
+├── test/
+│   └── lib.test.ts                 # Unit tests for the pure helpers
 ├── alexa-skill/
 │   ├── interaction-model.es-ES.json  # Voice model to upload to Alexa
 │   └── README.md                   # Step-by-step skill setup
@@ -162,6 +179,15 @@ Then try:
 ├── tsconfig.json
 └── package.json
 ```
+
+## Tests
+
+```bash
+npm test            # vitest unit tests (pure helpers in src/lib.ts)
+npm run typecheck   # tsc --noEmit
+```
+
+Both run in CI (`.github/workflows/ci.yml`) on pushes to `main` and on PRs.
 
 ## Notes
 
