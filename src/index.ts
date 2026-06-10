@@ -3,6 +3,7 @@ import type { Env } from "./types";
 import { BabyFeedingMCP } from "./tools";
 import { handleAlexa } from "./alexa";
 import { handleApi } from "./api";
+import { PNG_ICONS } from "./icons";
 import {
   ICON_SVG,
   WEB_MANIFEST,
@@ -35,6 +36,15 @@ const defaultHandler = {
       return new Response(ICON_SVG, {
         headers: {
           "Content-Type": "image/svg+xml",
+          "Cache-Control": "public, max-age=86400",
+        },
+      });
+    }
+    const iconMatch = url.pathname.match(/^\/icon-(180|192|512)\.png$/);
+    if (iconMatch) {
+      return new Response(PNG_ICONS[iconMatch[1]], {
+        headers: {
+          "Content-Type": "image/png",
           "Cache-Control": "public, max-age=86400",
         },
       });

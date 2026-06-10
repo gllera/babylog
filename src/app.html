@@ -6,22 +6,73 @@
   <title>Baby diary</title>
   <link rel="icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0070f3">
+  <meta name="theme-color" content="#0070f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#101214" media="(prefers-color-scheme: dark)">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Baby diary">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon-180.png">
   <style>
     :root {
+      color-scheme: light dark;
       --primary: #0070f3;
-      --primary-dark: #0058c4;
+      --primary-hover: #0058c4;
       --bg: #fafafa;
       --card: #fff;
       --border: #e2e2e2;
       --text: #1a1a1a;
       --muted: #666;
       --danger: #d33;
+      --danger-strong: #b22;
+      --danger-soft: #fee;
+      --hover: #f0f0f0;
+      --hover-strong: #e5e5e5;
+      --chip: #f7f7f8;
+      --chip-hover: #efeff1;
+      --field: #fff;
+      --when-bg: #f4f4f6;
+      --thead: #f7f7f8;
+      --row-hover: #fafafa;
+      --toast-bg: #222;
+      --toast-text: #fff;
+      --toast-link: #8ab4f8;
+      --col-today: #f2f7ff;
+      --col-selected: #eaf2ff;
+      --poop: #b5651d;
+      --day1: #f5a623;
+      --day2: #9aa0a6;
+      --warn: #d97700;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --primary: #3291ff;
+        --primary-hover: #57a3ff;
+        --bg: #101214;
+        --card: #1a1d21;
+        --border: #2e3338;
+        --text: #e6e6e6;
+        --muted: #9ba3ab;
+        --danger: #ff6b6b;
+        --danger-strong: #e05252;
+        --danger-soft: #3a2226;
+        --hover: #24282d;
+        --hover-strong: #2c3137;
+        --chip: #22262b;
+        --chip-hover: #2a2f35;
+        --field: #14171a;
+        --when-bg: #22262b;
+        --thead: #1f2328;
+        --row-hover: #20242a;
+        --toast-bg: #e8e8e8;
+        --toast-text: #111;
+        --toast-link: #0b57d0;
+        --col-today: #1b2735;
+        --col-selected: #20304a;
+        --poop: #d08344;
+        --day2: #7f868c;
+        --warn: #ffa040;
+      }
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -56,13 +107,13 @@
       color: var(--muted);
       font-family: inherit;
     }
-    nav button:hover { background: #f0f0f0; }
+    nav button:hover { background: var(--hover); }
     nav button.active {
       background: var(--primary);
       color: #fff;
       border-color: var(--primary);
     }
-    nav button.active:hover { background: var(--primary-dark); }
+    nav button.active:hover { background: var(--primary-hover); }
     /* Desktop default: More menu vanishes, its tabs flow inline as nav children. */
     .more-menu,
     .more-dropdown,
@@ -105,7 +156,7 @@
       font-size: 14px;
       font-family: inherit;
       color: var(--text);
-      background: #fff;
+      background: var(--field);
       text-transform: none;
       letter-spacing: normal;
       font-weight: 400;
@@ -128,7 +179,7 @@
       font-family: inherit;
       align-self: flex-end;
     }
-    form.entry-form button[type=submit]:hover { background: var(--primary-dark); }
+    form.entry-form button[type=submit]:hover { background: var(--primary-hover); }
     form.entry-form button[type=submit]:disabled { opacity: 0.5; cursor: not-allowed; }
     .list {
       background: var(--card);
@@ -152,7 +203,7 @@
       vertical-align: top;
     }
     th {
-      background: #f7f7f8;
+      background: var(--thead);
       font-weight: 600;
       font-size: 11px;
       text-transform: uppercase;
@@ -160,7 +211,7 @@
       color: var(--muted);
     }
     tbody tr:last-child td { border-bottom: 0; }
-    tbody tr:hover { background: #fafafa; }
+    tbody tr:hover { background: var(--row-hover); }
     .ts-col { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .num-col { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .actions-col { text-align: right; width: 1%; white-space: nowrap; }
@@ -174,14 +225,14 @@
       font-size: 13px;
       font-family: inherit;
     }
-    .delete-btn:hover { background: #fee; border-color: var(--danger); }
+    .delete-btn:hover { background: var(--danger-soft); border-color: var(--danger); }
     .toast {
       position: fixed;
       bottom: 18px;
       left: 50%;
       transform: translateX(-50%);
-      background: #222;
-      color: #fff;
+      background: var(--toast-bg);
+      color: var(--toast-text);
       padding: 10px 16px;
       border-radius: 6px;
       font-size: 14px;
@@ -192,7 +243,19 @@
       z-index: 10;
     }
     .toast.show { opacity: 1; }
-    .toast.error { background: var(--danger); }
+    .toast.show.undoable { pointer-events: auto; }
+    .toast.error { background: var(--danger); color: #fff; }
+    .toast button {
+      background: transparent;
+      border: 0;
+      color: var(--toast-link);
+      font-weight: 700;
+      font-size: 14px;
+      font-family: inherit;
+      margin-left: 12px;
+      padding: 0;
+      cursor: pointer;
+    }
     .dashboard-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -254,19 +317,22 @@
       line-height: 1;
       font-family: inherit;
     }
-    .chart-nav:hover:not(:disabled) { background: #f0f0f0; }
+    .chart-nav:hover:not(:disabled) { background: var(--hover); }
     .chart-nav:disabled { opacity: 0.35; cursor: not-allowed; }
-    /* Weekly charts: shared SVG line chart (feeding total ml + diaper pee/poop) */
+    /* Weekly charts: shared SVG line chart (feeding total ml + diaper pee/poop).
+       Capped width so the viewBox SVG doesn't blow up to comic scale on desktop. */
     .chart-lines {
       display: block;
       width: 100%;
+      max-width: 560px;
       height: auto;
+      margin: 0 auto;
       overflow: visible;
     }
     .cl-line, .cl-dot, .cl-val, .cl-daylabel { pointer-events: none; }
     .cl-hit { fill: transparent; pointer-events: all; cursor: pointer; }
-    .chart-bar.today .cl-hit { fill: #f2f7ff; }
-    .chart-bar.selected .cl-hit { fill: #eaf2ff; }
+    .chart-bar.today .cl-hit { fill: var(--col-today); }
+    .chart-bar.selected .cl-hit { fill: var(--col-selected); }
     .cl-line {
       fill: none;
       stroke: var(--primary);
@@ -276,7 +342,7 @@
       vector-effect: non-scaling-stroke;
     }
     .cl-line.pee { stroke: var(--primary); }
-    .cl-line.poop { stroke: #b5651d; }
+    .cl-line.poop { stroke: var(--poop); }
     .cl-dot {
       fill: var(--primary);
       stroke: var(--card);
@@ -284,7 +350,7 @@
       vector-effect: non-scaling-stroke;
     }
     .cl-dot.pee { fill: var(--primary); }
-    .cl-dot.poop { fill: #b5651d; }
+    .cl-dot.poop { fill: var(--poop); }
     .cl-val {
       font-size: 10px;
       font-family: inherit;
@@ -294,7 +360,7 @@
       font-variant-numeric: tabular-nums;
     }
     .cl-val.pee { fill: var(--primary); }
-    .cl-val.poop { fill: #b5651d; }
+    .cl-val.poop { fill: var(--poop); }
     .cl-daylabel {
       font-size: 11px;
       font-family: inherit;
@@ -319,7 +385,7 @@
       display: inline-block;
     }
     .chart-legend i.pee { background: var(--primary); }
-    .chart-legend i.poop { background: #b5651d; }
+    .chart-legend i.poop { background: var(--poop); }
     /* Day-comparison chart: selected day (d0) vs the 2 days before (d1, d2) */
     .daychart-title { text-align: center; margin-bottom: 12px; }
     .dl-line {
@@ -331,8 +397,8 @@
       pointer-events: none;
     }
     .dl-line.d0 { stroke: var(--primary); stroke-width: 2.5; }
-    .dl-line.d1 { stroke: #f5a623; }
-    .dl-line.d2 { stroke: #9aa0a6; stroke-dasharray: 4 3; }
+    .dl-line.d1 { stroke: var(--day1); }
+    .dl-line.d2 { stroke: var(--day2); stroke-dasharray: 4 3; }
     .dl-dot {
       stroke: var(--card);
       stroke-width: 1.5;
@@ -340,11 +406,11 @@
       pointer-events: none;
     }
     .dl-dot.d0 { fill: var(--primary); }
-    .dl-dot.d1 { fill: #f5a623; }
-    .dl-dot.d2 { fill: #9aa0a6; }
+    .dl-dot.d1 { fill: var(--day1); }
+    .dl-dot.d2 { fill: var(--day2); }
     .chart-legend i.d0 { background: var(--primary); }
-    .chart-legend i.d1 { background: #f5a623; }
-    .chart-legend i.d2 { background: #9aa0a6; }
+    .chart-legend i.d1 { background: var(--day1); }
+    .chart-legend i.d2 { background: var(--day2); }
     .quick-row {
       display: flex;
       gap: 8px;
@@ -363,7 +429,7 @@
       font-family: inherit;
       min-height: 38px;
     }
-    .quick-btn:hover { background: var(--primary-dark); }
+    .quick-btn:hover { background: var(--primary-hover); }
     .quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .totals-row {
       display: flex;
@@ -390,7 +456,7 @@
       margin-top: 4px;
     }
     .when-quick button {
-      background: #f0f0f0;
+      background: var(--hover);
       border: 1px solid var(--border);
       padding: 4px 8px;
       font-size: 12px;
@@ -402,7 +468,7 @@
       letter-spacing: normal;
       font-weight: 500;
     }
-    .when-quick button:hover { background: #e5e5e5; color: var(--text); }
+    .when-quick button:hover { background: var(--hover-strong); color: var(--text); }
     .when-quick button[data-now] {
       background: var(--primary);
       color: #fff;
@@ -410,7 +476,7 @@
       font-weight: 600;
     }
     .when-quick button[data-now]:hover {
-      background: var(--primary-dark);
+      background: var(--primary-hover);
       color: #fff;
     }
     .choice-group {
@@ -420,7 +486,7 @@
     }
     .choice-btn {
       flex: 1 1 0;
-      background: #f7f7f8;
+      background: var(--chip);
       border: 1px solid var(--border);
       padding: 10px 8px;
       border-radius: 6px;
@@ -433,17 +499,17 @@
       letter-spacing: normal;
       min-height: 40px;
     }
-    .choice-btn:hover { background: #efeff1; color: var(--text); }
+    .choice-btn:hover { background: var(--chip-hover); color: var(--text); }
     .choice-btn.active {
       background: var(--primary);
       color: #fff;
       border-color: var(--primary);
     }
-    .choice-btn.active:hover { background: var(--primary-dark); color: #fff; }
+    .choice-btn.active:hover { background: var(--primary-hover); color: #fff; }
     .when-display {
       display: block;
       padding: 6px 10px;
-      background: #f4f4f6;
+      background: var(--when-bg);
       border-radius: 4px;
       font-size: 16px;
       font-family: inherit;
@@ -459,7 +525,41 @@
       border-color: var(--danger);
       font-weight: 600;
     }
-    .delete-btn.pending:hover { background: #b22; }
+    .delete-btn.pending:hover { background: var(--danger-strong); }
+    /* Feeding-gap indication exceeded: tint the Last feeding card. */
+    .card.warn { border-color: var(--warn); }
+    .card.warn .card-main { color: var(--warn); }
+    .card-warn-note {
+      font-size: 12px;
+      color: var(--warn);
+      font-weight: 600;
+      margin-top: 4px;
+    }
+    /* Vitamin D already given today: calm "done" state instead of an add button. */
+    .quick-btn.done,
+    .quick-btn.done:hover,
+    .quick-btn.done:disabled {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      opacity: 1;
+      cursor: default;
+    }
+    /* Edit mode: tap a list row to load it into the form. */
+    tbody tr[data-id] { cursor: pointer; }
+    form.entry-form.editing { outline: 2px solid var(--primary); outline-offset: -1px; }
+    .cancel-edit {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 10px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: inherit;
+      align-self: flex-end;
+    }
+    .cancel-edit:hover { background: var(--hover); color: var(--text); }
     @media (max-width: 640px) {
       header { padding: 8px 10px; gap: 8px; }
       nav { gap: 3px; }
@@ -507,6 +607,7 @@
       form.entry-form { padding: 12px; gap: 8px; margin-bottom: 14px; }
       form.entry-form label { font-size: 11px; flex: 1 1 100%; }
       form.entry-form button[type=submit] { width: 100%; padding: 11px; }
+      form.entry-form .cancel-edit { width: 100%; padding: 10px; }
       .when-display { font-size: 15px; }
       .when-quick { gap: 3px; }
       .when-quick button { padding: 5px 7px; font-size: 12px; min-height: 30px; flex: 1 1 auto; }
@@ -578,6 +679,7 @@
 <!-- WHEN_BLOCK -->
         </label>
         <button type="submit">Add</button>
+        <button type="button" class="cancel-edit" hidden>Cancel</button>
       </form>
       <div class="week-chart" id="feedings-chart">
         <div class="card-title">This week &mdash; ml per day</div>
@@ -604,6 +706,7 @@
 <!-- WHEN_BLOCK -->
         </label>
         <button type="submit">Add</button>
+        <button type="button" class="cancel-edit" hidden>Cancel</button>
       </form>
       <div class="week-chart" id="diapers-chart">
         <div class="card-title">This week &mdash; diapers per day</div>
@@ -630,6 +733,7 @@
 <!-- WHEN_BLOCK -->
         </label>
         <button type="submit">Add</button>
+        <button type="button" class="cancel-edit" hidden>Cancel</button>
       </form>
       <div class="list" id="list-routines"><div class="list-loading">Loading...</div></div>
     </section>
@@ -643,7 +747,12 @@
 <!-- WHEN_BLOCK -->
         </label>
         <button type="submit">Add</button>
+        <button type="button" class="cancel-edit" hidden>Cancel</button>
       </form>
+      <div class="week-chart" id="weights-chart">
+        <div class="card-title daychart-title">Weight over time</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
       <div class="list" id="list-weights"><div class="list-loading">Loading...</div></div>
     </section>
 
@@ -656,7 +765,12 @@
 <!-- WHEN_BLOCK -->
         </label>
         <button type="submit">Add</button>
+        <button type="button" class="cancel-edit" hidden>Cancel</button>
       </form>
+      <div class="week-chart" id="heights-chart">
+        <div class="card-title daychart-title">Height over time</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
       <div class="list" id="list-heights"><div class="list-loading">Loading...</div></div>
     </section>
 
@@ -669,16 +783,23 @@
 <!-- WHEN_BLOCK -->
         </label>
         <button type="submit">Add</button>
+        <button type="button" class="cancel-edit" hidden>Cancel</button>
       </form>
       <div class="list" id="list-notes"><div class="list-loading">Loading...</div></div>
     </section>
   </main>
 
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
     var NUMERIC_FIELDS = { amount_ml: true, weight_g: true, height_cm: true };
     var DAY_MS = 86400000;
+
+    var currentTab = "today";
+    var dashboardData = null;          // cached /api/dashboard payload
+    var editState = {};                // entity -> id of the row being edited
+    var listItemsById = {};            // entity -> { id: item } for rendered rows
+    var feedingShortcuts = [30, 60, 90];
 
     function fmtText(v) { return v == null ? "" : String(v); }
 
@@ -789,13 +910,24 @@
 
     var toastEl = document.getElementById("toast");
     var toastTimer = null;
-    function toast(msg, isError) {
-      toastEl.textContent = msg;
-      toastEl.className = "toast show" + (isError ? " error" : "");
+    function toast(msg, isError, undoFn) {
+      toastEl.textContent = "";
+      toastEl.appendChild(document.createTextNode(msg));
+      if (undoFn) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = "Undo";
+        b.addEventListener("click", function() {
+          toastEl.className = "toast";
+          undoFn();
+        });
+        toastEl.appendChild(b);
+      }
+      toastEl.className = "toast show" + (isError ? " error" : "") + (undoFn ? " undoable" : "");
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(function() {
         toastEl.className = "toast" + (isError ? " error" : "");
-      }, 2400);
+      }, undoFn ? 6000 : 2400);
     }
 
     function gotoLogin() {
@@ -809,9 +941,9 @@
       return await res.json();
     }
 
-    async function postJson(url, body) {
+    async function sendJson(method, url, body) {
       var res = await fetch(url, {
-        method: "POST",
+        method: method,
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(body)
       });
@@ -824,6 +956,31 @@
       return await res.json();
     }
 
+    function postJson(url, body) { return sendJson("POST", url, body); }
+    function putJson(url, body) { return sendJson("PUT", url, body); }
+
+    async function deleteEntry(entity, id) {
+      var res = await fetch(entities[entity].endpoint + "/" + encodeURIComponent(id), { method: "DELETE" });
+      if (res.status === 401) { gotoLogin(); throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+    }
+
+    // Undo handler for a just-created entry: delete it and refresh whatever
+    // view the user is looking at now.
+    function makeUndo(entity, id) {
+      if (!id) return null;
+      return function() {
+        deleteEntry(entity, id).then(function() {
+          toast("Undone");
+          if (charts[entity]) resetChartWeek(entity);
+          if (currentTab === "today") loadDashboard();
+          else if (currentTab === entity) loadList(entity);
+        }).catch(function(err) {
+          if (err.message !== "Unauthorized") toast("Undo failed: " + err.message, true);
+        });
+      };
+    }
+
     async function loadList(entity) {
       if (entity === "feedings" || entity === "diapers") return loadWeek(entity);
       var cfg = entities[entity];
@@ -831,10 +988,62 @@
       try {
         var data = await fetchJson(cfg.endpoint);
         renderList(entity, data.items || []);
+        if (MEASURE_CHARTS[entity]) renderMeasureChart(entity, data.items || []);
       } catch (err) {
         if (err.message === "Unauthorized") return;
         container.innerHTML = '<div class="list-empty">Error loading: ' + escapeHtml(err.message) + "</div>";
       }
+    }
+
+    // --- Growth charts (weight / height over time) ---
+    var MEASURE_CHARTS = {
+      weights: { elId: "weights-chart", key: "weight_g", title: "Weight over time (g)" },
+      heights: { elId: "heights-chart", key: "height_cm", title: "Height over time (cm)" }
+    };
+
+    function renderMeasureChart(entity, items) {
+      var mc = MEASURE_CHARTS[entity];
+      var el = document.getElementById(mc.elId);
+      if (!el) return;
+      var title = '<div class="card-title daychart-title">' + escapeHtml(mc.title) + '</div>';
+      var pts = [];
+      for (var i = items.length - 1; i >= 0; i--) { // API returns newest first
+        var t = new Date(items[i].ts).getTime();
+        var v = Number(items[i][mc.key]);
+        if (!isNaN(t) && isFinite(v)) pts.push({ t: t, v: v });
+      }
+      if (pts.length < 2) {
+        el.innerHTML = title + '<div class="card-empty">Record at least two measurements to see a trend.</div>';
+        return;
+      }
+      var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+      var vmin = Infinity, vmax = -Infinity;
+      for (var j = 0; j < pts.length; j++) {
+        if (pts[j].v < vmin) vmin = pts[j].v;
+        if (pts[j].v > vmax) vmax = pts[j].v;
+      }
+      if (vmin === vmax) { vmin -= 1; vmax += 1; }
+      var LX = 25, RX = 325, TOP = 20, BOT = 144, LABEL_Y = 164;
+      function px(t) { return t1 === t0 ? LX : +(LX + ((t - t0) / (t1 - t0)) * (RX - LX)).toFixed(1); }
+      function py(v) { return +(BOT - ((v - vmin) / (vmax - vmin)) * (BOT - TOP)).toFixed(1); }
+      var poly = "", dots = "", vals = "";
+      var labelAll = pts.length <= 12;
+      for (var k = 0; k < pts.length; k++) {
+        var x = px(pts[k].t), y = py(pts[k].v);
+        poly += x + "," + y + " ";
+        dots += '<circle class="cl-dot" cx="' + x + '" cy="' + y + '" r="3.5"></circle>';
+        if (labelAll || k === 0 || k === pts.length - 1) {
+          vals += '<text class="cl-val" x="' + x + '" y="' + (y - 7) + '">' + escapeHtml(String(pts[k].v)) + '</text>';
+        }
+      }
+      var dateLabels =
+        '<text class="cl-daylabel" x="' + LX + '" y="' + LABEL_Y + '">' + escapeHtml(fmtDayMonth(new Date(t0))) + '</text>' +
+        '<text class="cl-daylabel" x="' + RX + '" y="' + LABEL_Y + '">' + escapeHtml(fmtDayMonth(new Date(t1))) + '</text>';
+      el.innerHTML = title +
+        '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + escapeHtml(mc.title) + '">' +
+        '<polyline class="cl-line" points="' + poly.trim() + '"></polyline>' +
+        dots + vals + dateLabels +
+        '</svg>';
     }
 
     // --- Weekly charts (Mon-Sun) with prev/next nav + day-filtering of the list ---
@@ -953,22 +1162,25 @@
       var BAND = 50, TOP = 20, BOT = 144, LABEL_Y = 164;
       function cx(b) { return b * BAND + BAND / 2; }
       function cy(v) { return max > 0 ? +(BOT - (v / max) * (BOT - TOP)).toFixed(1) : BOT; }
-      var pts = "";
-      for (var p = 0; p < 7; p++) pts += cx(p) + "," + cy(totals[p]) + " ";
       var today = dayIndexOf(startOfDay().toISOString(), c.weekStart);
+      // On the current week, stop the line at today — future days aren't zeros.
+      var lastIdx = (today >= 0 && today <= 6) ? today : 6;
+      var pts = "";
+      for (var p = 0; p <= lastIdx; p++) pts += cx(p) + "," + cy(totals[p]) + " ";
       var hits = "", marks = "", labels = "";
       for (var b = 0; b < 7; b++) {
         var state = (b === today ? " today" : "") + (b === c.selectedDay ? " selected" : "");
         hits += '<g class="chart-bar' + state + '" data-day="' + b + '" role="button" tabindex="0" aria-pressed="' + (b === c.selectedDay) + '">' +
           '<rect class="cl-hit" x="' + (b * BAND) + '" y="0" width="' + BAND + '" height="170"></rect>' +
         '</g>';
+        labels += '<text class="cl-daylabel' + state + '" x="' + cx(b) + '" y="' + LABEL_Y + '">' + WEEK_DAY_LABELS[b] + '</text>';
+        if (b > lastIdx) continue;
         var x = cx(b), y = cy(totals[b]), ml = totals[b];
         marks += '<circle class="cl-dot" cx="' + x + '" cy="' + y + '" r="3.5"></circle>';
         if (ml > 0) {
           var mlStr = ml % 1 === 0 ? String(ml) : ml.toFixed(1);
           marks += '<text class="cl-val" x="' + x + '" y="' + (y - 7) + '">' + escapeHtml(mlStr) + '</text>';
         }
-        labels += '<text class="cl-daylabel' + state + '" x="' + x + '" y="' + LABEL_Y + '">' + WEEK_DAY_LABELS[b] + '</text>';
       }
       return '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Weekly feeding totals in millilitres">' +
         '<g class="cl-hits">' + hits + '</g>' +
@@ -1000,14 +1212,17 @@
       var BAND = 50, TOP = 20, BOT = 144, LABEL_Y = 164;
       function cx(b) { return b * BAND + BAND / 2; }
       function cy(v) { return max > 0 ? +(BOT - (v / max) * (BOT - TOP)).toFixed(1) : BOT; }
+      var today = dayIndexOf(startOfDay().toISOString(), c.weekStart);
+      // On the current week, stop the lines at today — future days aren't zeros.
+      var lastIdx = (today >= 0 && today <= 6) ? today : 6;
       function linePts(arr) {
         var s = "";
-        for (var b = 0; b < 7; b++) s += cx(b) + "," + cy(arr[b]) + " ";
+        for (var b = 0; b <= lastIdx; b++) s += cx(b) + "," + cy(arr[b]) + " ";
         return s.trim();
       }
       function series(arr, kind, above) {
         var out = "";
-        for (var b = 0; b < 7; b++) {
+        for (var b = 0; b <= lastIdx; b++) {
           var x = cx(b), y = cy(arr[b]);
           out += '<circle class="cl-dot ' + kind + '" cx="' + x + '" cy="' + y + '" r="3.5"></circle>';
           if (arr[b] > 0) {
@@ -1016,7 +1231,6 @@
         }
         return out;
       }
-      var today = dayIndexOf(startOfDay().toISOString(), c.weekStart);
       var hits = "", labels = "";
       for (var b = 0; b < 7; b++) {
         var state = (b === today ? " today" : "") + (b === c.selectedDay ? " selected" : "");
@@ -1174,6 +1388,8 @@
     function renderList(entity, items) {
       var cfg = entities[entity];
       var container = document.getElementById("list-" + entity);
+      var byId = {};
+      listItemsById[entity] = byId;
       if (!items.length) {
         container.innerHTML = '<div class="list-empty">No entries yet.</div>';
         return;
@@ -1188,6 +1404,7 @@
       var body = "";
       for (var j = 0; j < items.length; j++) {
         var item = items[j];
+        byId[item.id] = item;
         var row = "";
         for (var k = 0; k < cfg.columns.length; k++) {
           var col = cfg.columns[k];
@@ -1200,80 +1417,134 @@
           }
         }
         row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">Delete</button></td>';
-        body += "<tr>" + row + "</tr>";
+        body += '<tr data-id="' + item.id + '">' + row + "</tr>";
       }
       container.innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
     }
 
     // --- Dashboard ---
+    // One aggregated fetch (the server batches the queries in a single D1
+    // round trip); the payload is cached so the periodic re-render can keep
+    // the "ago" strings fresh without refetching.
     async function loadDashboard() {
-      var sinceToday = "since=" + encodeURIComponent(startOfDay().toISOString());
       try {
-        var results = await Promise.all([
-          fetchJson("/api/feedings?limit=1"),
-          fetchJson("/api/feedings?" + sinceToday),
-          fetchJson("/api/diapers?limit=1"),
-          fetchJson("/api/diapers?" + sinceToday),
-          fetchJson("/api/routines?name=" + encodeURIComponent("Vitamin D") + "&limit=1"),
-          fetchJson("/api/routines?name=" + encodeURIComponent("Bath") + "&limit=1"),
-          fetchJson("/api/routines?name=" + encodeURIComponent("Tummy") + "&limit=1"),
-          fetchJson("/api/weights?limit=1"),
-          fetchJson("/api/heights?limit=1")
-        ]);
-        renderLastFeeding((results[0].items || [])[0]);
-        renderLastDiaper((results[2].items || [])[0]);
-        renderTodayTotals(results[1].items || [], results[3].items || []);
-        renderRoutineCard({ cardId: "card-vitamin-d", title: "Vitamin D", name: "Vitamin D", todayOnly: true, empty: "Not given today yet" }, (results[4].items || [])[0]);
-        renderRoutineCard({ cardId: "card-last-bath", title: "Last bath", name: "Bath", empty: "No baths yet" }, (results[5].items || [])[0]);
-        renderRoutineCard({ cardId: "card-last-tummy", title: "Last tummy time", name: "Tummy", empty: "No tummy time yet" }, (results[6].items || [])[0]);
-        renderLastMeasurement("card-last-weight", "Last weight", (results[7].items || [])[0], "weight_g", "g");
-        renderLastMeasurement("card-last-height", "Last height", (results[8].items || [])[0], "height_cm", "cm");
+        dashboardData = await fetchJson(
+          "/api/dashboard?since=" + encodeURIComponent(startOfDay().toISOString())
+        );
+        renderDashboard();
       } catch (err) {
         if (err.message !== "Unauthorized") toast("Error loading dashboard: " + err.message, true);
       }
     }
 
+    function findRoutine(rows, needle) {
+      var best = null;
+      for (var i = 0; i < rows.length; i++) {
+        var n = String(rows[i].name || "").toLowerCase();
+        if (n.indexOf(needle) !== -1 && (!best || rows[i].ts > best.ts)) best = rows[i];
+      }
+      return best;
+    }
+
+    // Doctor's max-gap-between-feedings indication (minutes), if one is active.
+    function gapTargetMinutes(indications) {
+      for (var i = 0; i < indications.length; i++) {
+        var ind = indications[i];
+        if (ind.metric === "feeding_gap_max_min" && ind.comparison === "<=") {
+          return Number(ind.target);
+        }
+      }
+      return null;
+    }
+
+    function renderDashboard() {
+      if (!dashboardData) return;
+      var d = dashboardData;
+      var recent = d.recent_feedings || [];
+      feedingShortcuts = computeShortcuts(recent);
+      renderTodayTotals(d.today_feedings || [], d.today_diapers || []);
+      renderLastFeeding(recent[0] || null, gapTargetMinutes(d.indications || []));
+      renderLastDiaper(d.last_diaper);
+      var routines = d.last_routines || [];
+      renderRoutineCard({ cardId: "card-vitamin-d", title: "Vitamin D", name: "Vitamin D", todayOnly: true, empty: "Not given today yet" }, findRoutine(routines, "vitamin d"));
+      renderRoutineCard({ cardId: "card-last-bath", title: "Last bath", name: "Bath", empty: "No baths yet" }, findRoutine(routines, "bath"));
+      renderRoutineCard({ cardId: "card-last-tummy", title: "Last tummy time", name: "Tummy", empty: "No tummy time yet" }, findRoutine(routines, "tummy"));
+      renderLastMeasurement("card-last-weight", "Last weight", d.last_weight, "weight_g", "g");
+      renderLastMeasurement("card-last-height", "Last height", d.last_height, "height_cm", "cm");
+    }
+
     // One renderer for the routine dashboard cards (Vitamin D / Bath / Tummy).
-    // todayOnly cards only count an entry from today (e.g. daily Vitamin D).
+    // todayOnly cards only count an entry from today (e.g. daily Vitamin D) —
+    // and once it's done, the add button becomes a calm checkmark so a daily
+    // dose can't be fat-fingered twice from the dashboard.
     function renderRoutineCard(opts, item) {
       var el = document.getElementById(opts.cardId);
       var head = '<div class="card-title">' + escapeHtml(opts.title) + '</div>';
-      var show = item && (!opts.todayOnly || new Date(item.ts).getTime() >= startOfDay().getTime());
+      var doneToday = item && new Date(item.ts).getTime() >= startOfDay().getTime();
+      var show = item && (!opts.todayOnly || doneToday);
       var body = show
         ? '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
           '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
         : '<div class="card-empty">' + escapeHtml(opts.empty) + '</div>';
-      var actions = '<div class="quick-row">' +
-        '<button class="quick-btn" data-quick="routine" data-name="' + escapeHtml(opts.name) + '">+ ' + escapeHtml(opts.name) + '</button>' +
-      '</div>';
+      var actions = opts.todayOnly && doneToday
+        ? '<div class="quick-row"><button class="quick-btn done" disabled>&#10003; Done today</button></div>'
+        : '<div class="quick-row">' +
+            '<button class="quick-btn" data-quick="routine" data-name="' + escapeHtml(opts.name) + '">+ ' + escapeHtml(opts.name) + '</button>' +
+          '</div>';
       el.innerHTML = head + body + actions;
     }
 
-    var FEEDING_SHORTCUTS = [30, 60, 90];
+    // Quick-add amounts follow what's actually being fed: the 3 most frequent
+    // amounts in the last 20 feedings, padded with defaults while data is thin.
+    function computeShortcuts(recent) {
+      var freq = {}, firstSeen = {}, distinct = [];
+      for (var i = 0; i < recent.length; i++) {
+        var a = Number(recent[i].amount_ml);
+        if (!isFinite(a) || a <= 0) continue;
+        if (!(a in freq)) { freq[a] = 0; firstSeen[a] = i; distinct.push(a); }
+        freq[a]++;
+      }
+      distinct.sort(function(x, y) { return freq[y] - freq[x] || firstSeen[x] - firstSeen[y]; });
+      var top = distinct.slice(0, 3);
+      var defaults = [60, 90, 30];
+      for (var d = 0; d < defaults.length && top.length < 3; d++) {
+        if (top.indexOf(defaults[d]) === -1) top.push(defaults[d]);
+      }
+      top.sort(function(x, y) { return x - y; });
+      return top;
+    }
 
     function feedingShortcutsHtml() {
       var html = '<div class="quick-row">';
-      for (var i = 0; i < FEEDING_SHORTCUTS.length; i++) {
-        var amt = FEEDING_SHORTCUTS[i];
+      for (var i = 0; i < feedingShortcuts.length; i++) {
+        var amt = feedingShortcuts[i];
         html += '<button class="quick-btn" data-quick="feeding" data-amount="' + amt + '">+ ' + amt + ' ml</button>';
       }
       html += '</div>';
       return html;
     }
 
-    function renderLastFeeding(item) {
+    // The big number is the elapsed time — "how long since the last feed?" is
+    // the question this card answers; the amount is detail.
+    function renderLastFeeding(item, gapMaxMin) {
       var el = document.getElementById("card-last-feeding");
+      el.classList.remove("warn");
       if (!item) {
         el.innerHTML = '<div class="card-title">Last feeding</div>' +
           '<div class="card-empty">No feedings yet</div>' +
           feedingShortcutsHtml();
         return;
       }
-      var amt = item.amount_ml;
-      var sub = escapeHtml(timeAgo(item.ts));
+      var over = gapMaxMin && (Date.now() - new Date(item.ts).getTime()) > gapMaxMin * 60000;
+      if (over) el.classList.add("warn");
+      var warnNote = over
+        ? '<div class="card-warn-note">&#9888; Over the ' + escapeHtml(durationLabel(gapMaxMin * 60000)) + ' max gap</div>'
+        : "";
       el.innerHTML = '<div class="card-title">Last feeding</div>' +
-        '<div class="card-main">' + escapeHtml(amt + " ml") + '</div>' +
-        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + sub + '</div>' +
+        '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
+        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' +
+          escapeHtml(item.amount_ml + " ml · " + formatWhenAbs(new Date(item.ts))) + '</div>' +
+        warnNote +
         feedingShortcutsHtml();
     }
 
@@ -1348,6 +1619,7 @@
     }
 
     function showTab(name) {
+      currentTab = name;
       var navBtns = document.querySelectorAll("#nav [data-tab]");
       for (var i = 0; i < navBtns.length; i++) {
         navBtns[i].classList.toggle("active", navBtns[i].getAttribute("data-tab") === name);
@@ -1469,7 +1741,20 @@
 
     setInterval(function() {
       for (var i = 0; i < whenInputs.length; i++) updateWhenDisplay(whenInputs[i]);
+      // Keep the dashboard's "ago" strings (and the gap warning) fresh from
+      // the cached payload — no refetch.
+      if (currentTab === "today" && document.visibilityState === "visible") {
+        renderDashboard();
+      }
     }, 30 * 1000);
+
+    // An installed PWA resumes from background rather than reloading, so the
+    // data on screen can be hours old. Refetch whenever the app comes back.
+    document.addEventListener("visibilitychange", function() {
+      if (document.visibilityState !== "visible") return;
+      if (currentTab === "today") loadDashboard();
+      else if (entities[currentTab]) loadList(currentTab);
+    });
 
     // --- Choice button groups (segmented selectors backed by a hidden input) ---
     document.addEventListener("click", function(e) {
@@ -1500,6 +1785,69 @@
       }
     }
 
+    // --- Edit mode: tap a list row to load it into the entry form ---
+    function formOf(entity) {
+      return document.querySelector('form.entry-form[data-entity="' + entity + '"]');
+    }
+
+    function enterEdit(entity, item) {
+      var form = formOf(entity);
+      if (!form) return;
+      editState[entity] = item.id;
+      form.classList.add("editing");
+      var inputs = form.querySelectorAll("input[name]");
+      for (var i = 0; i < inputs.length; i++) {
+        var inp = inputs[i];
+        var key = inp.getAttribute("name");
+        if (key === "when" || !(key in item)) continue;
+        inp.value = item[key];
+        if (inp.type === "hidden") {
+          // Choice group backed by this hidden input: highlight the match.
+          var label = inp.closest("label");
+          var btns = label ? label.querySelectorAll(".choice-btn") : [];
+          for (var b = 0; b < btns.length; b++) {
+            btns[b].classList.toggle("active", btns[b].getAttribute("data-value") === String(item[key]));
+          }
+        }
+      }
+      var when = form.querySelector('input[name="when"]');
+      if (when) {
+        when.value = toLocalDatetimeString(new Date(item.ts));
+        updateWhenDisplay(when);
+      }
+      form.querySelector("button[type=submit]").textContent = "Update";
+      var cancel = form.querySelector(".cancel-edit");
+      if (cancel) cancel.hidden = false;
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function exitEdit(entity) {
+      var form = formOf(entity);
+      if (!form) return;
+      delete editState[entity];
+      form.classList.remove("editing");
+      form.querySelector("button[type=submit]").textContent = "Add";
+      var cancel = form.querySelector(".cancel-edit");
+      if (cancel) cancel.hidden = true;
+      form.reset();
+    }
+
+    // Row taps open the editor; clicks on the Delete button keep their meaning.
+    for (var entityName in entities) {
+      (function(name) {
+        var container = document.getElementById("list-" + name);
+        if (!container) return;
+        container.addEventListener("click", function(e) {
+          if (!e.target || !e.target.closest) return;
+          if (e.target.closest(".delete-btn")) return;
+          var tr = e.target.closest("tr[data-id]");
+          if (!tr) return;
+          var item = (listItemsById[name] || {})[tr.getAttribute("data-id")];
+          if (item) enterEdit(name, item);
+        });
+      })(entityName);
+    }
+
     // --- Entry forms ---
     var entryForms = document.querySelectorAll("form.entry-form");
     for (var ef = 0; ef < entryForms.length; ef++) {
@@ -1511,6 +1859,13 @@
           resetChoiceGroups(form);
         }, 0);
       });
+      var cancelBtn = entryForms[ef].querySelector(".cancel-edit");
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", function(e) {
+          var form = e.currentTarget.closest("form");
+          exitEdit(form.getAttribute("data-entity"));
+        });
+      }
       entryForms[ef].addEventListener("submit", async function(e) {
         e.preventDefault();
         var form = e.currentTarget;
@@ -1530,12 +1885,22 @@
             body[k] = s;
           }
         });
+        var editId = editState[entity];
+        // On edit, an empty when field means the user pressed "Now": send the
+        // current time explicitly (the server keeps the old ts when omitted).
+        if (editId && !body.when) body.when = new Date().toISOString();
         var submitBtn = form.querySelector('button[type=submit]');
         submitBtn.disabled = true;
         try {
-          await postJson(entities[entity].endpoint, body);
-          form.reset();
-          toast("Saved");
+          if (editId) {
+            await putJson(entities[entity].endpoint + "/" + editId, body);
+            exitEdit(entity);
+            toast("Updated");
+          } else {
+            var created = await postJson(entities[entity].endpoint, body);
+            form.reset();
+            toast("Saved", false, makeUndo(entity, created && created.id));
+          }
           if (charts[entity]) resetChartWeek(entity);
           loadList(entity);
         } catch (err) {
@@ -1554,23 +1919,23 @@
       if (which === "feeding") {
         var amt = parseFloat(t.getAttribute("data-amount"));
         if (!isFinite(amt) || amt <= 0) return;
-        quickPost(t, "/api/feedings", { amount_ml: amt }, "Recorded: " + amt + " ml");
+        quickPost(t, "feedings", { amount_ml: amt }, "Recorded: " + amt + " ml");
       } else if (which === "diaper") {
         var kind = t.getAttribute("data-kind");
         if (!kind) return;
-        quickPost(t, "/api/diapers", { kind: kind }, "Diaper: " + fmtKind(kind));
+        quickPost(t, "diapers", { kind: kind }, "Diaper: " + fmtKind(kind));
       } else if (which === "routine") {
         var routineName = t.getAttribute("data-name");
         if (!routineName) return;
-        quickPost(t, "/api/routines", { name: routineName }, "Routine: " + routineName);
+        quickPost(t, "routines", { name: routineName }, "Routine: " + routineName);
       }
     });
 
-    async function quickPost(btn, endpoint, body, doneMsg) {
+    async function quickPost(btn, entity, body, doneMsg) {
       btn.disabled = true;
       try {
-        await postJson(endpoint, body);
-        toast(doneMsg);
+        var created = await postJson(entities[entity].endpoint, body);
+        toast(doneMsg, false, makeUndo(entity, created && created.id));
         loadDashboard();
       } catch (err) {
         if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
@@ -1612,13 +1977,12 @@
       var entity = t.getAttribute("data-entity");
       t.disabled = true;
       try {
-        var res = await fetch(entities[entity].endpoint + "/" + encodeURIComponent(id), { method: "DELETE" });
-        if (res.status === 401) { gotoLogin(); return; }
-        if (!res.ok) { toast("Delete error", true); return; }
+        await deleteEntry(entity, id);
+        if (String(editState[entity]) === String(id)) exitEdit(entity);
         toast("Deleted");
         loadList(entity);
       } catch (err) {
-        toast("Network error: " + err.message, true);
+        if (err.message !== "Unauthorized") toast("Delete error: " + err.message, true);
       } finally {
         t.disabled = false;
       }
