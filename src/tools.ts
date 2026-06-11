@@ -155,6 +155,13 @@ export function buildIndicationStatement(
         .prepare("SELECT COUNT(*) AS v FROM routines WHERE ts >= ? AND ts < ?")
         .bind(start, end);
     case "note_count":
+      if (filter) {
+        return db
+          .prepare(
+            "SELECT COUNT(*) AS v FROM notes WHERE ts >= ? AND ts < ? AND LOWER(text) LIKE ?"
+          )
+          .bind(start, end, `%${filter.toLowerCase()}%`);
+      }
       return db
         .prepare("SELECT COUNT(*) AS v FROM notes WHERE ts >= ? AND ts < ?")
         .bind(start, end);
@@ -998,7 +1005,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .max(100)
             .optional()
             .describe(
-              "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). Not allowed for feeding_* or note_count."
+              "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). note_count: substring of note text. Not allowed for feeding_*."
             ),
         },
         outputSchema: {
@@ -1035,8 +1042,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         if (
           (metric === "feeding_total_ml" ||
             metric === "feeding_count" ||
-            metric === "feeding_gap_max_min" ||
-            metric === "note_count") &&
+            metric === "feeding_gap_max_min") &&
           filter
         ) {
           return {
