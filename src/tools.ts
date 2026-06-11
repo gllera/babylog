@@ -97,7 +97,7 @@ async function deleteById(
   };
 }
 
-type IndicationRow = {
+export type IndicationRow = {
   id: number;
   label: string;
   metric: IndicationMetric;
@@ -108,7 +108,7 @@ type IndicationRow = {
   active: number;
 };
 
-function buildIndicationStatement(
+export function buildIndicationStatement(
   db: D1Database,
   metric: IndicationMetric,
   filter: string | null,
@@ -163,7 +163,7 @@ function buildIndicationStatement(
 
 // `gapBoundary` is min(window end, now): gap metrics measure the trailing gap
 // from the last feeding up to that instant.
-function extractIndicationActual(
+export function extractIndicationActual(
   metric: IndicationMetric,
   result: D1Result<unknown>,
   gapBoundary: string
@@ -179,7 +179,7 @@ function extractIndicationActual(
   return rows[0]?.v ?? 0;
 }
 
-function indicationUnit(metric: IndicationMetric): string {
+export function indicationUnit(metric: IndicationMetric): string {
   if (metric === "feeding_total_ml") return "ml";
   if (metric === "feeding_gap_max_min") return "min";
   return "";

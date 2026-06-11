@@ -7,7 +7,18 @@
 
 import { z } from "zod";
 import type { Env } from "./types";
-import { buildWindowClauses, normalizeTs } from "./lib";
+import {
+  buildWindowClauses,
+  madridDateOf,
+  madridDayWindow,
+  normalizeTs,
+} from "./lib";
+import {
+  buildIndicationStatement,
+  extractIndicationActual,
+  indicationUnit,
+  type IndicationRow,
+} from "./tools";
 import { isWebAuthorized } from "./web";
 
 function jsonOk(data: unknown, status = 200): Response {
@@ -230,25 +241,29 @@ async function handleEntity(
   return jsonError(405, "Method not allowed.");
 }
 
-// Everything the Today tab needs in a single D1 batch (one round trip)
-// instead of the nine separate fetches the dashboard used to make.
-// `since` is the client's local midnight, so "today" follows the phone's
-// clock rather than the server's.
-async function handleDashboard(url: URL, env: Env): Promise<Response> {
-  const since = url.searchParams.get("since");
-  if (!since || Number.isNaN(Date.parse(since))) {
-    return jsonError(400, "Missing or invalid since timestamp.");
-  }
-  const dayStart = normalizeTs(since);
+// Everything the Today tab needs in two D1 batches: one for the entity
+// queries + active indications, then one evaluating each indication's
+// actual over its own window. "Today" is the Europe/Madrid calendar day —
+// the household timezone — matching the MCP tools and the Alexa skill.
+async function handleDashboard(env: Env): Promise<Response> {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const day = madridDateOf(now);
+  const { start: dayStart, end: dayEnd } = madridDayWindow(day);
+  // Gap metrics measure up to now while the day is still running.
+  const gapBoundary = dayEnd < nowIso ? dayEnd : nowIso;
+
   const [
     recentFeedings,
     todayFeedings,
     lastDiaper,
     todayDiapers,
+    todayRoutines,
+    todayNotes,
     lastRoutines,
-    lastWeight,
-    lastHeight,
-    indications,
+    recentWeights,
+    recentHeights,
+    indicationsRes,
   ] = await env.DB.batch([
     env.DB.prepare(
       "SELECT id, ts, amount_ml FROM feedings ORDER BY ts DESC LIMIT 20"
@@ -261,28 +276,71 @@ async function handleDashboard(url: URL, env: Env): Promise<Response> {
       "SELECT id, ts, kind FROM diapers WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
     ).bind(dayStart),
     env.DB.prepare(
+      "SELECT id, ts, name FROM routines WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
+    ).bind(dayStart),
+    env.DB.prepare(
+      "SELECT id, ts, text FROM notes WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
+    ).bind(dayStart),
+    env.DB.prepare(
       "SELECT name, MAX(ts) AS ts FROM routines GROUP BY name"
     ),
     env.DB.prepare(
-      "SELECT id, ts, weight_g FROM weights ORDER BY ts DESC LIMIT 1"
+      "SELECT id, ts, weight_g FROM weights ORDER BY ts DESC LIMIT 2"
     ),
     env.DB.prepare(
-      "SELECT id, ts, height_cm FROM heights ORDER BY ts DESC LIMIT 1"
+      "SELECT id, ts, height_cm FROM heights ORDER BY ts DESC LIMIT 2"
     ),
     env.DB.prepare(
-      "SELECT id, label, metric, filter, target, comparison, period_days FROM indications WHERE active = 1"
+      "SELECT id, label, metric, filter, target, comparison, period_days, active FROM indications WHERE active = 1 ORDER BY id"
     ),
   ]);
+
+  const indications = indicationsRes.results as unknown as IndicationRow[];
+  let indicationsOut: unknown[] = [];
+  if (indications.length > 0) {
+    const actuals = await env.DB.batch(
+      indications.map((ind) =>
+        buildIndicationStatement(
+          env.DB,
+          ind.metric,
+          ind.filter,
+          madridDayWindow(day, ind.period_days).start,
+          dayEnd
+        )
+      )
+    );
+    indicationsOut = indications.map((ind, i) => {
+      const actual = extractIndicationActual(ind.metric, actuals[i], gapBoundary);
+      return {
+        ...ind,
+        actual,
+        unit: indicationUnit(ind.metric),
+        met: ind.comparison === ">=" ? actual >= ind.target : actual <= ind.target,
+      };
+    });
+  }
+
   return jsonOk({
+    day,
+    day_start: dayStart,
     recent_feedings: recentFeedings.results,
     today_feedings: todayFeedings.results,
     last_diaper: lastDiaper.results[0] ?? null,
     today_diapers: todayDiapers.results,
+    today_routines: todayRoutines.results,
+    today_notes: todayNotes.results,
     last_routines: lastRoutines.results,
-    last_weight: lastWeight.results[0] ?? null,
-    last_height: lastHeight.results[0] ?? null,
-    indications: indications.results,
+    recent_weights: recentWeights.results,
+    recent_heights: recentHeights.results,
+    indications: indicationsOut,
   });
+}
+
+async function handleProfile(env: Env): Promise<Response> {
+  const row = await env.DB.prepare(
+    "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
+  ).first();
+  return jsonOk(row ?? { name: null, sex: null, date_of_birth: null });
 }
 
 export async function handleApi(
@@ -300,7 +358,13 @@ export async function handleApi(
     if (request.method.toUpperCase() !== "GET") {
       return jsonError(405, "Method not allowed.");
     }
-    return handleDashboard(url, env);
+    return handleDashboard(env);
+  }
+  if (parts[1] === "profile" && parts.length === 2) {
+    if (request.method.toUpperCase() !== "GET") {
+      return jsonError(405, "Method not allowed.");
+    }
+    return handleProfile(env);
   }
   const cfg = ENTITIES[parts[1]];
   if (!cfg) return jsonError(404, "Unknown entity.");

@@ -43,6 +43,7 @@
       --day1: #f5a623;
       --day2: #9aa0a6;
       --warn: #d97700;
+      --ok: #1a7f37;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -72,6 +73,7 @@
         --poop: #d08344;
         --day2: #7f868c;
         --warn: #ffa040;
+        --ok: #4ace64;
       }
     }
     * { box-sizing: border-box; }
@@ -560,6 +562,97 @@
       align-self: flex-end;
     }
     .cancel-edit:hover { background: var(--hover); color: var(--text); }
+    /* Header identity: baby name + age from the profile. */
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .brand[hidden] { display: none; }
+    .b-name { font-weight: 700; font-size: 15px; }
+    .b-age { color: var(--muted); font-size: 12px; }
+    /* Today's targets: one row per active indication with live progress. */
+    .target-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 14px;
+      padding: 3px 0;
+    }
+    .target-state { color: var(--muted); flex: none; }
+    .target-row.met .target-state { color: var(--ok); }
+    .target-row.over .target-state,
+    .target-row.over .target-value { color: var(--warn); }
+    .target-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .target-value {
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    /* Today's diary: merged chronological timeline of all entry types. */
+    .tl-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .tl-row:last-child { border-bottom: 0; }
+    .tl-time { font-variant-numeric: tabular-nums; color: var(--muted); flex: none; }
+    .tl-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex: none;
+      align-self: center;
+    }
+    .tl-dot.feed { background: var(--primary); }
+    .tl-dot.diaper { background: var(--poop); }
+    .tl-dot.routine { background: var(--day1); }
+    .tl-dot.note { background: var(--day2); }
+    .tl-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .tl-kind { color: var(--muted); font-size: 12px; flex: none; }
+    /* Amount field with -10/+10 steppers. */
+    .amount-row { display: flex; gap: 4px; }
+    .amount-row input { flex: 1; min-width: 0; }
+    .amount-step {
+      background: var(--hover);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: normal;
+    }
+    .amount-step:hover { background: var(--hover-strong); color: var(--text); }
+    /* WHO growth-standard percentile bands behind the trend line. */
+    .who-band { fill: var(--primary); opacity: 0.08; }
+    .who-band.inner { opacity: 0.1; }
+    .who-mid {
+      fill: none;
+      stroke: var(--muted);
+      stroke-width: 1;
+      stroke-dasharray: 3 3;
+      vector-effect: non-scaling-stroke;
+      opacity: 0.8;
+    }
+    .who-lbl { font-size: 7px; fill: var(--muted); font-family: inherit; }
+    /* List day separators. */
+    tr.day-sep td {
+      background: var(--thead);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 5px 14px;
+    }
     @media (max-width: 640px) {
       header { padding: 8px 10px; gap: 8px; }
       nav { gap: 3px; }
@@ -592,7 +685,9 @@
         grid-template-columns: repeat(2, 1fr);
         gap: 8px;
       }
-      #card-today-totals { grid-column: 1 / -1; }
+      #card-today-totals, #card-targets { grid-column: 1 / -1; }
+      tr.day-sep td { padding: 4px 10px; }
+      .brand { flex-basis: 100%; }
       .card { padding: 10px 12px; }
       .card-title { margin-bottom: 4px; font-size: 10px; }
       .card-main { font-size: 16px; }
@@ -616,6 +711,10 @@
 </head>
 <body>
   <header>
+    <div class="brand" id="brand" hidden>
+      <span class="b-name" id="brand-name"></span>
+      <span class="b-age" id="brand-age"></span>
+    </div>
     <nav id="nav">
       <button data-tab="today" class="active">Today</button>
       <button data-tab="feedings">Feeding</button>
@@ -638,6 +737,9 @@
         <div class="card" id="card-today-totals">
           <div class="card-title">Today</div>
           <div class="card-empty">Loading&hellip;</div>
+        </div>
+        <div class="card" id="card-targets" hidden>
+          <div class="card-title">Today's targets</div>
         </div>
         <div class="card" id="card-last-feeding">
           <div class="card-title">Last feeding</div>
@@ -668,12 +770,19 @@
           <div class="card-empty">Loading&hellip;</div>
         </div>
       </div>
+      <div class="week-chart" id="today-timeline" hidden style="margin-top: 14px;">
+        <div class="card-title daychart-title">Today's diary</div>
+      </div>
     </section>
 
     <section id="tab-feedings" class="tab">
       <form class="entry-form" data-entity="feedings">
         <label>Amount (ml)
-          <input type="number" name="amount_ml" step="0.1" min="0.1" inputmode="decimal" required placeholder="120">
+          <div class="amount-row">
+            <button type="button" class="amount-step" data-step-amt="-10">&minus;10</button>
+            <input type="number" name="amount_ml" step="0.1" min="0.1" inputmode="decimal" required placeholder="120">
+            <button type="button" class="amount-step" data-step-amt="10">+10</button>
+          </div>
         </label>
         <label>When
 <!-- WHEN_BLOCK -->
@@ -795,11 +904,72 @@
     var NUMERIC_FIELDS = { amount_ml: true, weight_g: true, height_cm: true };
     var DAY_MS = 86400000;
 
+    // WHO Child Growth Standards (2006), LMS values by completed month 0-24.
+    // wfa = weight-for-age (kg), lfa = length-for-age (cm); source: WHO via
+    // pygrowup tables. value(z) = M*(1+L*S*z)^(1/L).
+    var WHO_LMS = {"wfa":{"male":[[0.3487,3.3464,0.14602],[0.2297,4.4709,0.13395],[0.197,5.5675,0.12385],[0.1738,6.3762,0.11727],[0.1553,7.0023,0.11316],[0.1395,7.5105,0.1108],[0.1257,7.934,0.10958],[0.1134,8.297,0.10902],[0.1021,8.6151,0.10882],[0.0917,8.9014,0.10881],[0.082,9.1649,0.10891],[0.073,9.4122,0.10906],[0.0644,9.6479,0.10925],[0.0563,9.8749,0.10949],[0.0487,10.0953,0.10976],[0.0413,10.3108,0.11007],[0.0343,10.5228,0.11041],[0.0275,10.7319,0.11079],[0.0211,10.9385,0.11119],[0.0148,11.143,0.11164],[0.0087,11.3462,0.11211],[0.0029,11.5486,0.11261],[-0.0028,11.7504,0.11314],[-0.0083,11.9514,0.11369],[-0.0137,12.1515,0.11426]],"female":[[0.3809,3.2322,0.14171],[0.1714,4.1873,0.13724],[0.0962,5.1282,0.13],[0.0402,5.8458,0.12619],[-0.005,6.4237,0.12402],[-0.043,6.8985,0.12274],[-0.0756,7.297,0.12204],[-0.1039,7.6422,0.12178],[-0.1288,7.9487,0.12181],[-0.1507,8.2254,0.12199],[-0.17,8.48,0.12223],[-0.1872,8.7192,0.12247],[-0.2024,8.9481,0.12268],[-0.2158,9.1699,0.12283],[-0.2278,9.387,0.12294],[-0.2384,9.6008,0.12299],[-0.2478,9.8124,0.12303],[-0.2562,10.0226,0.12306],[-0.2637,10.2315,0.12309],[-0.2703,10.4393,0.12315],[-0.2762,10.6464,0.12323],[-0.2815,10.8534,0.12335],[-0.2862,11.0608,0.1235],[-0.2903,11.2688,0.12369],[-0.2941,11.4775,0.1239]]},"lfa":{"male":[[1.0,49.8842,0.03795],[1.0,54.7244,0.03557],[1.0,58.4249,0.03424],[1.0,61.4292,0.03328],[1.0,63.886,0.03257],[1.0,65.9026,0.03204],[1.0,67.6236,0.03165],[1.0,69.1645,0.03139],[1.0,70.5994,0.03124],[1.0,71.9687,0.03117],[1.0,73.2812,0.03118],[1.0,74.5388,0.03125],[1.0,75.7488,0.03137],[1.0,76.9186,0.03154],[1.0,78.0497,0.03174],[1.0,79.1458,0.03197],[1.0,80.2113,0.03222],[1.0,81.2487,0.0325],[1.0,82.2587,0.03279],[1.0,83.2418,0.0331],[1.0,84.1996,0.03342],[1.0,85.1348,0.03376],[1.0,86.0477,0.0341],[1.0,86.941,0.03445],[1.0,87.8161,0.03479]],"female":[[1.0,49.1477,0.0379],[1.0,53.6872,0.0364],[1.0,57.0673,0.03568],[1.0,59.8029,0.0352],[1.0,62.0899,0.03486],[1.0,64.0301,0.03463],[1.0,65.7311,0.03448],[1.0,67.2873,0.03441],[1.0,68.7498,0.0344],[1.0,70.1435,0.03444],[1.0,71.4818,0.03452],[1.0,72.771,0.03464],[1.0,74.015,0.03479],[1.0,75.2176,0.03496],[1.0,76.3817,0.03514],[1.0,77.5099,0.03534],[1.0,78.6055,0.03555],[1.0,79.671,0.03576],[1.0,80.7079,0.03598],[1.0,81.7182,0.0362],[1.0,82.7036,0.03643],[1.0,83.6654,0.03666],[1.0,84.604,0.03688],[1.0,85.5202,0.03711],[1.0,86.4153,0.03734]]}};
+
+    var Z_PCTS = [[-1.8808, "P3"], [-1.0364, "P15"], [0, "P50"], [1.0364, "P85"], [1.8808, "P97"]];
+
+    // Linear interpolation of [L, M, S] between completed months; null outside 0-24.
+    function lmsAt(table, ageMonths) {
+      if (!isFinite(ageMonths) || ageMonths < 0 || ageMonths > 24) return null;
+      var lo = Math.floor(ageMonths), hi = Math.min(24, lo + 1), f = ageMonths - lo;
+      var a = table[lo], b = table[hi];
+      return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+    }
+
+    function lmsValue(lms, z) {
+      var L = lms[0], M = lms[1], S = lms[2];
+      return L === 0 ? M * Math.exp(S * z) : M * Math.pow(1 + L * S * z, 1 / L);
+    }
+
+    function lmsZ(lms, x) {
+      var L = lms[0], M = lms[1], S = lms[2];
+      return L === 0 ? Math.log(x / M) / S : (Math.pow(x / M, L) - 1) / (L * S);
+    }
+
+    // Standard normal CDF (Zelen & Severo approximation), for z -> percentile.
+    function normCdf(z) {
+      var t = 1 / (1 + 0.2316419 * Math.abs(z));
+      var d = Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
+      var p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+      return z >= 0 ? 1 - p : p;
+    }
+
     var currentTab = "today";
     var dashboardData = null;          // cached /api/dashboard payload
     var editState = {};                // entity -> id of the row being edited
     var listItemsById = {};            // entity -> { id: item } for rendered rows
     var feedingShortcuts = [30, 60, 90];
+    var profileData = null;            // cached /api/profile payload
+
+    function ageLabel(dobStr) {
+      var birth = new Date(dobStr + "T00:00:00Z");
+      var days = Math.floor((Date.now() - birth.getTime()) / DAY_MS);
+      if (isNaN(days) || days < 0) return "";
+      if (days < 60) {
+        if (days < 7) return days + (days === 1 ? " day" : " days");
+        var w = Math.floor(days / 7), r = days % 7;
+        return w + "w" + (r ? " " + r + "d" : "");
+      }
+      var now = new Date();
+      var years = now.getUTCFullYear() - birth.getUTCFullYear();
+      var months = now.getUTCMonth() - birth.getUTCMonth();
+      if (now.getUTCDate() < birth.getUTCDate()) months--;
+      if (months < 0) { years--; months += 12; }
+      if (years === 0) return months + (months === 1 ? " month" : " months");
+      return years + "y " + months + "m";
+    }
+
+    function renderBrand() {
+      var p = profileData;
+      if (!p || (!p.name && !p.date_of_birth)) return;
+      document.getElementById("brand-name").textContent = p.name || "Baby";
+      document.getElementById("brand-age").textContent =
+        p.date_of_birth ? ageLabel(p.date_of_birth) : "";
+      document.getElementById("brand").hidden = false;
+    }
 
     function fmtText(v) { return v == null ? "" : String(v); }
 
@@ -855,13 +1025,71 @@
       }
     };
 
+    // ---- Europe/Madrid time -------------------------------------------------
+    // The whole UI runs on the household timezone (Europe/Madrid), matching
+    // the server's stats/indications windows — never the device timezone.
+    // Mirrors lib.ts: CEST (UTC+2) from the last Sunday of March to the last
+    // Sunday of October (01:00 UTC), else CET (UTC+1).
+    var HOUR_MS = 3600000;
+
+    function madridOffsetHours(date) {
+      var year = date.getUTCFullYear();
+      var march = new Date(Date.UTC(year, 2, 31));
+      march.setUTCDate(31 - march.getUTCDay());
+      march.setUTCHours(1, 0, 0, 0);
+      var october = new Date(Date.UTC(year, 9, 31));
+      october.setUTCDate(31 - october.getUTCDay());
+      october.setUTCHours(1, 0, 0, 0);
+      return (date >= march && date < october) ? 2 : 1;
+    }
+
+    // Shift an instant so getUTC* getters read Madrid wall-clock fields.
+    function toWall(d) { return new Date(d.getTime() + madridOffsetHours(d) * HOUR_MS); }
+    // Inverse: Madrid wall-clock ms (as fake UTC) back to a real instant.
+    function fromWall(wallMs) {
+      return new Date(wallMs - madridOffsetHours(new Date(wallMs)) * HOUR_MS);
+    }
+
+    function pad2(n) { return n < 10 ? "0" + n : String(n); }
+
+    // Instant of today's Madrid midnight.
+    function startOfDay() {
+      var w = toWall(new Date());
+      w.setUTCHours(0, 0, 0, 0);
+      return fromWall(w.getTime());
+    }
+
+    // dayStart + n Madrid calendar days (exact across DST switches).
+    function addDaysMadrid(dayStart, n) {
+      var w = toWall(dayStart);
+      w.setUTCDate(w.getUTCDate() + n);
+      w.setUTCHours(0, 0, 0, 0);
+      return fromWall(w.getTime());
+    }
+
+    function madridDateStr(d) { return toWall(d).toISOString().slice(0, 10); }
+
+    function formatTimeOfDay(d) {
+      var w = toWall(d);
+      return pad2(w.getUTCHours()) + ":" + pad2(w.getUTCMinutes());
+    }
+
+    function fmtDayMonth(d) {
+      var w = toWall(d);
+      return pad2(w.getUTCDate()) + "/" + pad2(w.getUTCMonth() + 1);
+    }
+
+    function fmtFullDate(d) {
+      return fmtDayMonth(d) + "/" + toWall(d).getUTCFullYear();
+    }
+
     function timeAgo(s) {
       if (!s) return "";
       var t = new Date(s).getTime();
       if (isNaN(t)) return String(s);
       var diff = Date.now() - t;
       if (diff < 45 * 1000) return "now";
-      if (diff >= 30 * DAY_MS) return new Date(s).toLocaleDateString();
+      if (diff >= 30 * DAY_MS) return fmtFullDate(new Date(s));
       return durationLabel(diff) + " ago";
     }
 
@@ -869,22 +1097,15 @@
       if (!s) return "";
       var d = new Date(s);
       if (isNaN(d.getTime())) return String(s);
-      return d.toLocaleString();
+      return fmtFullDate(d) + " " + formatTimeOfDay(d);
     }
 
+    // Lists carry the date in day-separator rows, so cells only need HH:MM.
     function tableTs(s) {
       if (!s) return "";
       var d = new Date(s);
       if (isNaN(d.getTime())) return String(s);
-      var pad = function(n) { return n < 10 ? "0" + n : String(n); };
-      var time = pad(d.getHours()) + ":" + pad(d.getMinutes());
-      var now = new Date();
-      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
-        return time;
-      }
-      var datePart = pad(d.getDate()) + "/" + pad(d.getMonth() + 1);
-      if (d.getFullYear() !== now.getFullYear()) datePart += "/" + d.getFullYear();
-      return datePart + " " + time;
+      return formatTimeOfDay(d);
     }
 
     function escapeHtml(s) {
@@ -896,16 +1117,17 @@
         .replace(/'/g, "&#039;");
     }
 
-    function startOfDay() {
-      var d = new Date();
-      d.setHours(0, 0, 0, 0);
-      return d;
+    // "YYYY-MM-DDTHH:MM" in Madrid wall time (the `when` input format).
+    function toWallInputString(d) {
+      var w = toWall(d);
+      return w.getUTCFullYear() + "-" + pad2(w.getUTCMonth() + 1) + "-" + pad2(w.getUTCDate()) +
+        "T" + pad2(w.getUTCHours()) + ":" + pad2(w.getUTCMinutes());
     }
 
-    function toLocalDatetimeString(d) {
-      function pad(n) { return n < 10 ? "0" + n : String(n); }
-      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
-        "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+    function parseWallTime(s) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s || "");
+      if (!m) return null;
+      return fromWall(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
     }
 
     var toastEl = document.getElementById("toast");
@@ -995,17 +1217,16 @@
       }
     }
 
-    // --- Growth charts (weight / height over time) ---
+    // --- Growth charts (weight / height over time, with WHO percentile bands) ---
     var MEASURE_CHARTS = {
-      weights: { elId: "weights-chart", key: "weight_g", title: "Weight over time (g)" },
-      heights: { elId: "heights-chart", key: "height_cm", title: "Height over time (cm)" }
+      weights: { elId: "weights-chart", key: "weight_g", title: "Weight over time (g)", who: "wfa", scale: 1000 },
+      heights: { elId: "heights-chart", key: "height_cm", title: "Height over time (cm)", who: "lfa", scale: 1 }
     };
 
     function renderMeasureChart(entity, items) {
       var mc = MEASURE_CHARTS[entity];
       var el = document.getElementById(mc.elId);
       if (!el) return;
-      var title = '<div class="card-title daychart-title">' + escapeHtml(mc.title) + '</div>';
       var pts = [];
       for (var i = items.length - 1; i >= 0; i--) { // API returns newest first
         var t = new Date(items[i].ts).getTime();
@@ -1013,19 +1234,82 @@
         if (!isNaN(t) && isFinite(v)) pts.push({ t: t, v: v });
       }
       if (pts.length < 2) {
-        el.innerHTML = title + '<div class="card-empty">Record at least two measurements to see a trend.</div>';
+        el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(mc.title) + '</div>' +
+          '<div class="card-empty">Record at least two measurements to see a trend.</div>';
         return;
       }
       var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+
+      // WHO percentile curves over the displayed range, when the profile has
+      // what they need (sex + date of birth) and the age range fits 0-24 months.
+      var who = null, pctNote = "";
+      var prof = profileData;
+      if (prof && prof.date_of_birth && (prof.sex === "male" || prof.sex === "female") && t1 > t0) {
+        var table = WHO_LMS[mc.who][prof.sex];
+        var dobMs = new Date(prof.date_of_birth + "T00:00:00Z").getTime();
+        var ageMo = function(t) { return (t - dobMs) / DAY_MS / 30.4375; };
+        var samples = [], curves = [], ok = true, s, z;
+        for (s = 0; s <= 24; s++) samples.push(t0 + ((t1 - t0) * s) / 24);
+        for (z = 0; z < Z_PCTS.length && ok; z++) {
+          var curve = [];
+          for (s = 0; s < samples.length; s++) {
+            var lms = lmsAt(table, ageMo(samples[s]));
+            if (!lms) { ok = false; break; }
+            curve.push(lmsValue(lms, Z_PCTS[z][0]) * mc.scale);
+          }
+          curves.push(curve);
+        }
+        if (ok) {
+          who = { samples: samples, curves: curves };
+          var lmsLast = lmsAt(table, ageMo(t1));
+          if (lmsLast) {
+            var pct = Math.round(normCdf(lmsZ(lmsLast, pts[pts.length - 1].v / mc.scale)) * 100);
+            pctNote = " &middot; now &asymp; " + (pct < 1 ? "&lt;P1" : pct > 99 ? "&gt;P99" : "P" + pct);
+          }
+        }
+      }
+
       var vmin = Infinity, vmax = -Infinity;
       for (var j = 0; j < pts.length; j++) {
         if (pts[j].v < vmin) vmin = pts[j].v;
         if (pts[j].v > vmax) vmax = pts[j].v;
       }
+      if (who) {
+        for (var c = 0; c < who.curves.length; c++) {
+          for (var cs = 0; cs < who.curves[c].length; cs++) {
+            if (who.curves[c][cs] < vmin) vmin = who.curves[c][cs];
+            if (who.curves[c][cs] > vmax) vmax = who.curves[c][cs];
+          }
+        }
+      }
       if (vmin === vmax) { vmin -= 1; vmax += 1; }
-      var LX = 25, RX = 325, TOP = 20, BOT = 144, LABEL_Y = 164;
+
+      var LX = 25, RX = 322, TOP = 20, BOT = 144, LABEL_Y = 164;
       function px(t) { return t1 === t0 ? LX : +(LX + ((t - t0) / (t1 - t0)) * (RX - LX)).toFixed(1); }
       function py(v) { return +(BOT - ((v - vmin) / (vmax - vmin)) * (BOT - TOP)).toFixed(1); }
+
+      var whoSvg = "";
+      if (who) {
+        function curveLine(curve) {
+          var p = "";
+          for (var s = 0; s < who.samples.length; s++) p += px(who.samples[s]) + "," + py(curve[s]) + " ";
+          return p.trim();
+        }
+        function bandPolygon(hiIdx, loIdx, cls) {
+          var p = "";
+          var s;
+          for (s = 0; s < who.samples.length; s++) p += px(who.samples[s]) + "," + py(who.curves[hiIdx][s]) + " ";
+          for (s = who.samples.length - 1; s >= 0; s--) p += px(who.samples[s]) + "," + py(who.curves[loIdx][s]) + " ";
+          return '<polygon class="' + cls + '" points="' + p.trim() + '"></polygon>';
+        }
+        var last = who.samples.length - 1;
+        whoSvg = bandPolygon(4, 0, "who-band") + bandPolygon(3, 1, "who-band inner") +
+          '<polyline class="who-mid" points="' + curveLine(who.curves[2]) + '"></polyline>' +
+          '<text class="who-lbl" x="324" y="' + (py(who.curves[4][last]) + 2) + '">P97</text>' +
+          '<text class="who-lbl" x="324" y="' + (py(who.curves[2][last]) + 2) + '">P50</text>' +
+          '<text class="who-lbl" x="324" y="' + (py(who.curves[0][last]) + 2) + '">P3</text>';
+      }
+
       var poly = "", dots = "", vals = "";
       var labelAll = pts.length <= 12;
       for (var k = 0; k < pts.length; k++) {
@@ -1039,19 +1323,20 @@
       var dateLabels =
         '<text class="cl-daylabel" x="' + LX + '" y="' + LABEL_Y + '">' + escapeHtml(fmtDayMonth(new Date(t0))) + '</text>' +
         '<text class="cl-daylabel" x="' + RX + '" y="' + LABEL_Y + '">' + escapeHtml(fmtDayMonth(new Date(t1))) + '</text>';
-      el.innerHTML = title +
+      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(mc.title) + pctNote + '</div>' +
         '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + escapeHtml(mc.title) + '">' +
+        whoSvg +
         '<polyline class="cl-line" points="' + poly.trim() + '"></polyline>' +
         dots + vals + dateLabels +
         '</svg>';
     }
 
-    // --- Weekly charts (Mon-Sun) with prev/next nav + day-filtering of the list ---
+    // --- Weekly charts (Mon-Sun, Madrid days) with prev/next nav + day-filtering ---
     function startOfWeek() {
-      var d = startOfDay();
-      var dow = (d.getDay() + 6) % 7; // 0 = Monday
-      d.setDate(d.getDate() - dow);
-      return d;
+      var w = toWall(new Date());
+      w.setUTCDate(w.getUTCDate() - ((w.getUTCDay() + 6) % 7)); // back to Monday
+      w.setUTCHours(0, 0, 0, 0);
+      return fromWall(w.getTime());
     }
 
     var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1070,15 +1355,12 @@
       charts[key].selectedDay = null;
     }
 
-    function fmtDayMonth(d) {
-      var pad = function(n) { return n < 10 ? "0" + n : String(n); };
-      return pad(d.getDate()) + "/" + pad(d.getMonth() + 1);
-    }
-
+    // Day index 0-6 of an instant within a Madrid week. Wall-clock difference,
+    // so DST weeks (23/25h days) still bucket correctly.
     function dayIndexOf(ts, weekStart) {
       var d = new Date(ts);
       if (isNaN(d.getTime())) return -1;
-      return Math.floor((d.getTime() - weekStart.getTime()) / DAY_MS);
+      return Math.floor((toWall(d).getTime() - toWall(weekStart).getTime()) / DAY_MS);
     }
 
     async function loadWeek(key) {
@@ -1087,15 +1369,18 @@
       if (!el) return;
       // Fetch 2 days before the week too, so the day-comparison chart can show
       // the selected day vs the 2 prior days even across the week boundary.
-      var fetchStart = new Date(c.weekStart.getTime());
-      fetchStart.setDate(fetchStart.getDate() - 2);
-      var weekEnd = new Date(c.weekStart.getTime());
-      weekEnd.setDate(weekEnd.getDate() + 7);
+      var fetchStart = addDaysMadrid(c.weekStart, -2);
+      var weekEnd = addDaysMadrid(c.weekStart, 7);
       var qs = "since=" + encodeURIComponent(fetchStart.toISOString()) +
         "&until=" + encodeURIComponent(weekEnd.toISOString()) + "&limit=500";
       try {
         var data = await fetchJson(c.endpoint + "?" + qs);
         c.items = data.items || [];
+        if (key === "feedings" && c.items.length) {
+          // Ergonomics: default the amount field to the latest fed amount.
+          var amtInput = document.querySelector('form[data-entity="feedings"] input[name="amount_ml"]');
+          if (amtInput) amtInput.placeholder = c.items[0].amount_ml;
+        }
         renderWeek(key);
       } catch (err) {
         if (err.message === "Unauthorized") return;
@@ -1107,8 +1392,7 @@
       var c = charts[key];
       var el = document.getElementById(c.elId);
       var isCurrent = c.weekStart.getTime() === startOfWeek().getTime();
-      var weekEnd = new Date(c.weekStart.getTime());
-      weekEnd.setDate(weekEnd.getDate() + 6);
+      var weekEnd = addDaysMadrid(c.weekStart, 6);
       var title = (isCurrent ? "This week" : "Week") + " &mdash; " +
         escapeHtml(fmtDayMonth(c.weekStart) + " – " + fmtDayMonth(weekEnd));
       el.innerHTML =
@@ -1124,25 +1408,12 @@
 
     function renderWeekList(key) {
       var c = charts[key];
-      var items = c.items;
-      if (c.selectedDay !== null) {
-        var dayStart = new Date(c.weekStart.getTime());
-        dayStart.setDate(dayStart.getDate() + c.selectedDay);
-        var dayEnd = dayStart.getTime() + DAY_MS;
-        items = items.filter(function(it) {
-          var t = new Date(it.ts).getTime();
-          return t >= dayStart.getTime() && t < dayEnd;
-        });
-      } else {
-        // c.items also carries the 2 days before the week (for the day chart);
-        // keep only this week's rows when no single day is selected.
-        var wStart = c.weekStart.getTime();
-        var wEnd = wStart + 7 * DAY_MS;
-        items = items.filter(function(it) {
-          var t = new Date(it.ts).getTime();
-          return t >= wStart && t < wEnd;
-        });
-      }
+      // c.items also carries the 2 days before the week (for the day chart);
+      // keep only this week's rows — or just the selected day's.
+      var items = c.items.filter(function(it) {
+        var idx = dayIndexOf(it.ts, c.weekStart);
+        return c.selectedDay !== null ? idx === c.selectedDay : (idx >= 0 && idx <= 6);
+      });
       renderList(key, items);
     }
 
@@ -1266,9 +1537,7 @@
       // Oldest first: [refIdx-2, refIdx-1, refIdx]
       var days = [];
       for (var k = 2; k >= 0; k--) {
-        var ds = new Date(c.weekStart.getTime());
-        ds.setDate(ds.getDate() + refIdx - k);
-        days.push(ds);
+        days.push(addDaysMadrid(c.weekStart, refIdx - k));
       }
       var refDate = days[days.length - 1];
       var title = WEEK_DAY_LABELS[refIdx] + " " + fmtDayMonth(refDate) + " &mdash; vs 2 days before";
@@ -1277,16 +1546,16 @@
         c.renderDay(c, days);
     }
 
-    // Sum each record's value into 24 hourly buckets of one day, then return the
-    // running total at hours 0..24 (length 25; index 24 is the day total).
-    function dayCumulative(items, dayStartMs, valueFn) {
+    // Sum each record's value into 24 hourly buckets of one Madrid day, then
+    // return the running total at hours 0..24 (length 25; 24 is the day total).
+    function dayCumulative(items, dayStart, valueFn) {
       var buckets = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-      var dayEndMs = dayStartMs + DAY_MS;
+      var wallStart = toWall(dayStart).getTime();
       for (var i = 0; i < items.length; i++) {
-        var ms = new Date(items[i].ts).getTime();
-        if (isNaN(ms) || ms < dayStartMs || ms >= dayEndMs) continue;
-        var h = Math.floor((ms - dayStartMs) / 3600000);
-        if (h < 0) h = 0; else if (h > 23) h = 23;
+        var d = new Date(items[i].ts);
+        if (isNaN(d.getTime())) continue;
+        var h = Math.floor((toWall(d).getTime() - wallStart) / 3600000);
+        if (h < 0 || h > 23) continue;
         buckets[h] += valueFn(items[i]);
       }
       var cum = [0], run = 0;
@@ -1297,7 +1566,7 @@
     // Shared SVG builder for both day-comparison charts. days is oldest-first.
     function renderDayComparison(c, days, valueFn, fmtTotal, ariaLabel) {
       var cls = ["d2", "d1", "d0"]; // matches oldest-first days; d0 = selected day
-      var series = days.map(function(ds) { return dayCumulative(c.items, ds.getTime(), valueFn); });
+      var series = days.map(function(ds) { return dayCumulative(c.items, ds, valueFn); });
       var max = 0;
       for (var s = 0; s < series.length; s++) {
         var tot = series[s][24];
@@ -1368,8 +1637,7 @@
       var nav = target.closest(".chart-nav");
       if (nav && !nav.disabled) {
         var delta = parseInt(nav.getAttribute("data-week"), 10);
-        c.weekStart = new Date(c.weekStart.getTime());
-        c.weekStart.setDate(c.weekStart.getDate() + delta * 7);
+        c.weekStart = addDaysMadrid(c.weekStart, delta * 7);
         c.selectedDay = null;
         loadWeek(key);
         return;
@@ -1384,6 +1652,20 @@
 
     bindChart("feedings");
     bindChart("diapers");
+
+    // Day separator label for a Madrid date string ("YYYY-MM-DD").
+    function daySepLabel(ds) {
+      var todayS = madridDateStr(new Date());
+      var yw = toWall(new Date());
+      yw.setUTCDate(yw.getUTCDate() - 1);
+      var ddmm = ds.slice(8, 10) + "/" + ds.slice(5, 7);
+      if (ds === todayS) return "Today · " + ddmm;
+      if (ds === yw.toISOString().slice(0, 10)) return "Yesterday · " + ddmm;
+      var dow = WEEK_DAY_LABELS[(new Date(ds + "T00:00:00Z").getUTCDay() + 6) % 7];
+      var label = dow + " " + ddmm;
+      if (ds.slice(0, 4) !== todayS.slice(0, 4)) label += "/" + ds.slice(0, 4);
+      return label;
+    }
 
     function renderList(entity, items) {
       var cfg = entities[entity];
@@ -1402,9 +1684,17 @@
       head += '<th class="actions-col"></th>';
 
       var body = "";
+      var prevDay = null;
       for (var j = 0; j < items.length; j++) {
         var item = items[j];
         byId[item.id] = item;
+        var dts = new Date(item.ts);
+        var dayKey = isNaN(dts.getTime()) ? null : madridDateStr(dts);
+        if (dayKey && dayKey !== prevDay) {
+          prevDay = dayKey;
+          body += '<tr class="day-sep"><td colspan="' + (cfg.columns.length + 1) + '">' +
+            escapeHtml(daySepLabel(dayKey)) + '</td></tr>';
+        }
         var row = "";
         for (var k = 0; k < cfg.columns.length; k++) {
           var col = cfg.columns[k];
@@ -1428,9 +1718,7 @@
     // the "ago" strings fresh without refetching.
     async function loadDashboard() {
       try {
-        dashboardData = await fetchJson(
-          "/api/dashboard?since=" + encodeURIComponent(startOfDay().toISOString())
-        );
+        dashboardData = await fetchJson("/api/dashboard");
         renderDashboard();
       } catch (err) {
         if (err.message !== "Unauthorized") toast("Error loading dashboard: " + err.message, true);
@@ -1463,14 +1751,75 @@
       var recent = d.recent_feedings || [];
       feedingShortcuts = computeShortcuts(recent);
       renderTodayTotals(d.today_feedings || [], d.today_diapers || []);
+      renderTargets(d.indications || []);
       renderLastFeeding(recent[0] || null, gapTargetMinutes(d.indications || []));
       renderLastDiaper(d.last_diaper);
       var routines = d.last_routines || [];
       renderRoutineCard({ cardId: "card-vitamin-d", title: "Vitamin D", name: "Vitamin D", todayOnly: true, empty: "Not given today yet" }, findRoutine(routines, "vitamin d"));
       renderRoutineCard({ cardId: "card-last-bath", title: "Last bath", name: "Bath", empty: "No baths yet" }, findRoutine(routines, "bath"));
       renderRoutineCard({ cardId: "card-last-tummy", title: "Last tummy time", name: "Tummy", empty: "No tummy time yet" }, findRoutine(routines, "tummy"));
-      renderLastMeasurement("card-last-weight", "Last weight", d.last_weight, "weight_g", "g");
-      renderLastMeasurement("card-last-height", "Last height", d.last_height, "height_cm", "cm");
+      renderLastMeasurement("card-last-weight", "Last weight", d.recent_weights || [], "weight_g", "g");
+      renderLastMeasurement("card-last-height", "Last height", d.recent_heights || [], "height_cm", "cm");
+      renderTimeline(d);
+      if (recent[0]) {
+        var amtInput = document.querySelector('form[data-entity="feedings"] input[name="amount_ml"]');
+        if (amtInput) amtInput.placeholder = recent[0].amount_ml;
+      }
+    }
+
+    // One row per active indication with live progress from the server
+    // (computed over each indication's own Madrid-day window).
+    function renderTargets(indications) {
+      var el = document.getElementById("card-targets");
+      if (!indications.length) { el.hidden = true; return; }
+      el.hidden = false;
+      var rows = "";
+      for (var i = 0; i < indications.length; i++) {
+        var ind = indications[i];
+        var unitS = ind.unit ? " " + ind.unit : "";
+        var value = ind.comparison === ">="
+          ? ind.actual + "/" + ind.target + unitS
+          : ind.actual + "/" + ind.target + unitS + " max";
+        if (ind.period_days > 1) value += " · " + ind.period_days + "d";
+        var over = !ind.met && ind.comparison === "<=";
+        var cls = (ind.met ? " met" : "") + (over ? " over" : "");
+        var state = ind.met ? "&#10003;" : over ? "&#9888;" : "&#9675;";
+        rows += '<div class="target-row' + cls + '">' +
+          '<span class="target-state">' + state + '</span>' +
+          '<span class="target-label">' + escapeHtml(ind.label) + '</span>' +
+          '<span class="target-value">' + escapeHtml(value) + '</span>' +
+        '</div>';
+      }
+      el.innerHTML = '<div class="card-title">Today&#39;s targets</div>' + rows;
+    }
+
+    // Merged chronological diary of everything recorded today, newest first.
+    function renderTimeline(d) {
+      var el = document.getElementById("today-timeline");
+      var events = [];
+      var i;
+      var tf = d.today_feedings || [];
+      for (i = 0; i < tf.length; i++) events.push({ ts: tf[i].ts, type: "feed", kind: "Feeding", text: tf[i].amount_ml + " ml" });
+      var td = d.today_diapers || [];
+      for (i = 0; i < td.length; i++) events.push({ ts: td[i].ts, type: "diaper", kind: "Diaper", text: fmtKind(td[i].kind) });
+      var tr = d.today_routines || [];
+      for (i = 0; i < tr.length; i++) events.push({ ts: tr[i].ts, type: "routine", kind: "Routine", text: tr[i].name });
+      var tn = d.today_notes || [];
+      for (i = 0; i < tn.length; i++) events.push({ ts: tn[i].ts, type: "note", kind: "Note", text: tn[i].text });
+      if (!events.length) { el.hidden = true; return; }
+      events.sort(function(a, b) { return a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0; });
+      var rows = "";
+      for (i = 0; i < events.length; i++) {
+        var ev = events[i];
+        rows += '<div class="tl-row">' +
+          '<span class="tl-time">' + escapeHtml(formatTimeOfDay(new Date(ev.ts))) + '</span>' +
+          '<i class="tl-dot ' + ev.type + '"></i>' +
+          '<span class="tl-text">' + escapeHtml(ev.text) + '</span>' +
+          '<span class="tl-kind">' + escapeHtml(ev.kind) + '</span>' +
+        '</div>';
+      }
+      el.hidden = false;
+      el.innerHTML = '<div class="card-title daychart-title">Today&#39;s diary</div>' + rows;
     }
 
     // One renderer for the routine dashboard cards (Vitamin D / Bath / Tummy).
@@ -1597,16 +1946,27 @@
       el.innerHTML = head + '<div class="totals-row">' + rows + '</div>';
     }
 
-    function renderLastMeasurement(cardId, title, item, valueKey, unit) {
+    function renderLastMeasurement(cardId, title, items, valueKey, unit) {
       var el = document.getElementById(cardId);
       var head = '<div class="card-title">' + escapeHtml(title) + '</div>';
+      var item = items[0];
       if (!item) {
         el.innerHTML = head + '<div class="card-empty">No measurements</div>';
         return;
       }
+      var deltaHtml = "";
+      var prev = items[1];
+      if (prev) {
+        var diff = item[valueKey] - prev[valueKey];
+        var days = Math.max(1, Math.round((new Date(item.ts) - new Date(prev.ts)) / DAY_MS));
+        deltaHtml = '<div class="card-sub">' +
+          escapeHtml((diff > 0 ? "+" : "") + diff + " " + unit + " in " + days + (days === 1 ? " day" : " days")) +
+          '</div>';
+      }
       el.innerHTML = head +
         '<div class="card-main">' + escapeHtml(item[valueKey] + " " + unit) + '</div>' +
-        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>';
+        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
+        deltaHtml;
     }
 
     var MORE_TABS = { weights: true, heights: true, notes: true };
@@ -1674,21 +2034,13 @@
       return days + (days === 1 ? " day" : " days");
     }
 
-    function formatTimeOfDay(d) {
-      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-    }
-
     function formatWhenAbs(d) {
-      var now = new Date();
-      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
-        return formatTimeOfDay(d);
-      }
-      var yest = new Date(now);
-      yest.setDate(yest.getDate() - 1);
-      if (d.getFullYear() === yest.getFullYear() && d.getMonth() === yest.getMonth() && d.getDate() === yest.getDate()) {
-        return "yesterday " + formatTimeOfDay(d);
-      }
-      return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + formatTimeOfDay(d);
+      var ds = madridDateStr(d);
+      if (ds === madridDateStr(new Date())) return formatTimeOfDay(d);
+      var yw = toWall(new Date());
+      yw.setUTCDate(yw.getUTCDate() - 1);
+      if (ds === yw.toISOString().slice(0, 10)) return "yesterday " + formatTimeOfDay(d);
+      return fmtDayMonth(d) + " " + formatTimeOfDay(d);
     }
 
     function updateWhenDisplay(input) {
@@ -1696,8 +2048,8 @@
       var display = label ? label.querySelector("[data-when-display]") : null;
       if (!display) return;
       if (!input.value) { display.textContent = "Now"; return; }
-      var d = new Date(input.value);
-      if (isNaN(d.getTime())) { display.textContent = ""; return; }
+      var d = parseWallTime(input.value);
+      if (!d) { display.textContent = ""; return; }
       var diff = d.getTime() - Date.now();
       if (Math.abs(diff) < 30 * 1000) { display.textContent = "Now"; return; }
       var abs = formatWhenAbs(d);
@@ -1706,13 +2058,13 @@
     }
 
     function stepWhen(input, deltaMin) {
-      var base = input.value ? new Date(input.value) : new Date();
-      if (isNaN(base.getTime())) base = new Date();
+      var base = input.value ? parseWallTime(input.value) : new Date();
+      if (!base || isNaN(base.getTime())) base = new Date();
       var next = new Date(base.getTime() + deltaMin * 60 * 1000);
       if (Math.abs(next.getTime() - Date.now()) < 30 * 1000) {
         input.value = "";
       } else {
-        input.value = toLocalDatetimeString(next);
+        input.value = toWallInputString(next);
       }
       updateWhenDisplay(input);
     }
@@ -1754,6 +2106,19 @@
       if (document.visibilityState !== "visible") return;
       if (currentTab === "today") loadDashboard();
       else if (entities[currentTab]) loadList(currentTab);
+    });
+
+    // --- Amount steppers (−10/+10 next to the feeding amount field) ---
+    document.addEventListener("click", function(e) {
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains("amount-step")) return;
+      e.preventDefault();
+      var input = t.parentElement.querySelector("input");
+      if (!input) return;
+      var cur = parseFloat(input.value);
+      if (!isFinite(cur)) cur = parseFloat(input.placeholder) || 0;
+      var next = cur + parseInt(t.getAttribute("data-step-amt"), 10);
+      input.value = next > 0 ? next : "";
     });
 
     // --- Choice button groups (segmented selectors backed by a hidden input) ---
@@ -1812,7 +2177,7 @@
       }
       var when = form.querySelector('input[name="when"]');
       if (when) {
-        when.value = toLocalDatetimeString(new Date(item.ts));
+        when.value = toWallInputString(new Date(item.ts));
         updateWhenDisplay(when);
       }
       form.querySelector("button[type=submit]").textContent = "Update";
@@ -1876,8 +2241,8 @@
           var s = String(v).trim();
           if (!s) return;
           if (k === "when") {
-            var d = new Date(s);
-            if (!isNaN(d.getTime())) body[k] = d.toISOString();
+            var d = parseWallTime(s);
+            if (d) body[k] = d.toISOString();
           } else if (NUMERIC_FIELDS[k]) {
             var n = parseFloat(s);
             if (!isNaN(n)) body[k] = n;
@@ -1987,6 +2352,14 @@
         t.disabled = false;
       }
     });
+
+    // Profile (name, sex, birth date): header identity + WHO chart bands.
+    fetchJson("/api/profile").then(function(p) {
+      profileData = p;
+      renderBrand();
+      // Growth charts may have rendered before the profile arrived.
+      if (MEASURE_CHARTS[currentTab]) loadList(currentTab);
+    }).catch(function() {});
 
     // Restore the tab from the URL hash so a refresh keeps the selected tab.
     function tabFromHash() {

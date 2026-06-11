@@ -66,6 +66,23 @@ export const WEB_MANIFEST = JSON.stringify({
       purpose: "maskable",
     },
   ],
+  shortcuts: [
+    {
+      name: "Log feeding",
+      url: "/app#feedings",
+      icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    },
+    {
+      name: "Log diaper",
+      url: "/app#diapers",
+      icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    },
+    {
+      name: "Log routine",
+      url: "/app#routines",
+      icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    },
+  ],
 });
 
 // Minimal pass-through service worker. Its presence (plus a fetch listener)

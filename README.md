@@ -53,19 +53,29 @@ the Alexa skill's daily summary.
 
 A browser-based view is served at `/app`. It lets you register, edit
 (tap a list row), and remove feedings, diapers, routines, notes, weights,
-and heights without an MCP client. The Today tab shows last-event cards,
-daily totals, and one-tap quick-record buttons (with an Undo toast); the
-feeding quick-add amounts adapt to recent entries, Vitamin D flips to a
-"done today" state once given, and an active `feeding_gap_max_min`
-indication tints the Last feeding card when the gap is exceeded. The
-Feeding and Diaper tabs add weekly charts with day-comparison overlays;
-Weight and Height get a growth trend chart. The Today data comes from a
-single aggregated `/api/dashboard` request, refetched whenever the app
-returns to the foreground. The UI follows the system light/dark theme.
-The app is installable as a PWA (web manifest, raster icons for
-iOS/Android, minimal pass-through service worker). Log in once with
-the `SHARED_SECRET` password and the session is remembered via an
-HttpOnly cookie. Visiting `/` redirects to `/app`.
+and heights without an MCP client. **All times are Europe/Madrid** (the
+household timezone, matching the MCP stats and the Alexa skill), never
+the device timezone. The header shows the baby's name and age from the
+profile. The Today tab shows last-event cards, daily totals, a "Today's
+targets" card with live progress on every active indication, a merged
+chronological diary of the day, and one-tap quick-record buttons (with
+an Undo toast); the feeding quick-add amounts adapt to recent entries,
+Vitamin D flips to a "done today" state once given, and an active
+`feeding_gap_max_min` indication tints the Last feeding card when the
+gap is exceeded. The Feeding and Diaper tabs add weekly charts with
+day-comparison overlays, day-separator list grouping, and −10/+10
+amount steppers; Weight and Height get growth trend charts with WHO
+Child Growth Standards percentile bands (P3-P97, when the profile has
+sex + birth date) plus the current percentile estimate, and the
+dashboard cards show deltas vs the previous measurement. The Today data
+comes from a single aggregated `/api/dashboard` request (which also
+evaluates indications server-side over Madrid-day windows), refetched
+whenever the app returns to the foreground. The UI follows the system
+light/dark theme. The app is installable as a PWA (web manifest with
+home-screen shortcuts, raster icons for iOS/Android, minimal
+pass-through service worker). Log in once with the `SHARED_SECRET`
+password and the session is remembered via an HttpOnly cookie.
+Visiting `/` redirects to `/app`.
 
 ## Alexa skill
 
