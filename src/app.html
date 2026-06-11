@@ -544,16 +544,6 @@
       align-self: flex-end;
     }
     .cancel-edit:hover { background: var(--hover); color: var(--text); }
-    /* Header identity: baby name + age from the profile. */
-    .brand {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      white-space: nowrap;
-    }
-    .brand[hidden] { display: none; }
-    .b-name { font-weight: 700; font-size: 15px; }
-    .b-age { color: var(--muted); font-size: 12px; }
     /* Today's targets: one row per active indication with live progress. */
     .target-row {
       display: flex;
@@ -669,7 +659,6 @@
       }
       #card-targets { grid-column: 1 / -1; }
       tr.day-sep td { padding: 4px 10px; }
-      .brand { flex-basis: 100%; }
       .card { padding: 10px 12px; }
       .card-title { margin-bottom: 4px; font-size: 10px; }
       .card-main { font-size: 16px; }
@@ -690,10 +679,6 @@
 </head>
 <body>
   <header>
-    <div class="brand" id="brand" hidden>
-      <span class="b-name" id="brand-name"></span>
-      <span class="b-age" id="brand-age"></span>
-    </div>
     <nav id="nav">
       <button data-tab="today" class="active">Today</button>
       <button data-tab="feedings">Feeding</button>
@@ -918,33 +903,6 @@
     var listItemsById = {};            // entity -> { id: item } for rendered rows
     var feedingShortcuts = [30, 60, 90];
     var profileData = null;            // cached /api/profile payload
-
-    function ageLabel(dobStr) {
-      var birth = new Date(dobStr + "T00:00:00Z");
-      var days = Math.floor((Date.now() - birth.getTime()) / DAY_MS);
-      if (isNaN(days) || days < 0) return "";
-      if (days < 60) {
-        if (days < 7) return days + (days === 1 ? " day" : " days");
-        var w = Math.floor(days / 7), r = days % 7;
-        return w + "w" + (r ? " " + r + "d" : "");
-      }
-      var now = new Date();
-      var years = now.getUTCFullYear() - birth.getUTCFullYear();
-      var months = now.getUTCMonth() - birth.getUTCMonth();
-      if (now.getUTCDate() < birth.getUTCDate()) months--;
-      if (months < 0) { years--; months += 12; }
-      if (years === 0) return months + (months === 1 ? " month" : " months");
-      return years + "y " + months + "m";
-    }
-
-    function renderBrand() {
-      var p = profileData;
-      if (!p || (!p.name && !p.date_of_birth)) return;
-      document.getElementById("brand-name").textContent = p.name || "Baby";
-      document.getElementById("brand-age").textContent =
-        p.date_of_birth ? ageLabel(p.date_of_birth) : "";
-      document.getElementById("brand").hidden = false;
-    }
 
     function fmtText(v) { return v == null ? "" : String(v); }
 
@@ -2293,10 +2251,9 @@
       }
     });
 
-    // Profile (name, sex, birth date): header identity + WHO chart bands.
+    // Profile (sex, birth date) drives the WHO percentile chart bands.
     fetchJson("/api/profile").then(function(p) {
       profileData = p;
-      renderBrand();
       // Growth charts may have rendered before the profile arrived.
       if (MEASURE_CHARTS[currentTab]) loadList(currentTab);
     }).catch(function() {});
