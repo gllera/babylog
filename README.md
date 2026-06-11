@@ -55,8 +55,7 @@ A browser-based view is served at `/app`. It lets you register, edit
 (tap a list row), and remove feedings, diapers, routines, notes, weights,
 and heights without an MCP client. **All times are Europe/Madrid** (the
 household timezone, matching the MCP stats and the Alexa skill), never
-the device timezone. The header shows the baby's name and age from the
-profile. The Today tab shows last-event cards, a "Today's targets"
+the device timezone. The Today tab shows last-event cards, a "Today's targets"
 card with live progress on every active indication, a merged
 chronological diary of the day, and one-tap quick-record buttons (with
 an Undo toast); the feeding quick-add amounts adapt to recent entries,
