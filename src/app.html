@@ -433,24 +433,6 @@
     }
     .quick-btn:hover { background: var(--primary-hover); }
     .quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .totals-row {
-      display: flex;
-      gap: 18px;
-      flex-wrap: wrap;
-      margin-top: 4px;
-    }
-    .totals-item .totals-num {
-      font-size: 20px;
-      font-weight: 700;
-      line-height: 1.1;
-    }
-    .totals-item .totals-label {
-      font-size: 11px;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-top: 2px;
-    }
     .when-quick {
       display: flex;
       gap: 4px;
@@ -685,7 +667,7 @@
         grid-template-columns: repeat(2, 1fr);
         gap: 8px;
       }
-      #card-today-totals, #card-targets { grid-column: 1 / -1; }
+      #card-targets { grid-column: 1 / -1; }
       tr.day-sep td { padding: 4px 10px; }
       .brand { flex-basis: 100%; }
       .card { padding: 10px 12px; }
@@ -695,9 +677,6 @@
       .card-empty { font-size: 13px; }
       .quick-row { gap: 6px; margin-top: 8px; }
       .quick-btn { padding: 7px 10px; font-size: 13px; min-height: 32px; }
-      .totals-row { gap: 12px; }
-      .totals-item .totals-num { font-size: 17px; }
-      .totals-item .totals-label { font-size: 10px; }
 
       form.entry-form { padding: 12px; gap: 8px; margin-bottom: 14px; }
       form.entry-form label { font-size: 11px; flex: 1 1 100%; }
@@ -734,10 +713,6 @@
   <main>
     <section id="tab-today" class="tab active">
       <div class="dashboard-grid">
-        <div class="card" id="card-today-totals">
-          <div class="card-title">Today</div>
-          <div class="card-empty">Loading&hellip;</div>
-        </div>
         <div class="card" id="card-targets" hidden>
           <div class="card-title">Today's targets</div>
         </div>
@@ -790,12 +765,12 @@
         <button type="submit">Add</button>
         <button type="button" class="cancel-edit" hidden>Cancel</button>
       </form>
-      <div class="week-chart" id="feedings-chart">
-        <div class="card-title">This week &mdash; ml per day</div>
-        <div class="card-empty">Loading&hellip;</div>
-      </div>
       <div class="week-chart" id="feedings-daychart">
         <div class="card-title">Selected day &mdash; vs 2 days before</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
+      <div class="week-chart" id="feedings-chart">
+        <div class="card-title">This week &mdash; ml per day</div>
         <div class="card-empty">Loading&hellip;</div>
       </div>
       <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
@@ -817,12 +792,12 @@
         <button type="submit">Add</button>
         <button type="button" class="cancel-edit" hidden>Cancel</button>
       </form>
-      <div class="week-chart" id="diapers-chart">
-        <div class="card-title">This week &mdash; diapers per day</div>
-        <div class="card-empty">Loading&hellip;</div>
-      </div>
       <div class="week-chart" id="diapers-daychart">
         <div class="card-title">Selected day &mdash; vs 2 days before</div>
+        <div class="card-empty">Loading&hellip;</div>
+      </div>
+      <div class="week-chart" id="diapers-chart">
+        <div class="card-title">This week &mdash; diapers per day</div>
         <div class="card-empty">Loading&hellip;</div>
       </div>
       <div class="list" id="list-diapers"><div class="list-loading">Loading...</div></div>
@@ -1750,7 +1725,6 @@
       var d = dashboardData;
       var recent = d.recent_feedings || [];
       feedingShortcuts = computeShortcuts(recent);
-      renderTodayTotals(d.today_feedings || [], d.today_diapers || []);
       renderTargets(d.indications || []);
       renderLastFeeding(recent[0] || null, gapTargetMinutes(d.indications || []));
       renderLastDiaper(d.last_diaper);
@@ -1910,40 +1884,6 @@
         '<button class="quick-btn" data-quick="diaper" data-kind="both">+ Both</button>' +
       '</div>';
       el.innerHTML = head + body + actions;
-    }
-
-    function renderTodayTotals(todayFeedings, todayDiapers) {
-      var el = document.getElementById("card-today-totals");
-      var head = '<div class="card-title">Today</div>';
-      if (todayFeedings.length === 0 && todayDiapers.length === 0) {
-        el.innerHTML = head + '<div class="card-empty">Nothing recorded today</div>';
-        return;
-      }
-      var totalMl = 0;
-      for (var i = 0; i < todayFeedings.length; i++) {
-        var n = Number(todayFeedings[i].amount_ml);
-        if (isFinite(n)) totalMl += n;
-      }
-      var pee = 0, poop = 0, both = 0;
-      for (var j = 0; j < todayDiapers.length; j++) {
-        var k = todayDiapers[j].kind;
-        if (k === "pee") pee++;
-        else if (k === "poop") poop++;
-        else if (k === "both") both++;
-      }
-      var mlStr = totalMl % 1 === 0 ? totalMl + " ml" : totalMl.toFixed(1) + " ml";
-      var items = [
-        { num: todayFeedings.length, label: "Feedings" },
-        { num: mlStr, label: "Total" },
-        { num: pee, label: "Pee" },
-        { num: poop, label: "Poop" }
-      ];
-      if (both > 0) items.push({ num: both, label: "Both" });
-      var rows = "";
-      for (var x = 0; x < items.length; x++) {
-        rows += '<div class="totals-item"><div class="totals-num">' + escapeHtml(String(items[x].num)) + '</div><div class="totals-label">' + escapeHtml(items[x].label) + '</div></div>';
-      }
-      el.innerHTML = head + '<div class="totals-row">' + rows + '</div>';
     }
 
     function renderLastMeasurement(cardId, title, items, valueKey, unit) {
