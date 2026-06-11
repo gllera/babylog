@@ -426,6 +426,34 @@ const WHEN_BLOCK = `          <input type="hidden" name="when" value="">
 
 const APP_HTML = appHtmlRaw.split("<!-- WHEN_BLOCK -->").join(WHEN_BLOCK);
 
+// ETag of the app shell, computed once per isolate (the HTML is a build-time
+// constant). `no-cache` + ETag lets repeat opens revalidate with a 304 instead
+// of re-downloading the whole shell, while still always hitting the server —
+// so a stale session keeps redirecting to login and deploys show up at once.
+let appEtagCache: string | null = null;
+
+async function appEtag(): Promise<string> {
+  if (appEtagCache) return appEtagCache;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(APP_HTML)
+  );
+  const hex = [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  appEtagCache = `"${hex.slice(0, 32)}"`;
+  return appEtagCache;
+}
+
+// Cloudflare's edge may weaken the ETag (W/"…") when it compresses the body,
+// so compare ignoring the weak prefix.
+function etagMatches(header: string | null, etag: string): boolean {
+  if (!header) return false;
+  return header
+    .split(",")
+    .some((t) => t.trim().replace(/^W\//, "") === etag);
+}
+
 export async function handleAppHome(
   request: Request,
   env: Env
@@ -436,10 +464,14 @@ export async function handleAppHome(
       headers: { Location: "/app/login?next=/app" },
     });
   }
-  return new Response(APP_HTML, {
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-  });
+  const etag = await appEtag();
+  const headers = {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "private, no-cache",
+    ETag: etag,
+  };
+  if (etagMatches(request.headers.get("If-None-Match"), etag)) {
+    return new Response(null, { status: 304, headers });
+  }
+  return new Response(APP_HTML, { headers });
 }
