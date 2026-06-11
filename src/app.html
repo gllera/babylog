@@ -40,8 +40,8 @@
       --col-today: #f2f7ff;
       --col-selected: #eaf2ff;
       --poop: #b5651d;
-      --day1: #f5a623;
-      --day2: #9aa0a6;
+      --routine: #f5a623;
+      --daypast: #9aa0a6;
       --warn: #d97700;
       --ok: #1a7f37;
     }
@@ -71,7 +71,7 @@
         --col-today: #1b2735;
         --col-selected: #20304a;
         --poop: #d08344;
-        --day2: #7f868c;
+        --daypast: #7f868c;
         --warn: #ffa040;
         --ok: #4ace64;
       }
@@ -373,7 +373,8 @@
     .cl-daylabel.selected { fill: var(--primary); font-weight: 700; }
     .chart-legend {
       display: flex;
-      gap: 16px;
+      flex-wrap: wrap;
+      gap: 6px 16px;
       justify-content: center;
       margin-bottom: 10px;
       font-size: 12px;
@@ -399,8 +400,8 @@
       pointer-events: none;
     }
     .dl-line.d0 { stroke: var(--primary); stroke-width: 2.5; }
-    .dl-line.d1 { stroke: var(--day1); }
-    .dl-line.d2 { stroke: var(--day2); stroke-dasharray: 4 3; }
+    .dl-line.d1 { stroke: var(--daypast); }
+    .dl-line.d2 { stroke: var(--daypast); stroke-width: 2.5; stroke-dasharray: 0.5 7.5; }
     .dl-dot {
       stroke: var(--card);
       stroke-width: 1.5;
@@ -408,11 +409,16 @@
       pointer-events: none;
     }
     .dl-dot.d0 { fill: var(--primary); }
-    .dl-dot.d1 { fill: var(--day1); }
-    .dl-dot.d2 { fill: var(--day2); }
-    .chart-legend i.d0 { background: var(--primary); }
-    .chart-legend i.d1 { background: var(--day1); }
-    .chart-legend i.d2 { background: var(--day2); }
+    .dl-dot.d1, .dl-dot.d2 { fill: var(--daypast); }
+    /* Legend swatches mirror the line styles: solid vs dotted segments. */
+    .chart-legend i.d0, .chart-legend i.d1, .chart-legend i.d2 {
+      width: 16px;
+      height: 0;
+      border-radius: 0;
+      border-top: 3px solid var(--primary);
+    }
+    .chart-legend i.d1 { border-color: var(--daypast); }
+    .chart-legend i.d2 { border-color: var(--daypast); border-top-style: dotted; }
     .quick-row {
       display: flex;
       gap: 8px;
@@ -583,8 +589,8 @@
     }
     .tl-dot.feed { background: var(--primary); }
     .tl-dot.diaper { background: var(--poop); }
-    .tl-dot.routine { background: var(--day1); }
-    .tl-dot.note { background: var(--day2); }
+    .tl-dot.routine { background: var(--routine); }
+    .tl-dot.note { background: var(--daypast); }
     .tl-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .tl-kind { color: var(--muted); font-size: 12px; flex: none; }
     /* Amount field with -10/+10 steppers. */
@@ -1012,6 +1018,15 @@
       return pad2(w.getUTCDate()) + "/" + pad2(w.getUTCMonth() + 1);
     }
 
+    // "Today" / "Yesterday" / "Tue 09/06" — relative label for a Madrid day start.
+    function relDayLabel(d) {
+      var diff = Math.round((startOfDay().getTime() - d.getTime()) / DAY_MS);
+      if (diff === 0) return "Today";
+      if (diff === 1) return "Yesterday";
+      var w = toWall(d);
+      return WEEK_DAY_LABELS[(w.getUTCDay() + 6) % 7] + " " + fmtDayMonth(d);
+    }
+
     function fmtFullDate(d) {
       return fmtDayMonth(d) + "/" + toWall(d).getUTCFullYear();
     }
@@ -1024,6 +1039,20 @@
       if (diff < 45 * 1000) return "now";
       if (diff >= 30 * DAY_MS) return fmtFullDate(new Date(s));
       return durationLabel(diff) + " ago";
+    }
+
+    // Whole Madrid calendar days ago: "Today", "1 day ago", "12 days ago".
+    // Yesterday afternoon reads "1 day ago" on today's morning, even if
+    // fewer than 24 hours have passed.
+    function daysAgoLabel(s) {
+      var d = new Date(s);
+      if (isNaN(d.getTime())) return String(s);
+      var w = toWall(d); w.setUTCHours(0, 0, 0, 0);
+      var t = toWall(new Date()); t.setUTCHours(0, 0, 0, 0);
+      var days = Math.round((t.getTime() - w.getTime()) / DAY_MS);
+      if (days <= 0) return "Today";
+      if (days >= 30) return fmtFullDate(d);
+      return days + (days === 1 ? " day ago" : " days ago");
     }
 
     function absoluteTs(s) {
@@ -1473,7 +1502,9 @@
         days.push(addDaysMadrid(c.weekStart, refIdx - k));
       }
       var refDate = days[days.length - 1];
-      var title = WEEK_DAY_LABELS[refIdx] + " " + fmtDayMonth(refDate) + " &mdash; vs 2 days before";
+      var rel = relDayLabel(refDate);
+      if (rel === "Today" || rel === "Yesterday") rel += " · " + fmtDayMonth(refDate);
+      var title = rel + " &mdash; vs 2 days before";
       el.innerHTML =
         '<div class="card-title daychart-title">' + title + '</div>' +
         c.renderDay(c, days);
@@ -1531,7 +1562,7 @@
       '</svg>';
       var legend = '<div class="chart-legend">';
       for (var j = series.length - 1; j >= 0; j--) { // newest first in the legend
-        legend += '<span><i class="' + cls[j] + '"></i>' + escapeHtml(fmtDayMonth(days[j])) + ': ' + escapeHtml(fmtTotal(series[j][24])) + '</span>';
+        legend += '<span><i class="' + cls[j] + '"></i>' + escapeHtml(relDayLabel(days[j])) + ': ' + escapeHtml(fmtTotal(series[j][24])) + '</span>';
       }
       legend += '</div>';
       return legend + svg;
@@ -1688,8 +1719,8 @@
       renderLastDiaper(d.last_diaper);
       var routines = d.last_routines || [];
       renderRoutineCard({ cardId: "card-vitamin-d", title: "Vitamin D", name: "Vitamin D", todayOnly: true, empty: "Not given today yet" }, findRoutine(routines, "vitamin d"));
-      renderRoutineCard({ cardId: "card-last-bath", title: "Last bath", name: "Bath", empty: "No baths yet" }, findRoutine(routines, "bath"));
-      renderRoutineCard({ cardId: "card-last-tummy", title: "Last tummy time", name: "Tummy", empty: "No tummy time yet" }, findRoutine(routines, "tummy"));
+      renderRoutineCard({ cardId: "card-last-bath", title: "Last bath", name: "Bath", empty: "No baths yet", wholeDays: true }, findRoutine(routines, "bath"));
+      renderRoutineCard({ cardId: "card-last-tummy", title: "Last tummy time", name: "Tummy", empty: "No tummy time yet", wholeDays: true }, findRoutine(routines, "tummy"));
       renderLastMeasurement("card-last-weight", "Last weight", d.recent_weights || [], "weight_g", "g");
       renderLastMeasurement("card-last-height", "Last height", d.recent_heights || [], "height_cm", "cm");
       renderTimeline(d);
@@ -1764,7 +1795,7 @@
       var doneToday = item && new Date(item.ts).getTime() >= startOfDay().getTime();
       var show = item && (!opts.todayOnly || doneToday);
       var body = show
-        ? '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
+        ? '<div class="card-main">' + escapeHtml(opts.wholeDays ? daysAgoLabel(item.ts) : timeAgo(item.ts)) + '</div>' +
           '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
         : '<div class="card-empty">' + escapeHtml(opts.empty) + '</div>';
       var actions = opts.todayOnly && doneToday
