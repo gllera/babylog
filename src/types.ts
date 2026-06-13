@@ -1,11 +1,10 @@
-import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-
 export type Env = {
   DB: D1Database;
   MCP_OBJECT: DurableObjectNamespace;
-  OAUTH_KV: KVNamespace;
-  OAUTH_PROVIDER: OAuthHelpers;
-  SHARED_SECRET?: string;
+  // Cloudflare Access (Managed OAuth) gates /mcp; the Worker verifies the
+  // forwarded Access JWT against these.
+  TEAM_DOMAIN: string;
+  POLICY_AUD: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
 };

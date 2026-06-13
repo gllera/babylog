@@ -1114,8 +1114,11 @@
       }, undoFn ? 6000 : 2400);
     }
 
+    // A 401 means the Cloudflare Access session expired (the app itself has no
+    // login). A full reload triggers a top-level navigation, which Access
+    // intercepts to re-run its login flow and then returns us here.
     function gotoLogin() {
-      location.href = "/app/login?next=" + encodeURIComponent(location.pathname);
+      location.reload();
     }
 
     async function fetchJson(url) {

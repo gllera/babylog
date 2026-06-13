@@ -17,9 +17,9 @@
     "inspect": "npx @modelcontextprotocol/inspector@latest"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.6.0",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "agents": "^0.12.4",
+    "jose": "^6.2.3",
     "zod": "^4.0.0"
   },
   "devDependencies": {

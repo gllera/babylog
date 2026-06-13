@@ -1,37 +1,45 @@
-import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "./types";
 import { BabyFeedingMCP } from "./tools";
 import { handleAlexa } from "./alexa";
 import { handleApi } from "./api";
 import { PNG_ICONS } from "./icons";
+import { verifyAccessJwt } from "./access";
 import {
   ICON_SVG,
   WEB_MANIFEST,
   SERVICE_WORKER_JS,
-  handleAuthorizeGet,
-  handleAuthorizePost,
   handleAppHome,
-  handleAppLoginGet,
-  handleAppLoginPost,
-  handleAppLogout,
 } from "./web";
 
 // The Durable Object class must be exported from the Worker entry module.
 export { BabyFeedingMCP };
 
-const defaultHandler = {
+// The MCP transport handler. Authorization is handled upstream by Cloudflare
+// Access (Managed OAuth) + the Access-JWT check below, not by the Worker.
+const MCP_HANDLER = BabyFeedingMCP.serve("/mcp", { binding: "MCP_OBJECT" });
+
+export default {
   async fetch(
     request: Request,
     env: Env,
-    _ctx: ExecutionContext
+    ctx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/authorize" && request.method === "GET") {
-      return handleAuthorizeGet(request, env);
+
+    // /mcp is fronted by a Cloudflare Access app with Managed OAuth, which runs
+    // the entire OAuth 2.1 flow for the MCP client (discovery, dynamic client
+    // registration, login). Access only forwards a request once it passes the
+    // policy, stamping `Cf-Access-Jwt-Assertion`. We verify that JWT so the
+    // endpoint can't be reached directly via the *.workers.dev origin, which
+    // Access does not front.
+    if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+      const token = request.headers.get("Cf-Access-Jwt-Assertion");
+      if (!token || !(await verifyAccessJwt(token, env))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      return MCP_HANDLER.fetch(request, env, ctx);
     }
-    if (url.pathname === "/authorize" && request.method === "POST") {
-      return handleAuthorizePost(request, env);
-    }
+
     if (url.pathname === "/icon.svg") {
       return new Response(ICON_SVG, {
         headers: {
@@ -67,16 +75,7 @@ const defaultHandler = {
       });
     }
     if (url.pathname === "/app" || url.pathname === "/app/") {
-      return handleAppHome(request, env);
-    }
-    if (url.pathname === "/app/login" && request.method === "GET") {
-      return handleAppLoginGet(request);
-    }
-    if (url.pathname === "/app/login" && request.method === "POST") {
-      return handleAppLoginPost(request, env);
-    }
-    if (url.pathname === "/app/logout" && request.method === "POST") {
-      return handleAppLogout(request);
+      return handleAppHome(request);
     }
     if (url.pathname.startsWith("/api/")) {
       return handleApi(request, env, url);
@@ -92,15 +91,4 @@ const defaultHandler = {
     }
     return new Response("Not found", { status: 404 });
   },
-};
-
-export default new OAuthProvider({
-  authorizeEndpoint: "/authorize",
-  tokenEndpoint: "/oauth/token",
-  clientRegistrationEndpoint: "/oauth/register",
-  apiRoute: "/mcp",
-  apiHandler: BabyFeedingMCP.serve("/mcp", { binding: "MCP_OBJECT" }),
-  // The OAuthProvider types insist on `unknown` env here; the cast is safe
-  // because OAuthProvider injects `OAUTH_PROVIDER` at runtime.
-  defaultHandler: defaultHandler as unknown as ExportedHandler,
-});
+} satisfies ExportedHandler<Env>;

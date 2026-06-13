@@ -1,6 +1,7 @@
 // -----------------------------------------------------------------------------
-// JSON API for the web app: /api/<entity>[/<id>]. All routes require a valid
-// session cookie. One generic handler serves every entity; the per-entity
+// JSON API for the web app: /api/<entity>[/<id>]. Auth is handled upstream by
+// Cloudflare Access in front of baby.llera.eu. One generic handler serves
+// every entity; the per-entity
 // differences (table, value columns, create schema, extra list filters) live
 // in the ENTITIES config below.
 // -----------------------------------------------------------------------------
@@ -19,7 +20,6 @@ import {
   indicationUnit,
   type IndicationRow,
 } from "./tools";
-import { isWebAuthorized } from "./web";
 
 function jsonOk(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -348,9 +348,8 @@ export async function handleApi(
   env: Env,
   url: URL
 ): Promise<Response> {
-  if (!(await isWebAuthorized(request, env))) {
-    return jsonError(401, "Unauthorized.");
-  }
+  // Auth is handled upstream by Cloudflare Access in front of baby.llera.eu;
+  // any request reaching here has already passed it.
   // /api/<entity>[/<id>]
   const parts = url.pathname.split("/").filter(Boolean); // ["api", "<entity>", "<id>?"]
   if (parts.length < 2 || parts.length > 3) return jsonError(404, "Not found.");

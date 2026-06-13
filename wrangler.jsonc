@@ -5,6 +5,12 @@
   "compatibility_date": "2025-05-01",
   "compatibility_flags": ["nodejs_compat"],
 
+  // The Worker is reached only via baby.llera.eu, which Cloudflare Access
+  // fronts (the sole auth gate). Keep the *.workers.dev origin disabled — it
+  // is NOT fronted by Access, so leaving it on would expose /app + /api
+  // unauthenticated. Pinned here so a deploy can't silently re-enable it.
+  "workers_dev": false,
+
   // Import .html files as plain strings (the web app shell in src/app.html).
   "rules": [{ "type": "Text", "globs": ["**/*.html"] }],
 
@@ -33,12 +39,13 @@
     }
   ],
 
-  "kv_namespaces": [
-    {
-      "binding": "OAUTH_KV",
-      "id": "5cbacac537cf4d7bb796f35d35a9e79d"
-    }
-  ],
+  // Cloudflare Access (Managed OAuth) fronts /mcp and runs the OAuth flow.
+  // The Worker verifies the Access JWT it forwards: signed by this team and
+  // scoped to the `baby-mcp` Access app's AUD tag. Neither value is secret.
+  "vars": {
+    "TEAM_DOMAIN": "https://llera.cloudflareaccess.com",
+    "POLICY_AUD": "46469599b9997439c39c5a7b85f78c42cab415ab09e6ae87ff39636d632da5d2"
+  },
 
   "observability": {
     "enabled": true
