@@ -1,9 +1,14 @@
-name: CI
+name: CI & Deploy
 
 on:
   push:
     branches: [main]
   pull_request:
+
+# One deploy at a time; don't cancel a deploy mid-flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   check:
@@ -17,3 +22,58 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  deploy-worker:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: dbdb8961e24f100cde9bc1aa2127f014
+
+  # Deploys after the Worker so new intents never go live before their handlers.
+  # Always pushes the model (idempotent — an unchanged model just rebuilds).
+  alexa-model:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: deploy-worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ASK_REFRESH_TOKEN: ${{ secrets.ASK_REFRESH_TOKEN }}
+      ASK_VENDOR_ID: ${{ secrets.ASK_VENDOR_ID }}
+      # ask-cli's env-var profile refuses to activate without AWS creds, even
+      # though SMAPI-only commands never touch AWS. Dummy values satisfy it.
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      SKILL_ID: amzn1.ask.skill.effc5ede-64f1-4aa8-9bab-d9755f70fb2c
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Push interaction model (es-ES)
+        run: >
+          npx ask-cli@2 smapi set-interaction-model
+          -s "$SKILL_ID" -g development -l es-ES
+          --interaction-model "file:alexa-skill/interaction-model.es-ES.json"
+      - name: Wait for model build
+        run: |
+          for i in $(seq 1 30); do
+            build=$(npx ask-cli@2 smapi get-skill-status -s "$SKILL_ID" --resource interactionModel 2>/dev/null \
+              | python3 -c "import json,sys; print(json.load(sys.stdin)['interactionModel']['es-ES']['lastUpdateRequest']['status'])")
+            echo "attempt $i: $build"
+            [ "$build" = "SUCCEEDED" ] && exit 0
+            [ "$build" = "FAILED" ] && exit 1
+            sleep 10
+          done
+          echo "timed out waiting for model build" >&2
+          exit 1

@@ -135,6 +135,12 @@ be that URL + `/alexa`.
    this folder.
 3. **Save Model**, then **Build Model** (a couple of minutes).
 
+> **Note:** this manual import is only needed when creating the skill.
+> After that, every push to `main` deploys the model automatically (the
+> `alexa-model` job in `.github/workflows/ci.yml`, via SMAPI using the
+> `ASK_REFRESH_TOKEN` + `ASK_VENDOR_ID` repo secrets) — right after the
+> Worker deploys, so handlers are always live before new intents.
+
 ### 4. Point the skill at your Worker
 
 1. **Endpoint** → *HTTPS*.
