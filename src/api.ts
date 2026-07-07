@@ -1,13 +1,14 @@
 // -----------------------------------------------------------------------------
-// JSON API for the web app: /api/<entity>[/<id>]. Auth is handled upstream by
-// Cloudflare Access in front of baby.llera.eu. One generic handler serves
-// every entity; the per-entity
-// differences (table, value columns, create schema, extra list filters) live
-// in the ENTITIES config below.
+// JSON API for the web app: /api/<entity>[/<id>]. Cloudflare Access fronts
+// baby.llera.eu; the Worker additionally verifies the Access JWT it stamps
+// and reads its email claim — with tenants, identity is load-bearing, so the
+// Worker can't rely on fronting alone. One generic handler serves every
+// entity; the per-entity differences (table, value columns, create schema,
+// extra list filters) live in the ENTITIES config below.
 // -----------------------------------------------------------------------------
 
 import { z } from "zod";
-import type { Env } from "./types";
+import type { BabyRow, Env } from "./types";
 import {
   buildWindowClauses,
   madridDateOf,
@@ -20,6 +21,13 @@ import {
   indicationUnit,
   type IndicationRow,
 } from "./tools";
+import { getAccessEmail } from "./access";
+import {
+  pickBaby,
+  resolveTenant,
+  notRegisteredMessage,
+  type Tenant,
+} from "./users";
 
 function jsonOk(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -47,6 +55,32 @@ function parseIdParam(raw: string | undefined): number | null {
   const n = parseInt(raw, 10);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
+}
+
+// The web client appends ?baby=<id> once a baby is selected. Reads fall back
+// to the default baby when the ref is stale (e.g. localStorage surviving a DB
+// change) so the app self-heals; writes stay strict and 400.
+function selectBaby(
+  tenant: Tenant,
+  url: URL,
+  strict: boolean
+): { ok: true; baby: BabyRow } | { ok: false; resp: Response } {
+  const ref = url.searchParams.get("baby") ?? undefined;
+  try {
+    return { ok: true, baby: pickBaby(tenant.babies, ref) };
+  } catch (e) {
+    if (!strict && ref !== undefined) {
+      try {
+        return { ok: true, baby: pickBaby(tenant.babies) };
+      } catch {
+        /* no babies at all — fall through to the error */
+      }
+    }
+    return {
+      ok: false,
+      resp: jsonError(400, e instanceof Error ? e.message : String(e)),
+    };
+  }
 }
 
 async function readBody<T extends z.ZodTypeAny>(
@@ -159,11 +193,14 @@ async function handleEntity(
   url: URL,
   idStr: string | undefined,
   request: Request,
-  env: Env
+  env: Env,
+  tenant: Tenant
 ): Promise<Response> {
   const cols = ["id", "ts", ...cfg.fields].join(", ");
 
   if (method === "GET" && !idStr) {
+    const sel = selectBaby(tenant, url, false);
+    if (!sel.ok) return sel.resp;
     const since = url.searchParams.get("since") ?? undefined;
     const until = url.searchParams.get("until") ?? undefined;
     if (
@@ -174,7 +211,9 @@ async function handleEntity(
     }
     const { clauses, params } = buildWindowClauses(since, until);
     cfg.listFilter?.(url, clauses, params);
-    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    clauses.push("baby_id = ?");
+    params.push(sel.baby.id);
+    const where = `WHERE ${clauses.join(" AND ")}`;
     params.push(parseLimit(url.searchParams.get("limit")));
     const { results } = await env.DB.prepare(
       `SELECT ${cols} FROM ${cfg.table} ${where} ORDER BY ts DESC LIMIT ?`
@@ -185,6 +224,8 @@ async function handleEntity(
   }
 
   if (method === "POST" && !idStr) {
+    const sel = selectBaby(tenant, url, true);
+    if (!sel.ok) return sel.resp;
     const parsed = await readBody(request, cfg.createSchema);
     if (!parsed.ok) return jsonError(400, parsed.error);
     const value = parsed.value as Record<string, string | number> & {
@@ -193,9 +234,9 @@ async function handleEntity(
     const ts = normalizeTs(value.when);
     const placeholders = cfg.fields.map(() => "?").join(", ");
     const row = await env.DB.prepare(
-      `INSERT INTO ${cfg.table} (ts, ${cfg.fields.join(", ")}) VALUES (?, ${placeholders}) RETURNING ${cols}`
+      `INSERT INTO ${cfg.table} (ts, baby_id, created_by, ${cfg.fields.join(", ")}) VALUES (?, ?, ?, ${placeholders}) RETURNING ${cols}`
     )
-      .bind(ts, ...cfg.fields.map((f) => value[f]))
+      .bind(ts, sel.baby.id, tenant.email, ...cfg.fields.map((f) => value[f]))
       .first();
     return jsonOk(row, 201);
   }
@@ -210,15 +251,19 @@ async function handleEntity(
     };
     // `when` omitted means "keep the stored timestamp" (unlike POST, where it
     // means "now") — the edit form always sends it when the user changed it.
+    // Rows outside the caller's household simply don't match — same "not
+    // found" as a bad id, no cross-tenant existence oracle.
     const sets = cfg.fields.map((f) => `${f} = ?`);
     const params: (string | number)[] = cfg.fields.map((f) => value[f]);
     if (value.when) {
       sets.push("ts = ?");
       params.push(normalizeTs(value.when));
     }
-    params.push(id);
+    params.push(id, tenant.householdId);
     const row = await env.DB.prepare(
-      `UPDATE ${cfg.table} SET ${sets.join(", ")} WHERE id = ? RETURNING ${cols}`
+      `UPDATE ${cfg.table} SET ${sets.join(", ")}
+       WHERE id = ? AND baby_id IN (SELECT id FROM babies WHERE household_id = ?)
+       RETURNING ${cols}`
     )
       .bind(...params)
       .first();
@@ -230,9 +275,10 @@ async function handleEntity(
     const id = parseIdParam(idStr);
     if (id === null) return jsonError(400, "Invalid id.");
     const res = await env.DB.prepare(
-      `DELETE FROM ${cfg.table} WHERE id = ?`
+      `DELETE FROM ${cfg.table}
+       WHERE id = ? AND baby_id IN (SELECT id FROM babies WHERE household_id = ?)`
     )
-      .bind(id)
+      .bind(id, tenant.householdId)
       .run();
     if ((res.meta.changes ?? 0) === 0) return jsonError(404, "Not found.");
     return jsonOk({ deleted: id });
@@ -245,7 +291,15 @@ async function handleEntity(
 // queries + active indications, then one evaluating each indication's
 // actual over its own window. "Today" is the Europe/Madrid calendar day —
 // the household timezone — matching the MCP tools and the Alexa skill.
-async function handleDashboard(env: Env): Promise<Response> {
+async function handleDashboard(
+  env: Env,
+  tenant: Tenant,
+  url: URL
+): Promise<Response> {
+  const sel = selectBaby(tenant, url, false);
+  if (!sel.ok) return sel.resp;
+  const babyId = sel.baby.id;
+
   const now = new Date();
   const nowIso = now.toISOString();
   const day = madridDateOf(now);
@@ -266,33 +320,35 @@ async function handleDashboard(env: Env): Promise<Response> {
     indicationsRes,
   ] = await env.DB.batch([
     env.DB.prepare(
-      "SELECT id, ts, amount_ml FROM feedings ORDER BY ts DESC LIMIT 20"
-    ),
+      "SELECT id, ts, amount_ml FROM feedings WHERE baby_id = ? ORDER BY ts DESC LIMIT 20"
+    ).bind(babyId),
     env.DB.prepare(
-      "SELECT id, ts, amount_ml FROM feedings WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(dayStart),
-    env.DB.prepare("SELECT id, ts, kind FROM diapers ORDER BY ts DESC LIMIT 1"),
+      "SELECT id, ts, amount_ml FROM feedings WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
+    ).bind(babyId, dayStart),
     env.DB.prepare(
-      "SELECT id, ts, kind FROM diapers WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(dayStart),
+      "SELECT id, ts, kind FROM diapers WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
+    ).bind(babyId),
     env.DB.prepare(
-      "SELECT id, ts, name FROM routines WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(dayStart),
+      "SELECT id, ts, kind FROM diapers WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
+    ).bind(babyId, dayStart),
     env.DB.prepare(
-      "SELECT id, ts, text FROM notes WHERE ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(dayStart),
+      "SELECT id, ts, name FROM routines WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
+    ).bind(babyId, dayStart),
     env.DB.prepare(
-      "SELECT name, MAX(ts) AS ts FROM routines GROUP BY name"
-    ),
+      "SELECT id, ts, text FROM notes WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
+    ).bind(babyId, dayStart),
     env.DB.prepare(
-      "SELECT id, ts, weight_g FROM weights ORDER BY ts DESC LIMIT 2"
-    ),
+      "SELECT name, MAX(ts) AS ts FROM routines WHERE baby_id = ? GROUP BY name"
+    ).bind(babyId),
     env.DB.prepare(
-      "SELECT id, ts, height_cm FROM heights ORDER BY ts DESC LIMIT 2"
-    ),
+      "SELECT id, ts, weight_g FROM weights WHERE baby_id = ? ORDER BY ts DESC LIMIT 2"
+    ).bind(babyId),
     env.DB.prepare(
-      "SELECT id, label, metric, filter, target, comparison, period_days, active FROM indications WHERE active = 1 ORDER BY id"
-    ),
+      "SELECT id, ts, height_cm FROM heights WHERE baby_id = ? ORDER BY ts DESC LIMIT 2"
+    ).bind(babyId),
+    env.DB.prepare(
+      "SELECT id, label, metric, filter, target, comparison, period_days, active FROM indications WHERE active = 1 AND baby_id = ? ORDER BY id"
+    ).bind(babyId),
   ]);
 
   const indications = indicationsRes.results as unknown as IndicationRow[];
@@ -323,6 +379,8 @@ async function handleDashboard(env: Env): Promise<Response> {
   return jsonOk({
     day,
     day_start: dayStart,
+    babies: tenant.babies,
+    baby_id: babyId,
     recent_feedings: recentFeedings.results,
     today_feedings: todayFeedings.results,
     last_diaper: lastDiaper.results[0] ?? null,
@@ -336,11 +394,14 @@ async function handleDashboard(env: Env): Promise<Response> {
   });
 }
 
-async function handleProfile(env: Env): Promise<Response> {
-  const row = await env.DB.prepare(
-    "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
-  ).first();
-  return jsonOk(row ?? { name: null, sex: null, date_of_birth: null });
+// The app shell reads the selected baby's sex/DOB for the WHO percentile
+// bands, plus the full list for the switcher.
+function handleProfile(tenant: Tenant, url: URL): Response {
+  const sel = selectBaby(tenant, url, false);
+  return jsonOk({
+    babies: tenant.babies,
+    baby: sel.ok ? sel.baby : null,
+  });
 }
 
 export async function handleApi(
@@ -348,8 +409,14 @@ export async function handleApi(
   env: Env,
   url: URL
 ): Promise<Response> {
-  // Auth is handled upstream by Cloudflare Access in front of baby.llera.eu;
-  // any request reaching here has already passed it.
+  // Cloudflare Access fronts baby.llera.eu; we additionally verify the JWT it
+  // stamps (and read the email) — with tenants, identity is load-bearing, so
+  // the Worker can't rely on fronting alone.
+  const email = await getAccessEmail(request, env);
+  if (!email) return jsonError(401, "Unauthorized.");
+  const tenant = await resolveTenant(env.DB, email);
+  if (!tenant) return jsonError(403, notRegisteredMessage(email));
+
   // /api/<entity>[/<id>]
   const parts = url.pathname.split("/").filter(Boolean); // ["api", "<entity>", "<id>?"]
   if (parts.length < 2 || parts.length > 3) return jsonError(404, "Not found.");
@@ -357,13 +424,13 @@ export async function handleApi(
     if (request.method.toUpperCase() !== "GET") {
       return jsonError(405, "Method not allowed.");
     }
-    return handleDashboard(env);
+    return handleDashboard(env, tenant, url);
   }
   if (parts[1] === "profile" && parts.length === 2) {
     if (request.method.toUpperCase() !== "GET") {
       return jsonError(405, "Method not allowed.");
     }
-    return handleProfile(env);
+    return handleProfile(tenant, url);
   }
   const cfg = ENTITIES[parts[1]];
   if (!cfg) return jsonError(404, "Unknown entity.");
@@ -373,6 +440,7 @@ export async function handleApi(
     url,
     parts[2],
     request,
-    env
+    env,
+    tenant
   );
 }
