@@ -20,15 +20,27 @@ import {
   madridHHMM,
 } from "./lib";
 import type { DiaperKind } from "./types";
+import { getBabies, pickBaby } from "./users";
 
 export type AlexaEnv = {
   DB: D1Database;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
+  ALEXA_HOUSEHOLD_ID?: string;
 };
 
 const MAX_TIMESTAMP_SKEW_MS = 150_000;
 const CERT_CACHE_TTL_S = 86_400;
+
+// Alexa has no Cloudflare Access identity (its Access app uses a service
+// token via the Lambda bridge): events are attributed to 'alexa' and pinned
+// to ALEXA_HOUSEHOLD_ID's default baby.
+const ALEXA_USER = "alexa";
+
+async function alexaBabyId(env: AlexaEnv): Promise<number> {
+  const householdId = parseInt(env.ALEXA_HOUSEHOLD_ID ?? "1", 10) || 1;
+  return pickBaby(await getBabies(env.DB, householdId)).id;
+}
 
 // ---- Alexa request / response types ----------------------------------------
 
@@ -566,16 +578,17 @@ async function handleRecordFeeding(
     });
   }
   const amountMl = Math.round(amount);
+  const babyId = await alexaBabyId(env);
   const now = Date.now();
   const ts = new Date(now).toISOString();
   const { prev } = await insertAndLookupPrev<{ ts: string }>(
     env.DB,
     env.DB.prepare(
-      "SELECT ts FROM feedings WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-    ).bind(ts),
+      "SELECT ts FROM feedings WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
+    ).bind(babyId, ts),
     env.DB.prepare(
-      "INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id"
-    ).bind(ts, amountMl)
+      "INSERT INTO feedings (ts, amount_ml, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
+    ).bind(ts, amountMl, babyId, ALEXA_USER)
   );
 
   const tail = gapTailEs(prev, now);
@@ -608,16 +621,17 @@ async function handleRecordDiaper(
       reprompt: "Dime pis, caca o las dos cosas.",
     });
   }
+  const babyId = await alexaBabyId(env);
   const now = Date.now();
   const ts = new Date(now).toISOString();
   const { prev } = await insertAndLookupPrev<{ ts: string }>(
     env.DB,
     env.DB.prepare(
-      "SELECT ts FROM diapers WHERE ts < ? ORDER BY ts DESC LIMIT 1"
-    ).bind(ts),
+      "SELECT ts FROM diapers WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
+    ).bind(babyId, ts),
     env.DB.prepare(
-      "INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id"
-    ).bind(ts, kind)
+      "INSERT INTO diapers (ts, kind, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
+    ).bind(ts, kind, babyId, ALEXA_USER)
   );
 
   const tail = gapTailEs(prev, now);
@@ -646,16 +660,17 @@ async function handleRecordRoutine(
     });
   }
   const name = canonicalRoutineName(raw);
+  const babyId = await alexaBabyId(env);
   const now = Date.now();
   const ts = new Date(now).toISOString();
   const { prev } = await insertAndLookupPrev<{ ts: string }>(
     env.DB,
     env.DB.prepare(
-      "SELECT ts FROM routines WHERE ts < ? AND LOWER(name) = LOWER(?) ORDER BY ts DESC LIMIT 1"
-    ).bind(ts, name),
+      "SELECT ts FROM routines WHERE baby_id = ? AND ts < ? AND LOWER(name) = LOWER(?) ORDER BY ts DESC LIMIT 1"
+    ).bind(babyId, ts, name),
     env.DB.prepare(
-      "INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id"
-    ).bind(ts, name)
+      "INSERT INTO routines (ts, name, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
+    ).bind(ts, name, babyId, ALEXA_USER)
   );
 
   const tail = gapTailEs(prev, now);
@@ -669,23 +684,24 @@ async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
   const now = new Date();
   const startIso = madridMidnightUtc(madridDateOf(now)).toISOString();
   const endIso = now.toISOString();
+  const babyId = await alexaBabyId(env);
 
   const [feedAgg, diaperAgg, routineAgg] = await env.DB.batch([
     env.DB.prepare(
       `SELECT COUNT(*) AS n, COALESCE(SUM(amount_ml), 0) AS total, MAX(ts) AS last_ts
-       FROM feedings WHERE ts >= ? AND ts < ?`
-    ).bind(startIso, endIso),
+       FROM feedings WHERE baby_id = ? AND ts >= ? AND ts < ?`
+    ).bind(babyId, startIso, endIso),
     env.DB.prepare(
       `SELECT
          SUM(CASE WHEN kind IN ('pee','both')  THEN 1 ELSE 0 END) AS pee_n,
          SUM(CASE WHEN kind IN ('poop','both') THEN 1 ELSE 0 END) AS poop_n
-       FROM diapers WHERE ts >= ? AND ts < ?`
-    ).bind(startIso, endIso),
+       FROM diapers WHERE baby_id = ? AND ts >= ? AND ts < ?`
+    ).bind(babyId, startIso, endIso),
     env.DB.prepare(
       `SELECT name, COUNT(*) AS n FROM routines
-       WHERE ts >= ? AND ts < ?
+       WHERE baby_id = ? AND ts >= ? AND ts < ?
        GROUP BY name ORDER BY n DESC`
-    ).bind(startIso, endIso),
+    ).bind(babyId, startIso, endIso),
   ]);
 
   const feed = (feedAgg.results as Array<{
@@ -743,9 +759,12 @@ async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
 async function handleLastFeeding(
   env: AlexaEnv
 ): Promise<AlexaResponseEnvelope> {
+  const babyId = await alexaBabyId(env);
   const row = await env.DB.prepare(
-    "SELECT ts, amount_ml FROM feedings ORDER BY ts DESC LIMIT 1"
-  ).first<{ ts: string; amount_ml: number }>();
+    "SELECT ts, amount_ml FROM feedings WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
+  )
+    .bind(babyId)
+    .first<{ ts: string; amount_ml: number }>();
   if (!row) {
     return speak("No tengo ninguna toma registrada todavía.");
   }
