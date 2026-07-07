@@ -631,6 +631,23 @@
       letter-spacing: 0.04em;
       padding: 5px 14px;
     }
+    /* Baby switcher (multi-baby households only; stays hidden otherwise) */
+    #baby-switcher { display: flex; gap: 6px; padding: 8px 12px 0; flex-wrap: wrap; max-width: 860px; margin: 0 auto; }
+    #baby-switcher[hidden] { display: none; }
+    #baby-switcher button {
+      border: 1px solid var(--border);
+      background: var(--chip);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 4px 14px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #baby-switcher button.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
     @media (max-width: 640px) {
       header { padding: 8px 10px; gap: 8px; }
       nav { gap: 3px; }
@@ -685,6 +702,7 @@
 </head>
 <body>
   <header>
+    <div id="baby-switcher" hidden></div>
     <nav id="nav">
       <button data-tab="today" class="active">Today</button>
       <button data-tab="feedings">Feeding</button>
@@ -908,7 +926,17 @@
     var editState = {};                // entity -> id of the row being edited
     var listItemsById = {};            // entity -> { id: item } for rendered rows
     var feedingShortcuts = [30, 60, 90];
-    var profileData = null;            // cached /api/profile payload
+    var profileData = null;            // the selected baby (from /api/profile)
+
+    var selectedBabyId = null;         // baby the UI is scoped to (multi-baby households)
+    try { selectedBabyId = localStorage.getItem("babyId"); } catch (_) {}
+
+    // Append the selected baby to every API url. The server defaults to the
+    // household's default baby when absent, and self-heals stale ids on reads.
+    function withBaby(url) {
+      if (!selectedBabyId) return url;
+      return url + (url.indexOf("?") >= 0 ? "&" : "?") + "baby=" + encodeURIComponent(selectedBabyId);
+    }
 
     function fmtText(v) { return v == null ? "" : String(v); }
 
@@ -1122,14 +1150,14 @@
     }
 
     async function fetchJson(url) {
-      var res = await fetch(url, { headers: { Accept: "application/json" } });
+      var res = await fetch(withBaby(url), { headers: { Accept: "application/json" } });
       if (res.status === 401) { gotoLogin(); throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("HTTP " + res.status);
       return await res.json();
     }
 
     async function sendJson(method, url, body) {
-      var res = await fetch(url, {
+      var res = await fetch(withBaby(url), {
         method: method,
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(body)
@@ -1147,7 +1175,7 @@
     function putJson(url, body) { return sendJson("PUT", url, body); }
 
     async function deleteEntry(entity, id) {
-      var res = await fetch(entities[entity].endpoint + "/" + encodeURIComponent(id), { method: "DELETE" });
+      var res = await fetch(withBaby(entities[entity].endpoint + "/" + encodeURIComponent(id)), { method: "DELETE" });
       if (res.status === 401) { gotoLogin(); throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("HTTP " + res.status);
     }
@@ -1680,12 +1708,46 @@
     }
 
     // --- Dashboard ---
+    // Reconcile the selected baby with the server's pick (it falls back to
+    // the default when our stored id is stale) and render the switcher for
+    // multi-baby households.
+    function syncBabies(d) {
+      var babies = d.babies || [];
+      if (d.baby_id != null && String(d.baby_id) !== String(selectedBabyId)) {
+        selectedBabyId = String(d.baby_id);
+        try { localStorage.setItem("babyId", selectedBabyId); } catch (_) {}
+      }
+      var el = document.getElementById("baby-switcher");
+      if (!el) return;
+      if (babies.length < 2) { el.hidden = true; el.innerHTML = ""; return; }
+      var html = "";
+      for (var i = 0; i < babies.length; i++) {
+        var b = babies[i];
+        html += '<button type="button" data-baby="' + b.id + '"' +
+          (String(b.id) === String(selectedBabyId) ? ' class="active"' : "") + '>' +
+          escapeHtml(b.name || ("Baby #" + b.id)) + "</button>";
+      }
+      el.innerHTML = html;
+      el.hidden = false;
+    }
+
+    document.getElementById("baby-switcher").addEventListener("click", function(e) {
+      var t = e.target;
+      if (!t || !t.getAttribute) return;
+      var id = t.getAttribute("data-baby");
+      if (!id || String(id) === String(selectedBabyId)) return;
+      try { localStorage.setItem("babyId", id); } catch (_) {}
+      // Full reload: every tab, chart, and cache re-fetches under the new baby.
+      location.reload();
+    });
+
     // One aggregated fetch (the server batches the queries in a single D1
     // round trip); the payload is cached so the periodic re-render can keep
     // the "ago" strings fresh without refetching.
     async function loadDashboard() {
       try {
         dashboardData = await fetchJson("/api/dashboard");
+        syncBabies(dashboardData);
         renderDashboard();
       } catch (err) {
         if (err.message !== "Unauthorized") toast("Error loading dashboard: " + err.message, true);
@@ -2285,9 +2347,9 @@
       }
     });
 
-    // Profile (sex, birth date) drives the WHO percentile chart bands.
+    // Profile (the selected baby's sex + birth date) drives the WHO bands.
     fetchJson("/api/profile").then(function(p) {
-      profileData = p;
+      profileData = p.baby || null;
       // Growth charts may have rendered before the profile arrived.
       if (MEASURE_CHARTS[currentTab]) loadList(currentTab);
     }).catch(function() {});
