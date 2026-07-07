@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type {
   Env,
+  BabyRow,
   DiaperKind,
   FeedingRow,
   DiaperRow,
@@ -29,15 +30,21 @@ import {
   insertAndLookupPrev,
 } from "./lib";
 import { SERVER_ORIGIN } from "./web";
+import {
+  pickBaby,
+  resolveTenant,
+  notRegisteredMessage,
+  type Tenant,
+} from "./users";
 
-function formatProfile(row: ProfileRow | null): string {
-  if (!row) return "No profile set.";
+function formatBaby(b: BabyRow): string {
   const lines = [
-    `Name: ${row.name ?? "—"}`,
-    `Sex:  ${row.sex ?? "—"}`,
+    `Baby #${b.id}${b.is_default === 1 ? " (default)" : ""}`,
+    `Name: ${b.name ?? "—"}`,
+    `Sex:  ${b.sex ?? "—"}`,
   ];
-  if (row.date_of_birth) {
-    lines.push(`DOB:  ${row.date_of_birth}  (${computeAge(row.date_of_birth)})`);
+  if (b.date_of_birth) {
+    lines.push(`DOB:  ${b.date_of_birth}  (${computeAge(b.date_of_birth)})`);
   } else {
     lines.push("DOB:  —");
   }
@@ -73,15 +80,36 @@ const limitField = z
 const whenInput = (desc: string) =>
   z.string().datetime({ offset: true }).optional().describe(desc);
 
+const babyField = z
+  .string()
+  .min(1)
+  .max(100)
+  .optional()
+  .describe(
+    "Which baby this applies to — a name or numeric id from get_profile. OMIT when the household has a single baby or the default baby is meant."
+  );
+
+// Suffix for record confirmations so multi-baby households see who got the
+// entry; single-baby households keep the old terse output.
+function forBabyNote(tenant: Tenant, baby: BabyRow): string {
+  if (tenant.babies.length < 2) return "";
+  return ` for ${baby.name ?? `baby #${baby.id}`}`;
+}
+
 async function deleteById(
   db: D1Database,
   table: string,
   label: string,
-  id: number
+  id: number,
+  householdId: number
 ) {
+  // Rows outside the caller's household simply don't match — same "not
+  // found" as a bad id, no cross-tenant existence oracle.
   const res = await db
-    .prepare(`DELETE FROM ${table} WHERE id = ?`)
-    .bind(id)
+    .prepare(
+      `DELETE FROM ${table} WHERE id = ? AND baby_id IN (SELECT id FROM babies WHERE household_id = ?)`
+    )
+    .bind(id, householdId)
     .run();
   const changes = res.meta.changes ?? 0;
   return {
@@ -221,6 +249,7 @@ type ListToolSpec<Row extends { id: number; ts: string }> = {
 function registerListTool<Row extends { id: number; ts: string }>(
   server: McpServer,
   db: D1Database,
+  tenant: () => Promise<Tenant>,
   spec: ListToolSpec<Row>
 ) {
   const inputSchema: z.ZodRawShape = {
@@ -235,6 +264,7 @@ function registerListTool<Row extends { id: number; ts: string }>(
       .optional()
       .describe(`Include ${spec.itemNoun} strictly before this ISO timestamp`),
     ...(spec.extra ? { [spec.extra.key]: spec.extra.schema } : {}),
+    baby: babyField,
     limit: limitField,
   };
   server.registerTool(
@@ -248,6 +278,8 @@ function registerListTool<Row extends { id: number; ts: string }>(
       },
     },
     async (args: Record<string, unknown>) => {
+      const t = await tenant();
+      const baby = pickBaby(t.babies, args.baby as string | undefined);
       const { clauses, params } = buildWindowClauses(
         args.since as string | undefined,
         args.until as string | undefined
@@ -256,7 +288,9 @@ function registerListTool<Row extends { id: number; ts: string }>(
         const v = args[spec.extra.key];
         if (typeof v === "string" && v) spec.extra.apply(v, clauses, params);
       }
-      const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+      clauses.push("baby_id = ?");
+      params.push(baby.id);
+      const where = `WHERE ${clauses.join(" AND ")}`;
       params.push((args.limit as number | undefined) ?? 50);
 
       const { results } = await db
@@ -286,6 +320,7 @@ function registerListTool<Row extends { id: number; ts: string }>(
 function registerDeleteTool(
   server: McpServer,
   db: D1Database,
+  tenant: () => Promise<Tenant>,
   spec: {
     name: string;
     description: string;
@@ -302,7 +337,10 @@ function registerDeleteTool(
         id: z.number().int().positive().describe(spec.idDesc),
       },
     },
-    async ({ id }) => deleteById(db, spec.table, spec.label, id)
+    async ({ id }) => {
+      const t = await tenant();
+      return deleteById(db, spec.table, spec.label, id, t.householdId);
+    }
   );
 }
 
@@ -310,6 +348,7 @@ function registerDeleteTool(
 function registerMeasurementRecordTool(
   server: McpServer,
   db: D1Database,
+  tenant: () => Promise<Tenant>,
   spec: {
     name: string;
     description: string;
@@ -331,6 +370,7 @@ function registerMeasurementRecordTool(
         when: whenInput(
           "Optional ISO 8601 timestamp. OMIT this when the measurement is happening now."
         ),
+        baby: babyField,
       },
       outputSchema: {
         id: z.number().int(),
@@ -342,6 +382,8 @@ function registerMeasurementRecordTool(
       },
     },
     async (args: Record<string, unknown>) => {
+      const t = await tenant();
+      const baby = pickBaby(t.babies, args.baby as string | undefined);
       const value = args[spec.field] as number;
       const ts = normalizeTs(args.when as string | undefined);
       const { id, prev } = await insertAndLookupPrev<
@@ -350,14 +392,14 @@ function registerMeasurementRecordTool(
         db,
         db
           .prepare(
-            `SELECT ts, ${spec.field} FROM ${spec.table} WHERE ts < ? ORDER BY ts DESC LIMIT 1`
+            `SELECT ts, ${spec.field} FROM ${spec.table} WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1`
           )
-          .bind(ts),
+          .bind(baby.id, ts),
         db
           .prepare(
-            `INSERT INTO ${spec.table} (ts, ${spec.field}) VALUES (?, ?) RETURNING id`
+            `INSERT INTO ${spec.table} (ts, ${spec.field}, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id`
           )
-          .bind(ts, value)
+          .bind(ts, value, baby.id, t.email)
       );
 
       let delta = "";
@@ -372,7 +414,7 @@ function registerMeasurementRecordTool(
         content: [
           {
             type: "text" as const,
-            text: `Recorded ${spec.label} #${id}: ${value} ${spec.unit} at ${ts}${delta}.`,
+            text: `Recorded ${spec.label} #${id}${forBabyNote(t, baby)}: ${value} ${spec.unit} at ${ts}${delta}.`,
           },
         ],
         structuredContent: {
@@ -390,7 +432,9 @@ function registerMeasurementRecordTool(
 
 // ---- The agent ----------------------------------------------------------------
 
-export class BabyFeedingMCP extends McpAgent<Env> {
+type McpProps = { email: string };
+
+export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
   server = new McpServer({
     name: "baby-feeding-tracker",
     version: "1.0.0",
@@ -404,14 +448,28 @@ export class BabyFeedingMCP extends McpAgent<Env> {
     websiteUrl: SERVER_ORIGIN,
   });
 
+  // Resolved fresh per tool call (two cheap indexed lookups) so caregiver /
+  // baby changes apply immediately. Throwing is fine: the MCP SDK catches
+  // handler errors and returns them to the client as tool errors.
+  private async tenant(): Promise<Tenant> {
+    const email = this.props?.email;
+    if (!email) {
+      throw new Error("Unauthorized: no user identity on this MCP session.");
+    }
+    const tenant = await resolveTenant(this.env.DB, email);
+    if (!tenant) throw new Error(notRegisteredMessage(email));
+    return tenant;
+  }
+
   async init() {
     const db = this.env.DB;
+    const tenant = () => this.tenant();
 
     this.server.registerTool(
       "set_profile",
       {
         description:
-          "Set the baby's profile fields (name, sex, date of birth). Pass only the fields you want to update — others stay as they were. At least one field is required.",
+          "Update a baby's profile fields (name, sex, date of birth). Pass only the fields you want to change — others stay as they were. At least one field is required. With multiple babies, select which one via `baby`.",
         inputSchema: {
           name: z
             .string()
@@ -432,9 +490,10 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             .describe(
               "Date of birth in ISO date format YYYY-MM-DD, e.g. '2026-04-01'"
             ),
+          baby: babyField,
         },
       },
-      async ({ name, sex, date_of_birth }) => {
+      async ({ name, sex, date_of_birth, baby }) => {
         if (
           name === undefined &&
           sex === undefined &&
@@ -450,6 +509,8 @@ export class BabyFeedingMCP extends McpAgent<Env> {
             isError: true,
           };
         }
+        const t = await this.tenant();
+        const target = pickBaby(t.babies, baby);
 
         const updates: string[] = [];
         const params: (string | null)[] = [];
@@ -468,19 +529,22 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         updates.push("updated_at = datetime('now')");
 
         await db
-          .prepare(`UPDATE profile SET ${updates.join(", ")} WHERE id = 1`)
-          .bind(...params)
+          .prepare(`UPDATE babies SET ${updates.join(", ")} WHERE id = ?`)
+          .bind(...params, target.id)
           .run();
 
         const row = await db
-          .prepare("SELECT name, sex, date_of_birth FROM profile WHERE id = 1")
-          .first<ProfileRow>();
+          .prepare(
+            "SELECT id, household_id, name, sex, date_of_birth, is_default FROM babies WHERE id = ?"
+          )
+          .bind(target.id)
+          .first<BabyRow>();
 
         return {
           content: [
             {
               type: "text",
-              text: `Profile updated.\n${formatProfile(row)}`,
+              text: `Profile updated.\n${row ? formatBaby(row) : "(baby not found)"}`,
             },
           ],
         };
@@ -491,35 +555,48 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       "get_profile",
       {
         description:
-          "Get the baby's profile: name, sex, date of birth, and computed age.",
+          "List the babies in the caller's household: name, sex, date of birth, computed age, and which one is the default.",
         outputSchema: {
-          name: z.string().nullable(),
-          sex: z.enum(["male", "female", "other"]).nullable(),
-          date_of_birth: z.string().nullable(),
-          age: z.string().nullable(),
-          age_days: z.number().int().nullable(),
+          babies: z.array(
+            z.object({
+              id: z.number().int(),
+              name: z.string().nullable(),
+              sex: z.enum(["male", "female", "other"]).nullable(),
+              date_of_birth: z.string().nullable(),
+              is_default: z.boolean(),
+              age: z.string().nullable(),
+              age_days: z.number().int().nullable(),
+            })
+          ),
         },
       },
       async () => {
-        const row = await db
-          .prepare("SELECT name, sex, date_of_birth FROM profile WHERE id = 1")
-          .first<ProfileRow>();
-        let age: string | null = null;
-        let ageDays: number | null = null;
-        if (row?.date_of_birth) {
-          age = computeAge(row.date_of_birth);
-          const birth = new Date(`${row.date_of_birth}T00:00:00Z`);
-          ageDays = Math.floor((Date.now() - birth.getTime()) / DAY_MS);
-        }
-        return {
-          content: [{ type: "text", text: formatProfile(row) }],
-          structuredContent: {
-            name: row?.name ?? null,
-            sex: row?.sex ?? null,
-            date_of_birth: row?.date_of_birth ?? null,
+        const t = await this.tenant();
+        const babies = t.babies.map((b) => {
+          let age: string | null = null;
+          let ageDays: number | null = null;
+          if (b.date_of_birth) {
+            age = computeAge(b.date_of_birth);
+            const birth = new Date(`${b.date_of_birth}T00:00:00Z`);
+            ageDays = Math.floor((Date.now() - birth.getTime()) / DAY_MS);
+          }
+          return {
+            id: b.id,
+            name: b.name,
+            sex: b.sex,
+            date_of_birth: b.date_of_birth,
+            is_default: b.is_default === 1,
             age,
             age_days: ageDays,
-          },
+          };
+        });
+        const text =
+          t.babies.length === 0
+            ? "No babies in this household yet. Use add_baby to create one."
+            : t.babies.map(formatBaby).join("\n\n");
+        return {
+          content: [{ type: "text", text }],
+          structuredContent: { babies },
         };
       }
     );
@@ -537,6 +614,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           when: whenInput(
             "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z, or with a local offset like 2026-05-14T09:30:00+02:00 — stored as UTC). OMIT this when the feeding is happening now — the server fills in the current time. Only pass this if the user explicitly gave a different time."
           ),
+          baby: babyField,
         },
         outputSchema: {
           id: z.number().int(),
@@ -547,20 +625,22 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           previous_ts: z.string().nullable(),
         },
       },
-      async ({ amount_ml, when }) => {
+      async ({ amount_ml, when, baby }) => {
+        const t = await this.tenant();
+        const target = pickBaby(t.babies, baby);
         const ts = normalizeTs(when);
         const { id, prev } = await insertAndLookupPrev<{ ts: string }>(
           db,
           db
             .prepare(
-              "SELECT ts FROM feedings WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+              "SELECT ts FROM feedings WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
             )
-            .bind(ts),
+            .bind(target.id, ts),
           db
             .prepare(
-              "INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id"
+              "INSERT INTO feedings (ts, amount_ml, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
             )
-            .bind(ts, amount_ml)
+            .bind(ts, amount_ml, target.id, t.email)
         );
         const { gapStr, gapMin, gapNote } = formatGap(ts, prev?.ts ?? null);
 
@@ -568,7 +648,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded feeding #${id}: ${amount_ml} ml at ${ts}${gapNote}.`,
+              text: `Recorded feeding #${id}${forBabyNote(t, target)}: ${amount_ml} ml at ${ts}${gapNote}.`,
             },
           ],
           structuredContent: {
@@ -583,7 +663,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       }
     );
 
-    registerListTool<FeedingRow>(this.server, db, {
+    registerListTool<FeedingRow>(this.server, db, tenant, {
       name: "list_feedings",
       description:
         "List recorded feedings, most recent first. Optionally filter by a time window and limit.",
@@ -600,7 +680,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       line: (r) => `#${r.id}  ${r.ts}  ${r.amount_ml} ml`,
     });
 
-    registerDeleteTool(this.server, db, {
+    registerDeleteTool(this.server, db, tenant, {
       name: "delete_feeding",
       description: "Delete a recorded feeding by its numeric id.",
       table: "feedings",
@@ -622,6 +702,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           when: whenInput(
             "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z, or with a local offset like 2026-05-14T09:30:00+02:00 — stored as UTC). OMIT this when the change is happening now — the server fills in the current time. Only pass this if the user explicitly gave a different time."
           ),
+          baby: babyField,
         },
         outputSchema: {
           id: z.number().int(),
@@ -633,7 +714,9 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           previous_kind: z.enum(["pee", "poop", "both"]).nullable(),
         },
       },
-      async ({ kind, when }) => {
+      async ({ kind, when, baby }) => {
+        const t = await this.tenant();
+        const target = pickBaby(t.babies, baby);
         const ts = normalizeTs(when);
         const { id, prev } = await insertAndLookupPrev<{
           ts: string;
@@ -642,14 +725,14 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           db,
           db
             .prepare(
-              "SELECT ts, kind FROM diapers WHERE ts < ? ORDER BY ts DESC LIMIT 1"
+              "SELECT ts, kind FROM diapers WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
             )
-            .bind(ts),
+            .bind(target.id, ts),
           db
             .prepare(
-              "INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id"
+              "INSERT INTO diapers (ts, kind, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
             )
-            .bind(ts, kind)
+            .bind(ts, kind, target.id, t.email)
         );
         const { gapStr, gapMin, gapNote } = formatGap(ts, prev?.ts ?? null);
 
@@ -657,7 +740,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded diaper #${id}: ${kind} at ${ts}${gapNote}.`,
+              text: `Recorded diaper #${id}${forBabyNote(t, target)}: ${kind} at ${ts}${gapNote}.`,
             },
           ],
           structuredContent: {
@@ -673,7 +756,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       }
     );
 
-    registerListTool<DiaperRow>(this.server, db, {
+    registerListTool<DiaperRow>(this.server, db, tenant, {
       name: "list_diapers",
       description:
         "List diaper events, most recent first. Optionally filter by time window and kind.",
@@ -701,7 +784,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       },
     });
 
-    registerDeleteTool(this.server, db, {
+    registerDeleteTool(this.server, db, tenant, {
       name: "delete_diaper",
       description: "Delete a diaper event by its numeric id.",
       table: "diapers",
@@ -723,6 +806,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           when: whenInput(
             "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z, or with a local offset like 2026-05-14T09:30:00+02:00 — stored as UTC). OMIT this when the event is happening now — the server fills in the current time."
           ),
+          baby: babyField,
         },
         outputSchema: {
           id: z.number().int(),
@@ -733,20 +817,22 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           previous_ts: z.string().nullable(),
         },
       },
-      async ({ name, when }) => {
+      async ({ name, when, baby }) => {
+        const t = await this.tenant();
+        const target = pickBaby(t.babies, baby);
         const ts = normalizeTs(when);
         const { id, prev } = await insertAndLookupPrev<{ ts: string }>(
           db,
           db
             .prepare(
-              "SELECT ts FROM routines WHERE ts < ? AND LOWER(name) = LOWER(?) ORDER BY ts DESC LIMIT 1"
+              "SELECT ts FROM routines WHERE baby_id = ? AND ts < ? AND LOWER(name) = LOWER(?) ORDER BY ts DESC LIMIT 1"
             )
-            .bind(ts, name),
+            .bind(target.id, ts, name),
           db
             .prepare(
-              "INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id"
+              "INSERT INTO routines (ts, name, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
             )
-            .bind(ts, name)
+            .bind(ts, name, target.id, t.email)
         );
         const { gapStr, gapMin, gapNote } = formatGap(ts, prev?.ts ?? null, name);
 
@@ -754,7 +840,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded routine #${id}: ${name} at ${ts}${gapNote}.`,
+              text: `Recorded routine #${id}${forBabyNote(t, target)}: ${name} at ${ts}${gapNote}.`,
             },
           ],
           structuredContent: {
@@ -769,7 +855,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       }
     );
 
-    registerListTool<RoutineRow>(this.server, db, {
+    registerListTool<RoutineRow>(this.server, db, tenant, {
       name: "list_routines",
       description:
         "List routine-care entries and medication doses (e.g. Vitamin D doses, baths), most recent first. Optionally filter by time window and entry name (case-insensitive substring match).",
@@ -801,7 +887,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       },
     });
 
-    registerDeleteTool(this.server, db, {
+    registerDeleteTool(this.server, db, tenant, {
       name: "delete_routine",
       description: "Delete a routine entry by its numeric id.",
       table: "routines",
@@ -825,6 +911,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           when: whenInput(
             "Optional ISO 8601 timestamp. OMIT this when the note is happening now — the server fills in the current time."
           ),
+          baby: babyField,
         },
         outputSchema: {
           id: z.number().int(),
@@ -832,11 +919,15 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           text: z.string(),
         },
       },
-      async ({ text, when }) => {
+      async ({ text, when, baby }) => {
+        const t = await this.tenant();
+        const target = pickBaby(t.babies, baby);
         const ts = normalizeTs(when);
         const inserted = await db
-          .prepare("INSERT INTO notes (ts, text) VALUES (?, ?) RETURNING id")
-          .bind(ts, text)
+          .prepare(
+            "INSERT INTO notes (ts, text, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
+          )
+          .bind(ts, text, target.id, t.email)
           .first<{ id: number }>();
 
         const id = inserted?.id ?? 0;
@@ -844,7 +935,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
           content: [
             {
               type: "text",
-              text: `Recorded note #${id} at ${ts}: ${text}`,
+              text: `Recorded note #${id}${forBabyNote(t, target)} at ${ts}: ${text}`,
             },
           ],
           structuredContent: { id, ts, text },
@@ -852,7 +943,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       }
     );
 
-    registerListTool<NoteRow>(this.server, db, {
+    registerListTool<NoteRow>(this.server, db, tenant, {
       name: "list_notes",
       description:
         "List notes, most recent first. Optionally filter by time window or a substring of the text.",
@@ -884,7 +975,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       },
     });
 
-    registerDeleteTool(this.server, db, {
+    registerDeleteTool(this.server, db, tenant, {
       name: "delete_note",
       description: "Delete a note by its numeric id.",
       table: "notes",
@@ -892,7 +983,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       idDesc: "Note id to delete (from list_notes)",
     });
 
-    registerMeasurementRecordTool(this.server, db, {
+    registerMeasurementRecordTool(this.server, db, tenant, {
       name: "record_weight",
       description:
         "Record a baby weight measurement in whole grams. If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
@@ -904,7 +995,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         "Weight in whole grams, e.g. 4250. If the user gives kilograms, pounds, or decimals, convert and round first (1 kg = 1000 g).",
     });
 
-    registerListTool<WeightRow>(this.server, db, {
+    registerListTool<WeightRow>(this.server, db, tenant, {
       name: "list_weights",
       description:
         "List weight measurements, most recent first. Optionally filter by time window.",
@@ -921,7 +1012,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       line: (r) => `#${r.id}  ${r.ts}  ${r.weight_g} g`,
     });
 
-    registerDeleteTool(this.server, db, {
+    registerDeleteTool(this.server, db, tenant, {
       name: "delete_weight",
       description: "Delete a weight measurement by its numeric id.",
       table: "weights",
@@ -929,7 +1020,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       idDesc: "Weight id to delete (from list_weights)",
     });
 
-    registerMeasurementRecordTool(this.server, db, {
+    registerMeasurementRecordTool(this.server, db, tenant, {
       name: "record_height",
       description:
         "Record a baby length/height measurement in whole centimeters (babies are measured lying down, so this is technically length). If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
@@ -941,7 +1032,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
         "Length/height in whole centimeters, e.g. 54. If given in inches, meters, or with decimals, convert and round first.",
     });
 
-    registerListTool<HeightRow>(this.server, db, {
+    registerListTool<HeightRow>(this.server, db, tenant, {
       name: "list_heights",
       description:
         "List height/length measurements, most recent first. Optionally filter by time window.",
@@ -958,7 +1049,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       line: (r) => `#${r.id}  ${r.ts}  ${r.height_cm} cm`,
     });
 
-    registerDeleteTool(this.server, db, {
+    registerDeleteTool(this.server, db, tenant, {
       name: "delete_height",
       description: "Delete a height measurement by its numeric id.",
       table: "heights",
@@ -1175,7 +1266,7 @@ export class BabyFeedingMCP extends McpAgent<Env> {
       }
     );
 
-    registerDeleteTool(this.server, db, {
+    registerDeleteTool(this.server, db, tenant, {
       name: "delete_indication",
       description: "Delete an indication by its numeric id.",
       table: "indications",
