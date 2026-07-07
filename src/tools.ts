@@ -15,6 +15,7 @@ import type {
   NoteRow,
   WeightRow,
   HeightRow,
+  UserRow,
 } from "./types";
 import {
   DAY_MS,
@@ -1888,6 +1889,209 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             errors,
           },
           isError: recorded.length === 0 && errors.length > 0,
+        };
+      }
+    );
+
+    // ---- Household management ------------------------------------------------
+
+    this.server.registerTool(
+      "add_baby",
+      {
+        description:
+          "Add a baby to the caller's household. The first baby in a household becomes the default; use set_default_baby to change it later. Other tools target a specific baby via their `baby` parameter.",
+        inputSchema: {
+          name: z.string().min(1).max(100).describe("Baby's name, e.g. 'Sofía'"),
+          sex: z
+            .enum(["male", "female", "other"])
+            .optional()
+            .describe("Biological sex, if known"),
+          date_of_birth: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .optional()
+            .describe("ISO date YYYY-MM-DD"),
+        },
+        outputSchema: {
+          id: z.number().int(),
+          name: z.string(),
+          is_default: z.boolean(),
+        },
+      },
+      async ({ name, sex, date_of_birth }) => {
+        const t = await this.tenant();
+        const isDefault = t.babies.length === 0 ? 1 : 0;
+        const inserted = await db
+          .prepare(
+            "INSERT INTO babies (household_id, name, sex, date_of_birth, is_default) VALUES (?, ?, ?, ?, ?) RETURNING id"
+          )
+          .bind(
+            t.householdId,
+            name,
+            sex ?? null,
+            date_of_birth ?? null,
+            isDefault
+          )
+          .first<{ id: number }>();
+        const id = inserted?.id ?? 0;
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Added baby '${name}' (#${id})${isDefault === 1 ? " as the default baby" : ""}.`,
+            },
+          ],
+          structuredContent: { id, name, is_default: isDefault === 1 },
+        };
+      }
+    );
+
+    this.server.registerTool(
+      "set_default_baby",
+      {
+        description:
+          "Make one of the household's babies the default — the one every tool targets when its `baby` parameter is omitted.",
+        inputSchema: {
+          baby: z
+            .string()
+            .min(1)
+            .max(100)
+            .describe("Baby name or numeric id (see get_profile)"),
+        },
+      },
+      async ({ baby }) => {
+        const t = await this.tenant();
+        const target = pickBaby(t.babies, baby);
+        await db.batch([
+          db
+            .prepare("UPDATE babies SET is_default = 0 WHERE household_id = ?")
+            .bind(t.householdId),
+          db
+            .prepare("UPDATE babies SET is_default = 1 WHERE id = ?")
+            .bind(target.id),
+        ]);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${target.name ?? `Baby #${target.id}`} is now the default baby.`,
+            },
+          ],
+        };
+      }
+    );
+
+    this.server.registerTool(
+      "add_caregiver",
+      {
+        description:
+          "Register another caregiver's email into the caller's household so they see and record the same data. The email must match what they use to log in through Cloudflare Access (they must also be allowed by the Access policy — that lives in Cloudflare, not here).",
+        inputSchema: {
+          email: z
+            .string()
+            .email()
+            .describe("Email address of the caregiver to add"),
+        },
+      },
+      async ({ email }) => {
+        const t = await this.tenant();
+        const norm = email.toLowerCase();
+        const existing = await db
+          .prepare("SELECT id, email, household_id FROM users WHERE email = ?")
+          .bind(norm)
+          .first<UserRow>();
+        if (existing) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  existing.household_id === t.householdId
+                    ? `${norm} is already a caregiver in your household.`
+                    : `${norm} already belongs to another household.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        await db
+          .prepare("INSERT INTO users (email, household_id) VALUES (?, ?)")
+          .bind(norm, t.householdId)
+          .run();
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Added ${norm} to your household. Make sure the Cloudflare Access policy also allows this email, or they cannot reach the app.`,
+            },
+          ],
+        };
+      }
+    );
+
+    this.server.registerTool(
+      "create_household",
+      {
+        description:
+          "Create a NEW isolated household (tenant) with its first caregiver and an unnamed default baby. The new household's data is completely separate from yours. The caregiver must also be allowed by the Cloudflare Access policy (managed in Cloudflare, not here).",
+        inputSchema: {
+          email: z
+            .string()
+            .email()
+            .describe("Email of the new household's first caregiver"),
+          name: z
+            .string()
+            .min(1)
+            .max(100)
+            .optional()
+            .describe("Optional household name"),
+        },
+        outputSchema: {
+          household_id: z.number().int(),
+          email: z.string(),
+        },
+      },
+      async ({ email, name }) => {
+        await this.tenant(); // any registered user may onboard a new tenant
+        const norm = email.toLowerCase();
+        const existing = await db
+          .prepare("SELECT id FROM users WHERE email = ?")
+          .bind(norm)
+          .first<{ id: number }>();
+        if (existing) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `${norm} is already registered — emails belong to exactly one household.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        const hh = await db
+          .prepare("INSERT INTO households (name) VALUES (?) RETURNING id")
+          .bind(name ?? null)
+          .first<{ id: number }>();
+        const householdId = hh?.id ?? 0;
+        await db.batch([
+          db
+            .prepare("INSERT INTO users (email, household_id) VALUES (?, ?)")
+            .bind(norm, householdId),
+          db
+            .prepare(
+              "INSERT INTO babies (household_id, is_default) VALUES (?, 1)"
+            )
+            .bind(householdId),
+        ]);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Created household #${householdId} with ${norm} as its first caregiver and an unnamed default baby (they can set_profile it). Remember to allow ${norm} in the Cloudflare Access policy.`,
+            },
+          ],
+          structuredContent: { household_id: householdId, email: norm },
         };
       }
     );
