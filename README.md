@@ -2,21 +2,49 @@
 
 A remote **Model Context Protocol** (MCP) server, deployed to **Cloudflare
 Workers**, that records baby feedings and diapers (pee / poop / both).
-Everything is stored in a shared **D1** database so the same history is
-visible to every MCP client that connects.
+Everything is stored in a **D1** database, scoped per household, so the same
+history is visible to every caregiver and MCP client of that household.
 
-**Auth:** the `/mcp` endpoint is protected by OAuth 2.1. The server presents
-a single-password consent page at `/authorize`; the password is stored as a
-wrangler secret (`SHARED_SECRET`). Anyone with the password can authorize
-an MCP client and get a normal OAuth bearer token. OAuth tokens are stored
-in the `OAUTH_KV` namespace.
+**Auth:** **Cloudflare Access** (Managed OAuth) fronts the whole host. For
+MCP clients, Access runs the entire OAuth 2.1 flow (discovery, dynamic client
+registration, IdP login); browsers get the normal Access login. The Worker
+verifies the `Cf-Access-Jwt-Assertion` header Access stamps (team JWKS +
+issuer + AUD, `src/access.ts`) so no unfronted origin can slip through
+(`workers_dev: false` keeps the `*.workers.dev` origin closed), and reads the
+JWT's `email` claim as the user identity that all data is scoped to.
+
+## Multi-user model
+
+- A **household** is the tenancy unit: its caregivers all see and record the
+  same data, and households never see each other's data.
+- A **user** (email, as authenticated by Cloudflare Access) belongs to
+  exactly one household.
+- Each household has one or more **babies**; one of them is the *default*.
+  Tools and API calls apply to the default baby unless a `baby` (name or id)
+  says otherwise. The web app shows a baby switcher when a household has more
+  than one baby.
+- Every recorded event stores **who logged it** (`created_by`: the caregiver
+  email, or `alexa` for voice entries).
+- There is no self-serve signup: an authenticated email that is not
+  registered gets a 403 until an existing user runs `add_caregiver` (join my
+  household) or `create_household` (new isolated tenant). The email must
+  also be allowed by the Access policy, which is managed in Cloudflare.
+- The Alexa skill has no Access identity; its events go to the household in
+  `ALEXA_HOUSEHOLD_ID` (default `1`) under that household's default baby.
 
 ## Tools exposed
 
+All record / list / stats / indication tools accept an optional `baby`
+(name or numeric id; default: the household's default baby).
+
 | Tool                | Purpose                                                                 |
 | ------------------- | ----------------------------------------------------------------------- |
-| `set_profile`       | Set baby's `name`, `sex`, `date_of_birth` (any combination)             |
-| `get_profile`       | Read profile + computed age                                             |
+| `set_profile`       | Update a baby's `name`, `sex`, `date_of_birth` (any combination); optional `baby` selector |
+| `get_profile`       | List the household's babies with computed ages and the default marker   |
+| `add_baby`          | Add a baby to the household (`name`, optional `sex` / `date_of_birth`)  |
+| `set_default_baby`  | Change which baby tools target when `baby` is omitted                   |
+| `add_caregiver`     | Register another email into the caller's household                      |
+| `create_household`  | Create a new isolated household with its first caregiver + default baby |
 | `record_feeding`    | Log a feeding: `amount_ml` (required), `when` (ISO ts). Returns the gap since the previous feeding |
 | `list_feedings`     | List feedings, newest first. Optional `since` / `until` / `limit`       |
 | `delete_feeding`    | Remove a feeding by `id`                                                |
@@ -69,11 +97,13 @@ sex + birth date) plus the current percentile estimate, and the
 dashboard cards show deltas vs the previous measurement. The Today data
 comes from a single aggregated `/api/dashboard` request (which also
 evaluates indications server-side over Madrid-day windows), refetched
-whenever the app returns to the foreground. The UI follows the system
+whenever the app returns to the foreground. Households with more than
+one baby get a switcher above the tabs; the selection persists and
+scopes every view and quick-record. The UI follows the system
 light/dark theme. The app is installable as a PWA (web manifest with
 home-screen shortcuts, raster icons for iOS/Android, minimal
-pass-through service worker). Log in once with the `SHARED_SECRET`
-password and the session is remembered via an HttpOnly cookie.
+pass-through service worker). Authentication is the Cloudflare Access
+login in front of the host — the app itself has no login screen.
 Visiting `/` redirects to `/app`.
 
 ## Alexa skill
@@ -111,7 +141,15 @@ npm run db:migrate:local
 npm run db:migrate:remote
 ```
 
-### 4. Run it
+### 4. Run it locally
+
+There is no Cloudflare Access in front of `wrangler dev`, so `.dev.vars`
+supplies the identity (never set this variable in production):
+
+```
+ALEXA_SKIP_SIGNATURE=true
+DEV_USER_EMAIL=gabriellleragarcia@gmail.com   # the migration-seeded owner
+```
 
 ```bash
 npm run dev
@@ -125,44 +163,26 @@ npm run inspect
 # Browser opens at http://localhost:5173 — point it at http://localhost:8787/mcp
 ```
 
-### 5. Create the OAuth KV namespace + set the password
+### 5. Configure Cloudflare Access
 
-```bash
-npx wrangler kv namespace create OAUTH_KV
-# paste the returned id into wrangler.jsonc → kv_namespaces
-
-# set the gate password (will prompt for input):
-npx wrangler secret put SHARED_SECRET
-```
+Create an Access application with Managed OAuth covering the Worker's custom
+domain (Managed OAuth apps cannot be path-scoped, so it must cover the whole
+host), allow your users' emails in its policy, and put the team domain + the
+app's AUD tag into `wrangler.jsonc` → `vars` (`TEAM_DOMAIN`, `POLICY_AUD`).
+Keep `workers_dev: false` so the unfronted `*.workers.dev` origin stays shut.
 
 ### 6. Deploy
 
 ```bash
 npm run deploy
-# → https://baby-feeding-mcp.<your-subdomain>.workers.dev/mcp
 ```
 
-## Connect from Claude Desktop
+## Connect from Claude
 
-Edit `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "baby-feeding": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "https://baby-feeding-mcp.<your-subdomain>.workers.dev/mcp"
-      ]
-    }
-  }
-}
-```
-
-Restart Claude Desktop. On the first connect a browser tab opens to
-`/authorize` — enter the `SHARED_SECRET` password to approve. The token
-is cached by `mcp-remote` afterward.
+claude.ai → Connectors → add custom connector with the `/mcp` URL — the
+browser runs the Access login on first connect (dynamic client registration,
+no client id/secret). Claude Code:
+`claude mcp add --transport http baby https://<your-host>/mcp`.
 
 Then try:
 
@@ -176,10 +196,12 @@ Then try:
 ```
 .
 ├── src/
-│   ├── index.ts                    # Router + OAuthProvider wiring
+│   ├── index.ts                    # Router; verifies Access JWT, threads identity
+│   ├── access.ts                   # Access JWT verification + email extraction
+│   ├── users.ts                    # Tenancy: users → households → babies
 │   ├── tools.ts                    # McpAgent (Durable Object) + MCP tools
 │   ├── api.ts                      # JSON API for the web app (/api/*)
-│   ├── web.ts                      # OAuth consent, /app login + session auth
+│   ├── web.ts                      # App shell serving + PWA assets
 │   ├── app.html                    # Browser app shell (served at /app)
 │   ├── icons.ts                    # PNG app icons (base64) for iOS/Android
 │   ├── alexa.ts                    # /alexa endpoint for the Alexa skill
@@ -187,7 +209,8 @@ Then try:
 │   ├── types.ts                    # Env + DB row types
 │   └── html.d.ts                   # Type shim: import *.html as string
 ├── test/
-│   └── lib.test.ts                 # Unit tests for the pure helpers
+│   ├── lib.test.ts                 # Unit tests for the pure helpers
+│   └── users.test.ts               # Unit tests for baby selection (pickBaby)
 ├── alexa-skill/
 │   ├── interaction-model.es-ES.json  # Voice model to upload to Alexa
 │   └── README.md                   # Step-by-step skill setup
@@ -208,10 +231,12 @@ Both run in CI (`.github/workflows/ci.yml`) on pushes to `main` and on PRs.
 
 ## Notes
 
-- A single shared password gates `/authorize`. To rotate it:
-  `npx wrangler secret put SHARED_SECRET`. Existing bearer tokens stay
-  valid; revoke a token by deleting its entry in the `OAUTH_KV` namespace.
-- For per-user identities, swap the consent page for a GitHub/Google OAuth
-  proxy (see `cloudflare/ai/demos/remote-mcp-github-oauth`).
+- Onboarding a new caregiver takes two steps: allow their email in the
+  Cloudflare Access policy, and run `add_caregiver` (same household) or
+  `create_household` (separate tenant) from an MCP client. Until both are
+  done they get the Access login but a 403 from the app.
+- D1 migrations are applied manually (`npm run db:migrate:remote`), not by
+  CI. Migration numbering jumps 0017 → 0020 because the production
+  `d1_migrations` table already recorded 0018/0019 for a removed feature.
 - The Durable Object is required by the MCP transport; persistent feeding
   data lives in D1 so it is shared across sessions and clients.
