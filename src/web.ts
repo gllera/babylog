@@ -87,12 +87,12 @@ self.addEventListener("fetch", () => {});
 // ---- App shell ---------------------------------------------------------------
 
 const WHEN_BLOCK = `          <input type="hidden" name="when" value="">
-          <div class="when-display" data-when-display>Now</div>
+          <div class="when-display" data-when-display data-i18n="Now">Now</div>
           <div class="when-quick">
             <button type="button" data-step="-60">&minus;1h</button>
             <button type="button" data-step="-15">&minus;15m</button>
             <button type="button" data-step="-5">&minus;5m</button>
-            <button type="button" data-now>Now</button>
+            <button type="button" data-now data-i18n="Now">Now</button>
             <button type="button" data-step="5">+5m</button>
             <button type="button" data-step="15">+15m</button>
           </div>`;

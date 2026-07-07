@@ -648,6 +648,25 @@
       border-color: var(--primary);
       color: #fff;
     }
+    /* Language switcher (EN | ES), pinned to the right of the header. */
+    #lang-switcher { display: flex; gap: 4px; flex: none; margin-left: auto; }
+    #lang-switcher button {
+      border: 1px solid var(--border);
+      background: var(--chip);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    #lang-switcher button:hover { background: var(--chip-hover); color: var(--text); }
+    #lang-switcher button.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
     @media (max-width: 640px) {
       header { padding: 8px 10px; gap: 8px; }
       nav { gap: 3px; }
@@ -704,181 +723,182 @@
   <header>
     <div id="baby-switcher" hidden></div>
     <nav id="nav">
-      <button data-tab="today" class="active">Today</button>
-      <button data-tab="feedings">Feeding</button>
-      <button data-tab="diapers">Diaper</button>
-      <button data-tab="routines">Routine</button>
+      <button data-tab="today" class="active" data-i18n="Today">Today</button>
+      <button data-tab="feedings" data-i18n="Feeding">Feeding</button>
+      <button data-tab="diapers" data-i18n="Diaper">Diaper</button>
+      <button data-tab="routines" data-i18n="Routine">Routine</button>
       <div class="more-menu">
-        <button type="button" id="more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More tabs" title="More">&#8943;</button>
+        <button type="button" id="more-btn" aria-haspopup="true" aria-expanded="false" aria-label="More tabs" data-i18n-aria-label="More tabs" title="More" data-i18n-title="More">&#8943;</button>
         <div class="more-dropdown" id="more-dropdown" hidden>
-          <button data-tab="weights">Weight</button>
-          <button data-tab="heights">Height</button>
-          <button data-tab="notes">Note</button>
+          <button data-tab="weights" data-i18n="Weight">Weight</button>
+          <button data-tab="heights" data-i18n="Height">Height</button>
+          <button data-tab="notes" data-i18n="Note">Note</button>
         </div>
       </div>
     </nav>
+    <div id="lang-switcher"></div>
   </header>
 
   <main>
     <section id="tab-today" class="tab active">
       <div class="dashboard-grid">
         <div class="card" id="card-targets" hidden>
-          <div class="card-title">Today's targets</div>
+          <div class="card-title" data-i18n="Today's targets">Today's targets</div>
         </div>
         <div class="card" id="card-last-feeding">
-          <div class="card-title">Last feeding</div>
-          <div class="card-empty">Loading&hellip;</div>
+          <div class="card-title" data-i18n="Last feeding">Last feeding</div>
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-diaper">
-          <div class="card-title">Last diaper</div>
-          <div class="card-empty">Loading&hellip;</div>
+          <div class="card-title" data-i18n="Last diaper">Last diaper</div>
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
         <div class="card" id="card-vitamin-d">
-          <div class="card-title">Vitamin D</div>
-          <div class="card-empty">Loading&hellip;</div>
+          <div class="card-title" data-i18n="Vitamin D">Vitamin D</div>
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-tummy">
-          <div class="card-title">Last tummy time</div>
-          <div class="card-empty">Loading&hellip;</div>
+          <div class="card-title" data-i18n="Last tummy time">Last tummy time</div>
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-bath">
-          <div class="card-title">Last bath</div>
-          <div class="card-empty">Loading&hellip;</div>
+          <div class="card-title" data-i18n="Last bath">Last bath</div>
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-weight">
-          <div class="card-title">Last weight</div>
-          <div class="card-empty">Loading&hellip;</div>
+          <div class="card-title" data-i18n="Last weight">Last weight</div>
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
         <div class="card" id="card-last-height">
-          <div class="card-title">Last height</div>
-          <div class="card-empty">Loading&hellip;</div>
+          <div class="card-title" data-i18n="Last height">Last height</div>
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
       </div>
       <div class="week-chart" id="today-timeline" hidden style="margin-top: 14px;">
-        <div class="card-title daychart-title">Today's diary</div>
+        <div class="card-title daychart-title" data-i18n="Today's diary">Today's diary</div>
       </div>
     </section>
 
     <section id="tab-feedings" class="tab">
       <form class="entry-form" data-entity="feedings">
-        <label>Amount (ml)
+        <label><span data-i18n="Amount (ml)">Amount (ml)</span>
           <div class="amount-row">
             <button type="button" class="amount-step" data-step-amt="-10">&minus;10</button>
             <input type="number" name="amount_ml" step="0.1" min="0.1" inputmode="decimal" required placeholder="120">
             <button type="button" class="amount-step" data-step-amt="10">+10</button>
           </div>
         </label>
-        <label>When
+        <label><span data-i18n="When">When</span>
 <!-- WHEN_BLOCK -->
         </label>
-        <button type="submit">Add</button>
-        <button type="button" class="cancel-edit" hidden>Cancel</button>
+        <button type="submit" data-i18n="Add">Add</button>
+        <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
       <div class="week-chart" id="feedings-daychart">
-        <div class="card-title">Selected day &mdash; vs 2 days before</div>
-        <div class="card-empty">Loading&hellip;</div>
+        <div class="card-title" data-i18n="Selected day — vs 2 days before">Selected day &mdash; vs 2 days before</div>
+        <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
       <div class="week-chart" id="feedings-chart">
-        <div class="card-title">This week &mdash; ml per day</div>
-        <div class="card-empty">Loading&hellip;</div>
+        <div class="card-title" data-i18n="This week — ml per day">This week &mdash; ml per day</div>
+        <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
-      <div class="list" id="list-feedings"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-feedings"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
     </section>
 
     <section id="tab-diapers" class="tab">
       <form class="entry-form" data-entity="diapers">
-        <label>Type
+        <label><span data-i18n="Type">Type</span>
           <input type="hidden" name="kind" value="pee">
           <div class="choice-group">
-            <button type="button" class="choice-btn active" data-value="pee">Pee</button>
-            <button type="button" class="choice-btn" data-value="poop">Poop</button>
-            <button type="button" class="choice-btn" data-value="both">Both</button>
+            <button type="button" class="choice-btn active" data-value="pee" data-i18n="Pee">Pee</button>
+            <button type="button" class="choice-btn" data-value="poop" data-i18n="Poop">Poop</button>
+            <button type="button" class="choice-btn" data-value="both" data-i18n="Both">Both</button>
           </div>
         </label>
-        <label>When
+        <label><span data-i18n="When">When</span>
 <!-- WHEN_BLOCK -->
         </label>
-        <button type="submit">Add</button>
-        <button type="button" class="cancel-edit" hidden>Cancel</button>
+        <button type="submit" data-i18n="Add">Add</button>
+        <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
       <div class="week-chart" id="diapers-daychart">
-        <div class="card-title">Selected day &mdash; vs 2 days before</div>
-        <div class="card-empty">Loading&hellip;</div>
+        <div class="card-title" data-i18n="Selected day — vs 2 days before">Selected day &mdash; vs 2 days before</div>
+        <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
       <div class="week-chart" id="diapers-chart">
-        <div class="card-title">This week &mdash; diapers per day</div>
-        <div class="card-empty">Loading&hellip;</div>
+        <div class="card-title" data-i18n="This week — diapers per day">This week &mdash; diapers per day</div>
+        <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
-      <div class="list" id="list-diapers"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-diapers"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
     </section>
 
     <section id="tab-routines" class="tab">
       <form class="entry-form" data-entity="routines">
-        <label>Type
+        <label><span data-i18n="Type">Type</span>
           <input type="hidden" name="name" value="Vitamin D">
           <div class="choice-group">
-            <button type="button" class="choice-btn active" data-value="Vitamin D">Vitamin D</button>
-            <button type="button" class="choice-btn" data-value="Bath">Bath</button>
-            <button type="button" class="choice-btn" data-value="Tummy">Tummy</button>
+            <button type="button" class="choice-btn active" data-value="Vitamin D" data-i18n="Vitamin D">Vitamin D</button>
+            <button type="button" class="choice-btn" data-value="Bath" data-i18n="Bath">Bath</button>
+            <button type="button" class="choice-btn" data-value="Tummy" data-i18n="Tummy">Tummy</button>
           </div>
         </label>
-        <label>When
+        <label><span data-i18n="When">When</span>
 <!-- WHEN_BLOCK -->
         </label>
-        <button type="submit">Add</button>
-        <button type="button" class="cancel-edit" hidden>Cancel</button>
+        <button type="submit" data-i18n="Add">Add</button>
+        <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
-      <div class="list" id="list-routines"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-routines"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
     </section>
 
     <section id="tab-weights" class="tab">
       <form class="entry-form" data-entity="weights">
-        <label>Weight (g)
+        <label><span data-i18n="Weight (g)">Weight (g)</span>
           <input type="number" name="weight_g" step="1" min="1" inputmode="numeric" required placeholder="4250">
         </label>
-        <label>When
+        <label><span data-i18n="When">When</span>
 <!-- WHEN_BLOCK -->
         </label>
-        <button type="submit">Add</button>
-        <button type="button" class="cancel-edit" hidden>Cancel</button>
+        <button type="submit" data-i18n="Add">Add</button>
+        <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
       <div class="week-chart" id="weights-chart">
-        <div class="card-title daychart-title">Weight over time</div>
-        <div class="card-empty">Loading&hellip;</div>
+        <div class="card-title daychart-title" data-i18n="Weight over time">Weight over time</div>
+        <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
-      <div class="list" id="list-weights"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-weights"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
     </section>
 
     <section id="tab-heights" class="tab">
       <form class="entry-form" data-entity="heights">
-        <label>Height (cm)
+        <label><span data-i18n="Height (cm)">Height (cm)</span>
           <input type="number" name="height_cm" step="1" min="1" inputmode="numeric" required placeholder="54">
         </label>
-        <label>When
+        <label><span data-i18n="When">When</span>
 <!-- WHEN_BLOCK -->
         </label>
-        <button type="submit">Add</button>
-        <button type="button" class="cancel-edit" hidden>Cancel</button>
+        <button type="submit" data-i18n="Add">Add</button>
+        <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
       <div class="week-chart" id="heights-chart">
-        <div class="card-title daychart-title">Height over time</div>
-        <div class="card-empty">Loading&hellip;</div>
+        <div class="card-title daychart-title" data-i18n="Height over time">Height over time</div>
+        <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
-      <div class="list" id="list-heights"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-heights"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
     </section>
 
     <section id="tab-notes" class="tab">
       <form class="entry-form" data-entity="notes">
-        <label>Note
-          <input type="text" name="text" maxlength="2000" required placeholder="first smile, rash, Bath...">
+        <label><span data-i18n="Note">Note</span>
+          <input type="text" name="text" maxlength="2000" required placeholder="first smile, rash, Bath..." data-i18n-placeholder="first smile, rash, Bath...">
         </label>
-        <label>When
+        <label><span data-i18n="When">When</span>
 <!-- WHEN_BLOCK -->
         </label>
-        <button type="submit">Add</button>
-        <button type="button" class="cancel-edit" hidden>Cancel</button>
+        <button type="submit" data-i18n="Add">Add</button>
+        <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
-      <div class="list" id="list-notes"><div class="list-loading">Loading...</div></div>
+      <div class="list" id="list-notes"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
     </section>
   </main>
 
@@ -887,6 +907,206 @@
   <script>
     var NUMERIC_FIELDS = { amount_ml: true, weight_g: true, height_cm: true };
     var DAY_MS = 86400000;
+
+    // ---- i18n (English default + Spanish) -----------------------------------
+    // Client-side only: the chosen language is remembered in localStorage
+    // ("lang"), else guessed from the browser. Strings are keyed by their
+    // English text, so English needs no table (a missing key falls back to the
+    // key itself) — only Spanish overrides live in STRINGS.es. Switching
+    // reloads the page (like the baby switcher), so every static and dynamic
+    // string re-renders under the new language. Mirrors src/alexa-i18n.ts.
+    var LANG = "en";
+    try {
+      var storedLang = localStorage.getItem("lang");
+      if (storedLang === "en" || storedLang === "es") {
+        LANG = storedLang;
+      } else {
+        var navLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+        if (navLang.indexOf("es") === 0) LANG = "es";
+      }
+    } catch (_) {}
+
+    var STRINGS = {
+      es: {
+        // App / nav
+        "Baby diary": "Diario del bebé",
+        "Today": "Hoy",
+        "Feeding": "Toma",
+        "Diaper": "Pañal",
+        "Routine": "Rutina",
+        "Weight": "Peso",
+        "Height": "Talla",
+        "Note": "Nota",
+        "More tabs": "Más pestañas",
+        "More": "Más",
+        // Dashboard cards
+        "Today's targets": "Objetivos de hoy",
+        "Last feeding": "Última toma",
+        "Last diaper": "Último pañal",
+        "Last tummy time": "Último rato boca abajo",
+        "Last bath": "Último baño",
+        "Last weight": "Último peso",
+        "Last height": "Última talla",
+        "Today's diary": "Diario de hoy",
+        "Loading…": "Cargando…",
+        // Forms
+        "Amount (ml)": "Cantidad (ml)",
+        "When": "Cuándo",
+        "Add": "Añadir",
+        "Update": "Actualizar",
+        "Cancel": "Cancelar",
+        "Type": "Tipo",
+        "Weight (g)": "Peso (g)",
+        "Height (cm)": "Talla (cm)",
+        "first smile, rash, Bath...": "primera sonrisa, sarpullido, baño...",
+        "Now": "Ahora",
+        // Table column headers
+        "Amount": "Cantidad",
+        // Diaper kinds
+        "Pee": "Pis",
+        "Poop": "Caca",
+        "Both": "Ambas",
+        // Routine canonical names → Spanish display
+        "Vitamin D": "vitamina D",
+        "Bath": "baño",
+        "Tummy": "boca abajo",
+        "Walk": "paseo",
+        "Paracetamol": "paracetamol",
+        "Ibuprofen": "ibuprofeno",
+        "Cream": "pomada",
+        "Syrup": "jarabe",
+        "Massage": "masaje",
+        // Charts
+        "Selected day — vs 2 days before": "Día seleccionado — vs 2 días antes",
+        "This week — ml per day": "Esta semana — ml por día",
+        "This week — diapers per day": "Esta semana — pañales por día",
+        "Weight over time": "Peso a lo largo del tiempo",
+        "Height over time": "Talla a lo largo del tiempo",
+        "Weight over time (g)": "Peso a lo largo del tiempo (g)",
+        "Height over time (cm)": "Talla a lo largo del tiempo (cm)",
+        "This week": "Esta semana",
+        "Week": "Semana",
+        "{d} — vs 2 days before": "{d} — vs 2 días antes",
+        "Record at least two measurements to see a trend.":
+          "Registra al menos dos medidas para ver una tendencia.",
+        "Previous week": "Semana anterior",
+        "Next week": "Semana siguiente",
+        "Weekly feeding totals in millilitres":
+          "Totales de tomas por semana en mililitros",
+        "Weekly pee and poop counts": "Recuento semanal de pises y cacas",
+        "Selected day cumulative feeding total in millilitres vs the prior two days":
+          "Total acumulado de tomas del día seleccionado en mililitros frente a los dos días previos",
+        "Selected day cumulative diaper count vs the prior two days":
+          "Recuento acumulado de pañales del día seleccionado frente a los dos días previos",
+        // Relative time / dates
+        "Yesterday": "Ayer",
+        "now": "ahora",
+        "{d} ago": "hace {d}",
+        "In {d}": "En {d}",
+        "{n} day ago": "hace {n} día",
+        "{n} days ago": "hace {n} días",
+        "{n} day": "{n} día",
+        "{n} days": "{n} días",
+        "yesterday {t}": "ayer {t}",
+        "in": "en",
+        // Cards: empty / status
+        "No feedings yet": "Sin tomas todavía",
+        "No diapers yet": "Sin pañales todavía",
+        "No measurements": "Sin medidas",
+        "Not given today yet": "Aún no dado hoy",
+        "No baths yet": "Sin baños todavía",
+        "No tummy time yet": "Sin ratos boca abajo todavía",
+        "Done today": "Hecho hoy",
+        "Over the {d} max gap": "Supera el intervalo máx. de {d}",
+        "max": "máx",
+        "now ≈": "ahora ≈",
+        // Lists / toasts / errors
+        "No entries yet.": "Sin registros todavía.",
+        "Delete": "Eliminar",
+        "Confirm?": "¿Confirmar?",
+        "Undo": "Deshacer",
+        "Undone": "Deshecho",
+        "Saved": "Guardado",
+        "Updated": "Actualizado",
+        "Deleted": "Eliminado",
+        "Error: {e}": "Error: {e}",
+        "Undo failed: {e}": "No se pudo deshacer: {e}",
+        "Error loading: {e}": "Error al cargar: {e}",
+        "Error loading chart: {e}": "Error al cargar el gráfico: {e}",
+        "Error loading dashboard: {e}": "Error al cargar el panel: {e}",
+        "Delete error: {e}": "Error al eliminar: {e}",
+        // Quick-add toasts
+        "Recorded: {a} ml": "Registrado: {a} ml",
+        "Diaper: {k}": "Pañal: {k}",
+        "Routine: {r}": "Rutina: {r}"
+      }
+    };
+
+    // Translate KEY (English text), interpolating {name} placeholders from VARS.
+    // English (or any missing key) falls back to the key itself.
+    function i18n(key, vars) {
+      var s = (LANG !== "en" && STRINGS[LANG] && STRINGS[LANG][key]) || key;
+      if (vars) {
+        s = s.replace(/\{(\w+)\}/g, function(m, k) {
+          return k in vars ? String(vars[k]) : m;
+        });
+      }
+      return s;
+    }
+
+    // n-aware pick between a singular and plural key (both take {n}).
+    function plural(n, singularKey, pluralKey) {
+      return i18n(n === 1 ? singularKey : pluralKey, { n: n });
+    }
+
+    // Set the static-markup strings (elements tagged with data-i18n*) plus the
+    // page title / lang. Dynamic strings go through t() at render time.
+    function applyStaticI18n() {
+      document.documentElement.lang = LANG;
+      document.title = i18n("Baby diary");
+      var nodes = document.querySelectorAll("[data-i18n]");
+      for (var i = 0; i < nodes.length; i++) {
+        nodes[i].textContent = i18n(nodes[i].getAttribute("data-i18n"));
+      }
+      var attrMap = [
+        ["data-i18n-placeholder", "placeholder"],
+        ["data-i18n-title", "title"],
+        ["data-i18n-aria-label", "aria-label"]
+      ];
+      for (var a = 0; a < attrMap.length; a++) {
+        var els = document.querySelectorAll("[" + attrMap[a][0] + "]");
+        for (var j = 0; j < els.length; j++) {
+          els[j].setAttribute(attrMap[a][1], i18n(els[j].getAttribute(attrMap[a][0])));
+        }
+      }
+    }
+
+    // EN | ES toggle in the header; the choice reloads so all views re-render.
+    function renderLangSwitcher() {
+      var el = document.getElementById("lang-switcher");
+      if (!el) return;
+      var opts = [["en", "EN"], ["es", "ES"]];
+      var html = "";
+      for (var i = 0; i < opts.length; i++) {
+        html += '<button type="button" data-lang="' + opts[i][0] + '"' +
+          (opts[i][0] === LANG ? ' class="active"' : "") + ">" + opts[i][1] + "</button>";
+      }
+      el.innerHTML = html;
+    }
+
+    function initLangSwitcher() {
+      var el = document.getElementById("lang-switcher");
+      if (!el) return;
+      renderLangSwitcher();
+      el.addEventListener("click", function(e) {
+        var t2 = e.target;
+        if (!t2 || !t2.getAttribute) return;
+        var lang = t2.getAttribute("data-lang");
+        if (!lang || lang === LANG) return;
+        try { localStorage.setItem("lang", lang); } catch (_) {}
+        location.reload();
+      });
+    }
 
     // WHO Child Growth Standards (2006), LMS values by completed month 0-24.
     // wfa = weight-for-age (kg), lfa = length-for-age (cm); source: WHO via
@@ -941,10 +1161,16 @@
     function fmtText(v) { return v == null ? "" : String(v); }
 
     function fmtKind(v) {
-      if (v === "pee") return "Pee";
-      if (v === "poop") return "Poop";
-      if (v === "both") return "Both";
+      if (v === "pee") return i18n("Pee");
+      if (v === "poop") return i18n("Poop");
+      if (v === "both") return i18n("Both");
       return v == null ? "" : String(v);
+    }
+
+    // Routine canonical names are stored in English; show a localized label
+    // (unknown/custom names pass through unchanged via i18n()'s key fallback).
+    function fmtRoutine(name) {
+      return i18n(name == null ? "" : String(name));
     }
 
     var entities = {
@@ -966,7 +1192,7 @@
         endpoint: "/api/routines",
         columns: [
           { key: "ts", label: "When", cls: "ts-col" },
-          { key: "name", label: "Type", fmt: fmtText }
+          { key: "name", label: "Type", fmt: fmtRoutine }
         ]
       },
       notes: {
@@ -1049,8 +1275,8 @@
     // "Today" / "Yesterday" / "Tue 09/06" — relative label for a Madrid day start.
     function relDayLabel(d) {
       var diff = Math.round((startOfDay().getTime() - d.getTime()) / DAY_MS);
-      if (diff === 0) return "Today";
-      if (diff === 1) return "Yesterday";
+      if (diff === 0) return i18n("Today");
+      if (diff === 1) return i18n("Yesterday");
       var w = toWall(d);
       return WEEK_DAY_LABELS[(w.getUTCDay() + 6) % 7] + " " + fmtDayMonth(d);
     }
@@ -1064,9 +1290,9 @@
       var t = new Date(s).getTime();
       if (isNaN(t)) return String(s);
       var diff = Date.now() - t;
-      if (diff < 45 * 1000) return "now";
+      if (diff < 45 * 1000) return i18n("now");
       if (diff >= 30 * DAY_MS) return fmtFullDate(new Date(s));
-      return durationLabel(diff) + " ago";
+      return i18n("{d} ago", { d: durationLabel(diff) });
     }
 
     // Whole Madrid calendar days ago: "Today", "1 day ago", "12 days ago".
@@ -1078,9 +1304,9 @@
       var w = toWall(d); w.setUTCHours(0, 0, 0, 0);
       var t = toWall(new Date()); t.setUTCHours(0, 0, 0, 0);
       var days = Math.round((t.getTime() - w.getTime()) / DAY_MS);
-      if (days <= 0) return "Today";
+      if (days <= 0) return i18n("Today");
       if (days >= 30) return fmtFullDate(d);
-      return days + (days === 1 ? " day ago" : " days ago");
+      return plural(days, "{n} day ago", "{n} days ago");
     }
 
     function absoluteTs(s) {
@@ -1128,7 +1354,7 @@
       if (undoFn) {
         var b = document.createElement("button");
         b.type = "button";
-        b.textContent = "Undo";
+        b.textContent = i18n("Undo");
         b.addEventListener("click", function() {
           toastEl.className = "toast";
           undoFn();
@@ -1186,12 +1412,12 @@
       if (!id) return null;
       return function() {
         deleteEntry(entity, id).then(function() {
-          toast("Undone");
+          toast(i18n("Undone"));
           if (charts[entity]) resetChartWeek(entity);
           if (currentTab === "today") loadDashboard();
           else if (currentTab === entity) loadList(entity);
         }).catch(function(err) {
-          if (err.message !== "Unauthorized") toast("Undo failed: " + err.message, true);
+          if (err.message !== "Unauthorized") toast(i18n("Undo failed: {e}", { e: err.message }), true);
         });
       };
     }
@@ -1206,7 +1432,7 @@
         if (MEASURE_CHARTS[entity]) renderMeasureChart(entity, data.items || []);
       } catch (err) {
         if (err.message === "Unauthorized") return;
-        container.innerHTML = '<div class="list-empty">Error loading: ' + escapeHtml(err.message) + "</div>";
+        container.innerHTML = '<div class="list-empty">' + escapeHtml(i18n("Error loading: {e}", { e: err.message })) + "</div>";
       }
     }
 
@@ -1227,8 +1453,8 @@
         if (!isNaN(t) && isFinite(v)) pts.push({ t: t, v: v });
       }
       if (pts.length < 2) {
-        el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(mc.title) + '</div>' +
-          '<div class="card-empty">Record at least two measurements to see a trend.</div>';
+        el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n(mc.title)) + '</div>' +
+          '<div class="card-empty">' + escapeHtml(i18n("Record at least two measurements to see a trend.")) + '</div>';
         return;
       }
       var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
@@ -1257,7 +1483,7 @@
           var lmsLast = lmsAt(table, ageMo(t1));
           if (lmsLast) {
             var pct = Math.round(normCdf(lmsZ(lmsLast, pts[pts.length - 1].v / mc.scale)) * 100);
-            pctNote = " &middot; now &asymp; " + (pct < 1 ? "&lt;P1" : pct > 99 ? "&gt;P99" : "P" + pct);
+            pctNote = " &middot; " + escapeHtml(i18n("now")) + " &asymp; " + (pct < 1 ? "&lt;P1" : pct > 99 ? "&gt;P99" : "P" + pct);
           }
         }
       }
@@ -1316,8 +1542,8 @@
       var dateLabels =
         '<text class="cl-daylabel" x="' + LX + '" y="' + LABEL_Y + '">' + escapeHtml(fmtDayMonth(new Date(t0))) + '</text>' +
         '<text class="cl-daylabel" x="' + RX + '" y="' + LABEL_Y + '">' + escapeHtml(fmtDayMonth(new Date(t1))) + '</text>';
-      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(mc.title) + pctNote + '</div>' +
-        '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + escapeHtml(mc.title) + '">' +
+      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n(mc.title)) + pctNote + '</div>' +
+        '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + escapeHtml(i18n(mc.title)) + '">' +
         whoSvg +
         '<polyline class="cl-line" points="' + poly.trim() + '"></polyline>' +
         dots + vals + dateLabels +
@@ -1332,7 +1558,9 @@
       return fromWall(w.getTime());
     }
 
-    var WEEK_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    var WEEK_DAY_LABELS = LANG === "es"
+      ? ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+      : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
     var charts = {
       feedings: { elId: "feedings-chart", dayElId: "feedings-daychart", endpoint: "/api/feedings",
@@ -1386,13 +1614,13 @@
       var el = document.getElementById(c.elId);
       var isCurrent = c.weekStart.getTime() === startOfWeek().getTime();
       var weekEnd = addDaysMadrid(c.weekStart, 6);
-      var title = (isCurrent ? "This week" : "Week") + " &mdash; " +
+      var title = escapeHtml(i18n(isCurrent ? "This week" : "Week")) + " &mdash; " +
         escapeHtml(fmtDayMonth(c.weekStart) + " – " + fmtDayMonth(weekEnd));
       el.innerHTML =
         '<div class="chart-head">' +
-          '<button type="button" class="chart-nav" data-week="-1" aria-label="Previous week">&#9664;</button>' +
+          '<button type="button" class="chart-nav" data-week="-1" aria-label="' + escapeHtml(i18n("Previous week")) + '">&#9664;</button>' +
           '<div class="card-title chart-title">' + title + '</div>' +
-          '<button type="button" class="chart-nav" data-week="1" aria-label="Next week"' + (isCurrent ? " disabled" : "") + '>&#9654;</button>' +
+          '<button type="button" class="chart-nav" data-week="1" aria-label="' + escapeHtml(i18n("Next week")) + '"' + (isCurrent ? " disabled" : "") + '>&#9654;</button>' +
         '</div>' +
         c.renderBars(c);
       renderDayChart(key);
@@ -1446,7 +1674,7 @@
           marks += '<text class="cl-val" x="' + x + '" y="' + (y - 7) + '">' + escapeHtml(mlStr) + '</text>';
         }
       }
-      return '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Weekly feeding totals in millilitres">' +
+      return '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + escapeHtml(i18n("Weekly feeding totals in millilitres")) + '">' +
         '<g class="cl-hits">' + hits + '</g>' +
         '<polyline class="cl-line" points="' + pts.trim() + '"></polyline>' +
         marks +
@@ -1503,7 +1731,7 @@
         '</g>';
         labels += '<text class="cl-daylabel' + state + '" x="' + cx(b) + '" y="' + LABEL_Y + '">' + WEEK_DAY_LABELS[b] + '</text>';
       }
-      var svg = '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Weekly pee and poop counts">' +
+      var svg = '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + escapeHtml(i18n("Weekly pee and poop counts")) + '">' +
         '<g class="cl-hits">' + hits + '</g>' +
         '<polyline class="cl-line pee" points="' + linePts(pees) + '"></polyline>' +
         '<polyline class="cl-line poop" points="' + linePts(poops) + '"></polyline>' +
@@ -1511,7 +1739,7 @@
         labels +
       '</svg>';
       var legend = '<div class="chart-legend">' +
-        '<span><i class="pee"></i>Pee</span><span><i class="poop"></i>Poop</span>' +
+        '<span><i class="pee"></i>' + escapeHtml(i18n("Pee")) + '</span><span><i class="poop"></i>' + escapeHtml(i18n("Poop")) + '</span>' +
       '</div>';
       return legend + svg;
     }
@@ -1534,8 +1762,8 @@
       }
       var refDate = days[days.length - 1];
       var rel = relDayLabel(refDate);
-      if (rel === "Today" || rel === "Yesterday") rel += " · " + fmtDayMonth(refDate);
-      var title = rel + " &mdash; vs 2 days before";
+      if (rel === i18n("Today") || rel === i18n("Yesterday")) rel += " · " + fmtDayMonth(refDate);
+      var title = escapeHtml(i18n("{d} — vs 2 days before", { d: rel }));
       el.innerHTML =
         '<div class="card-title daychart-title">' + title + '</div>' +
         c.renderDay(c, days);
@@ -1588,7 +1816,7 @@
         var lbl = ticks[h] < 10 ? "0" + ticks[h] : String(ticks[h]);
         hourLabels += '<text class="cl-daylabel" x="' + hx(ticks[h]) + '" y="' + LABEL_Y + '">' + lbl + '</text>';
       }
-      var svg = '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + ariaLabel + '">' +
+      var svg = '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + escapeHtml(ariaLabel) + '">' +
         lines + dots + hourLabels +
       '</svg>';
       var legend = '<div class="chart-legend">';
@@ -1603,14 +1831,14 @@
       return renderDayComparison(c, days,
         function(it) { var n = Number(it.amount_ml); return isFinite(n) ? n : 0; },
         function(v) { return (v % 1 === 0 ? String(v) : v.toFixed(1)) + " ml"; },
-        "Selected day cumulative feeding total in millilitres vs the prior two days");
+        i18n("Selected day cumulative feeding total in millilitres vs the prior two days"));
     }
 
     function renderDiaperDay(c, days) {
       return renderDayComparison(c, days,
         function() { return 1; }, // each diaper record is one change
         function(v) { return String(v); },
-        "Selected day cumulative diaper count vs the prior two days");
+        i18n("Selected day cumulative diaper count vs the prior two days"));
     }
 
     // Chart navigation (prev/next week) and day selection — shared by all charts.
@@ -1654,8 +1882,8 @@
       var yw = toWall(new Date());
       yw.setUTCDate(yw.getUTCDate() - 1);
       var ddmm = ds.slice(8, 10) + "/" + ds.slice(5, 7);
-      if (ds === todayS) return "Today · " + ddmm;
-      if (ds === yw.toISOString().slice(0, 10)) return "Yesterday · " + ddmm;
+      if (ds === todayS) return i18n("Today") + " · " + ddmm;
+      if (ds === yw.toISOString().slice(0, 10)) return i18n("Yesterday") + " · " + ddmm;
       var dow = WEEK_DAY_LABELS[(new Date(ds + "T00:00:00Z").getUTCDay() + 6) % 7];
       var label = dow + " " + ddmm;
       if (ds.slice(0, 4) !== todayS.slice(0, 4)) label += "/" + ds.slice(0, 4);
@@ -1668,13 +1896,13 @@
       var byId = {};
       listItemsById[entity] = byId;
       if (!items.length) {
-        container.innerHTML = '<div class="list-empty">No entries yet.</div>';
+        container.innerHTML = '<div class="list-empty">' + escapeHtml(i18n("No entries yet.")) + '</div>';
         return;
       }
       var head = "";
       for (var i = 0; i < cfg.columns.length; i++) {
         var c = cfg.columns[i];
-        head += "<th" + (c.cls ? ' class="' + c.cls + '"' : "") + ">" + escapeHtml(c.label) + "</th>";
+        head += "<th" + (c.cls ? ' class="' + c.cls + '"' : "") + ">" + escapeHtml(i18n(c.label)) + "</th>";
       }
       head += '<th class="actions-col"></th>';
 
@@ -1701,7 +1929,7 @@
             row += "<td" + (col.cls ? ' class="' + col.cls + '"' : "") + ">" + escapeHtml(rendered) + "</td>";
           }
         }
-        row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">Delete</button></td>';
+        row += '<td class="actions-col"><button class="delete-btn" data-id="' + item.id + '" data-entity="' + entity + '">' + escapeHtml(i18n("Delete")) + '</button></td>';
         body += '<tr data-id="' + item.id + '">' + row + "</tr>";
       }
       container.innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
@@ -1750,7 +1978,7 @@
         syncBabies(dashboardData);
         renderDashboard();
       } catch (err) {
-        if (err.message !== "Unauthorized") toast("Error loading dashboard: " + err.message, true);
+        if (err.message !== "Unauthorized") toast(i18n("Error loading dashboard: {e}", { e: err.message }), true);
       }
     }
 
@@ -1807,7 +2035,7 @@
         var unitS = ind.unit ? " " + ind.unit : "";
         var value = ind.comparison === ">="
           ? ind.actual + "/" + ind.target + unitS
-          : ind.actual + "/" + ind.target + unitS + " max";
+          : ind.actual + "/" + ind.target + unitS + " " + i18n("max");
         if (ind.period_days > 1) value += " · " + ind.period_days + "d";
         var over = !ind.met && ind.comparison === "<=";
         var cls = (ind.met ? " met" : "") + (over ? " over" : "");
@@ -1818,7 +2046,7 @@
           '<span class="target-value">' + escapeHtml(value) + '</span>' +
         '</div>';
       }
-      el.innerHTML = '<div class="card-title">Today&#39;s targets</div>' + rows;
+      el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Today's targets")) + '</div>' + rows;
     }
 
     // Merged chronological diary of everything recorded today, newest first.
@@ -1827,13 +2055,13 @@
       var events = [];
       var i;
       var tf = d.today_feedings || [];
-      for (i = 0; i < tf.length; i++) events.push({ ts: tf[i].ts, type: "feed", kind: "Feeding", text: tf[i].amount_ml + " ml" });
+      for (i = 0; i < tf.length; i++) events.push({ ts: tf[i].ts, type: "feed", kind: i18n("Feeding"), text: tf[i].amount_ml + " ml" });
       var td = d.today_diapers || [];
-      for (i = 0; i < td.length; i++) events.push({ ts: td[i].ts, type: "diaper", kind: "Diaper", text: fmtKind(td[i].kind) });
+      for (i = 0; i < td.length; i++) events.push({ ts: td[i].ts, type: "diaper", kind: i18n("Diaper"), text: fmtKind(td[i].kind) });
       var tr = d.today_routines || [];
-      for (i = 0; i < tr.length; i++) events.push({ ts: tr[i].ts, type: "routine", kind: "Routine", text: tr[i].name });
+      for (i = 0; i < tr.length; i++) events.push({ ts: tr[i].ts, type: "routine", kind: i18n("Routine"), text: fmtRoutine(tr[i].name) });
       var tn = d.today_notes || [];
-      for (i = 0; i < tn.length; i++) events.push({ ts: tn[i].ts, type: "note", kind: "Note", text: tn[i].text });
+      for (i = 0; i < tn.length; i++) events.push({ ts: tn[i].ts, type: "note", kind: i18n("Note"), text: tn[i].text });
       if (!events.length) { el.hidden = true; return; }
       events.sort(function(a, b) { return a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0; });
       var rows = "";
@@ -1847,7 +2075,7 @@
         '</div>';
       }
       el.hidden = false;
-      el.innerHTML = '<div class="card-title daychart-title">Today&#39;s diary</div>' + rows;
+      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n("Today's diary")) + '</div>' + rows;
     }
 
     // One renderer for the routine dashboard cards (Vitamin D / Bath / Tummy).
@@ -1856,17 +2084,17 @@
     // dose can't be fat-fingered twice from the dashboard.
     function renderRoutineCard(opts, item) {
       var el = document.getElementById(opts.cardId);
-      var head = '<div class="card-title">' + escapeHtml(opts.title) + '</div>';
+      var head = '<div class="card-title">' + escapeHtml(i18n(opts.title)) + '</div>';
       var doneToday = item && new Date(item.ts).getTime() >= startOfDay().getTime();
       var show = item && (!opts.todayOnly || doneToday);
       var body = show
         ? '<div class="card-main">' + escapeHtml(opts.wholeDays ? daysAgoLabel(item.ts) : timeAgo(item.ts)) + '</div>' +
           '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
-        : '<div class="card-empty">' + escapeHtml(opts.empty) + '</div>';
+        : '<div class="card-empty">' + escapeHtml(i18n(opts.empty)) + '</div>';
       var actions = opts.todayOnly && doneToday
-        ? '<div class="quick-row"><button class="quick-btn done" disabled>&#10003; Done today</button></div>'
+        ? '<div class="quick-row"><button class="quick-btn done" disabled>&#10003; ' + escapeHtml(i18n("Done today")) + '</button></div>'
         : '<div class="quick-row">' +
-            '<button class="quick-btn" data-quick="routine" data-name="' + escapeHtml(opts.name) + '">+ ' + escapeHtml(opts.name) + '</button>' +
+            '<button class="quick-btn" data-quick="routine" data-name="' + escapeHtml(opts.name) + '">+ ' + escapeHtml(fmtRoutine(opts.name)) + '</button>' +
           '</div>';
       el.innerHTML = head + body + actions;
     }
@@ -1907,17 +2135,17 @@
       var el = document.getElementById("card-last-feeding");
       el.classList.remove("warn");
       if (!item) {
-        el.innerHTML = '<div class="card-title">Last feeding</div>' +
-          '<div class="card-empty">No feedings yet</div>' +
+        el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Last feeding")) + '</div>' +
+          '<div class="card-empty">' + escapeHtml(i18n("No feedings yet")) + '</div>' +
           feedingShortcutsHtml();
         return;
       }
       var over = gapMaxMin && (Date.now() - new Date(item.ts).getTime()) > gapMaxMin * 60000;
       if (over) el.classList.add("warn");
       var warnNote = over
-        ? '<div class="card-warn-note">&#9888; Over the ' + escapeHtml(durationLabel(gapMaxMin * 60000)) + ' max gap</div>'
+        ? '<div class="card-warn-note">&#9888; ' + escapeHtml(i18n("Over the {d} max gap", { d: durationLabel(gapMaxMin * 60000) })) + '</div>'
         : "";
-      el.innerHTML = '<div class="card-title">Last feeding</div>' +
+      el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Last feeding")) + '</div>' +
         '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
         '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' +
           escapeHtml(item.amount_ml + " ml · " + formatWhenAbs(new Date(item.ts))) + '</div>' +
@@ -1927,25 +2155,25 @@
 
     function renderLastDiaper(item) {
       var el = document.getElementById("card-last-diaper");
-      var head = '<div class="card-title">Last diaper</div>';
+      var head = '<div class="card-title">' + escapeHtml(i18n("Last diaper")) + '</div>';
       var body = item
         ? '<div class="card-main">' + escapeHtml(fmtKind(item.kind)) + '</div>' +
           '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
-        : '<div class="card-empty">No diapers yet</div>';
+        : '<div class="card-empty">' + escapeHtml(i18n("No diapers yet")) + '</div>';
       var actions = '<div class="quick-row">' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="pee">+ Pee</button>' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="poop">+ Poop</button>' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="both">+ Both</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="pee">+ ' + escapeHtml(i18n("Pee")) + '</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="poop">+ ' + escapeHtml(i18n("Poop")) + '</button>' +
+        '<button class="quick-btn" data-quick="diaper" data-kind="both">+ ' + escapeHtml(i18n("Both")) + '</button>' +
       '</div>';
       el.innerHTML = head + body + actions;
     }
 
     function renderLastMeasurement(cardId, title, items, valueKey, unit) {
       var el = document.getElementById(cardId);
-      var head = '<div class="card-title">' + escapeHtml(title) + '</div>';
+      var head = '<div class="card-title">' + escapeHtml(i18n(title)) + '</div>';
       var item = items[0];
       if (!item) {
-        el.innerHTML = head + '<div class="card-empty">No measurements</div>';
+        el.innerHTML = head + '<div class="card-empty">' + escapeHtml(i18n("No measurements")) + '</div>';
         return;
       }
       var deltaHtml = "";
@@ -1954,7 +2182,7 @@
         var diff = item[valueKey] - prev[valueKey];
         var days = Math.max(1, Math.round((new Date(item.ts) - new Date(prev.ts)) / DAY_MS));
         deltaHtml = '<div class="card-sub">' +
-          escapeHtml((diff > 0 ? "+" : "") + diff + " " + unit + " in " + days + (days === 1 ? " day" : " days")) +
+          escapeHtml((diff > 0 ? "+" : "") + diff + " " + unit + " " + i18n("in") + " " + plural(days, "{n} day", "{n} days")) +
           '</div>';
       }
       el.innerHTML = head +
@@ -2025,7 +2253,7 @@
       var rem = mins % 60;
       if (hrs < 24) return rem ? (hrs + "h " + rem + "m") : (hrs + "h");
       var days = Math.floor(hrs / 24);
-      return days + (days === 1 ? " day" : " days");
+      return plural(days, "{n} day", "{n} days");
     }
 
     function formatWhenAbs(d) {
@@ -2033,7 +2261,7 @@
       if (ds === madridDateStr(new Date())) return formatTimeOfDay(d);
       var yw = toWall(new Date());
       yw.setUTCDate(yw.getUTCDate() - 1);
-      if (ds === yw.toISOString().slice(0, 10)) return "yesterday " + formatTimeOfDay(d);
+      if (ds === yw.toISOString().slice(0, 10)) return i18n("yesterday {t}", { t: formatTimeOfDay(d) });
       return fmtDayMonth(d) + " " + formatTimeOfDay(d);
     }
 
@@ -2041,14 +2269,14 @@
       var label = input.closest("label");
       var display = label ? label.querySelector("[data-when-display]") : null;
       if (!display) return;
-      if (!input.value) { display.textContent = "Now"; return; }
+      if (!input.value) { display.textContent = i18n("Now"); return; }
       var d = parseWallTime(input.value);
       if (!d) { display.textContent = ""; return; }
       var diff = d.getTime() - Date.now();
-      if (Math.abs(diff) < 30 * 1000) { display.textContent = "Now"; return; }
+      if (Math.abs(diff) < 30 * 1000) { display.textContent = i18n("Now"); return; }
       var abs = formatWhenAbs(d);
-      if (diff < 0) display.textContent = durationLabel(-diff) + " ago · " + abs;
-      else display.textContent = "In " + durationLabel(diff) + " · " + abs;
+      if (diff < 0) display.textContent = i18n("{d} ago", { d: durationLabel(-diff) }) + " · " + abs;
+      else display.textContent = i18n("In {d}", { d: durationLabel(diff) }) + " · " + abs;
     }
 
     function stepWhen(input, deltaMin) {
@@ -2174,7 +2402,7 @@
         when.value = toWallInputString(new Date(item.ts));
         updateWhenDisplay(when);
       }
-      form.querySelector("button[type=submit]").textContent = "Update";
+      form.querySelector("button[type=submit]").textContent = i18n("Update");
       var cancel = form.querySelector(".cancel-edit");
       if (cancel) cancel.hidden = false;
       form.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2185,7 +2413,7 @@
       if (!form) return;
       delete editState[entity];
       form.classList.remove("editing");
-      form.querySelector("button[type=submit]").textContent = "Add";
+      form.querySelector("button[type=submit]").textContent = i18n("Add");
       var cancel = form.querySelector(".cancel-edit");
       if (cancel) cancel.hidden = true;
       form.reset();
@@ -2254,16 +2482,16 @@
           if (editId) {
             await putJson(entities[entity].endpoint + "/" + editId, body);
             exitEdit(entity);
-            toast("Updated");
+            toast(i18n("Updated"));
           } else {
             var created = await postJson(entities[entity].endpoint, body);
             form.reset();
-            toast("Saved", false, makeUndo(entity, created && created.id));
+            toast(i18n("Saved"), false, makeUndo(entity, created && created.id));
           }
           if (charts[entity]) resetChartWeek(entity);
           loadList(entity);
         } catch (err) {
-          if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
+          if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
         } finally {
           submitBtn.disabled = false;
         }
@@ -2278,15 +2506,15 @@
       if (which === "feeding") {
         var amt = parseFloat(t.getAttribute("data-amount"));
         if (!isFinite(amt) || amt <= 0) return;
-        quickPost(t, "feedings", { amount_ml: amt }, "Recorded: " + amt + " ml");
+        quickPost(t, "feedings", { amount_ml: amt }, i18n("Recorded: {a} ml", { a: amt }));
       } else if (which === "diaper") {
         var kind = t.getAttribute("data-kind");
         if (!kind) return;
-        quickPost(t, "diapers", { kind: kind }, "Diaper: " + fmtKind(kind));
+        quickPost(t, "diapers", { kind: kind }, i18n("Diaper: {k}", { k: fmtKind(kind) }));
       } else if (which === "routine") {
         var routineName = t.getAttribute("data-name");
         if (!routineName) return;
-        quickPost(t, "routines", { name: routineName }, "Routine: " + routineName);
+        quickPost(t, "routines", { name: routineName }, i18n("Routine: {r}", { r: fmtRoutine(routineName) }));
       }
     });
 
@@ -2309,7 +2537,7 @@
       for (var i = 0; i < pending.length; i++) {
         if (pending[i] === except) continue;
         pending[i].classList.remove("pending");
-        pending[i].textContent = "Delete";
+        pending[i].textContent = i18n("Delete");
       }
     }
 
@@ -2323,11 +2551,11 @@
       if (!t.classList.contains("pending")) {
         disarmAllDeletes(t);
         t.classList.add("pending");
-        t.textContent = "Confirm?";
+        t.textContent = i18n("Confirm?");
         setTimeout(function() {
           if (t.classList.contains("pending")) {
             t.classList.remove("pending");
-            t.textContent = "Delete";
+            t.textContent = i18n("Delete");
           }
         }, 4000);
         return;
@@ -2338,10 +2566,10 @@
       try {
         await deleteEntry(entity, id);
         if (String(editState[entity]) === String(id)) exitEdit(entity);
-        toast("Deleted");
+        toast(i18n("Deleted"));
         loadList(entity);
       } catch (err) {
-        if (err.message !== "Unauthorized") toast("Delete error: " + err.message, true);
+        if (err.message !== "Unauthorized") toast(i18n("Delete error: {e}", { e: err.message }), true);
       } finally {
         t.disabled = false;
       }
@@ -2359,6 +2587,8 @@
       var h = (location.hash || "").replace(/^#/, "");
       return (h === "today" || entities[h]) ? h : "today";
     }
+    applyStaticI18n();
+    initLangSwitcher();
     window.addEventListener("hashchange", function() { showTab(tabFromHash()); });
     showTab(tabFromHash());
 
