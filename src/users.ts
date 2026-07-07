@@ -45,3 +45,37 @@ export function pickBaby(babies: BabyRow[], ref?: string): BabyRow {
 export function notRegisteredMessage(email: string): string {
   return `${email} is not registered in any household. Ask the household owner to run add_caregiver('${email}') from their MCP client.`;
 }
+
+export async function getBabies(
+  db: D1Database,
+  householdId: number
+): Promise<BabyRow[]> {
+  const { results } = await db
+    .prepare(
+      "SELECT id, household_id, name, sex, date_of_birth, is_default FROM babies WHERE household_id = ? ORDER BY id"
+    )
+    .bind(householdId)
+    .all<BabyRow>();
+  return results;
+}
+
+// null = authenticated but unregistered (callers turn this into a 403 with
+// notRegisteredMessage). There is deliberately NO auto-provisioning: silent
+// provisioning would split one family into two tenants the first time a
+// second caregiver logs in.
+export async function resolveTenant(
+  db: D1Database,
+  email: string
+): Promise<Tenant | null> {
+  const user = await db
+    .prepare("SELECT id, email, household_id FROM users WHERE email = ?")
+    .bind(email.toLowerCase())
+    .first<UserRow>();
+  if (!user) return null;
+  return {
+    userId: user.id,
+    email: user.email,
+    householdId: user.household_id,
+    babies: await getBabies(db, user.household_id),
+  };
+}
