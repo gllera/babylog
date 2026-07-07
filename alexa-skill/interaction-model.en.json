@@ -1,0 +1,238 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "baby log",
+      "intents": [
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
+        {
+          "name": "RecordFeedingIntent",
+          "slots": [
+            { "name": "amount", "type": "AMAZON.NUMBER" }
+          ],
+          "samples": [
+            "{amount}",
+            "{amount} milliliters",
+            "{amount} millilitres",
+            "{amount} ml",
+            "took {amount}",
+            "took {amount} milliliters",
+            "took {amount} millilitres",
+            "she took {amount} milliliters",
+            "he took {amount} milliliters",
+            "just took {amount} milliliters",
+            "I gave {amount} milliliters",
+            "log {amount} milliliters",
+            "record {amount} milliliters",
+            "a feeding of {amount} milliliters"
+          ]
+        },
+        {
+          "name": "RecordDiaperIntent",
+          "slots": [
+            { "name": "kind", "type": "DiaperKind" }
+          ],
+          "samples": [
+            "did {kind}",
+            "did a {kind}",
+            "she did {kind}",
+            "he did {kind}",
+            "just did {kind}",
+            "log a {kind} diaper",
+            "record a {kind} diaper",
+            "a {kind} diaper",
+            "a diaper of {kind}"
+          ]
+        },
+        {
+          "name": "RecordRoutineIntent",
+          "slots": [
+            { "name": "routine", "type": "Routine" }
+          ],
+          "samples": [
+            "gave {routine}",
+            "I gave {routine}",
+            "did {routine}",
+            "we did {routine}",
+            "we just did {routine}",
+            "log {routine}",
+            "record {routine}",
+            "record a routine of {routine}"
+          ]
+        },
+        {
+          "name": "GetStatsIntent",
+          "samples": [
+            "how are we doing",
+            "how are we doing today",
+            "how is the day going",
+            "how's it going",
+            "summary",
+            "daily summary",
+            "give me the summary",
+            "tell me how the day is going"
+          ]
+        },
+        {
+          "name": "LastFeedingIntent",
+          "samples": [
+            "when was the last feeding",
+            "when did she last eat",
+            "when did he last eat",
+            "how long since the last feeding",
+            "last feeding"
+          ]
+        }
+      ],
+      "types": [
+        {
+          "name": "DiaperKind",
+          "values": [
+            {
+              "id": "pee",
+              "name": {
+                "value": "pee",
+                "synonyms": [
+                  "a pee",
+                  "wee",
+                  "a wee",
+                  "wet",
+                  "pee pee",
+                  "peed",
+                  "number one"
+                ]
+              }
+            },
+            {
+              "id": "poop",
+              "name": {
+                "value": "poop",
+                "synonyms": [
+                  "a poop",
+                  "poo",
+                  "a poo",
+                  "pooped",
+                  "poopy",
+                  "dirty",
+                  "number two"
+                ]
+              }
+            },
+            {
+              "id": "both",
+              "name": {
+                "value": "both",
+                "synonyms": [
+                  "the works",
+                  "everything",
+                  "pee and poop",
+                  "poop and pee",
+                  "wee and poo",
+                  "both things"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Routine",
+          "values": [
+            {
+              "name": {
+                "value": "Vitamin D",
+                "synonyms": [
+                  "vit d",
+                  "vitamin d",
+                  "vitamin",
+                  "the vitamin",
+                  "vitamin drops",
+                  "vitamin dee",
+                  "d"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "Bath",
+                "synonyms": [
+                  "bath",
+                  "a bath",
+                  "bath time",
+                  "the bath",
+                  "shower",
+                  "bathtub",
+                  "bath tub"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "Tummy",
+                "synonyms": [
+                  "tummy",
+                  "tummy time",
+                  "belly time",
+                  "on her tummy",
+                  "on his tummy",
+                  "on the tummy"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "Walk",
+                "synonyms": [
+                  "walk",
+                  "a walk",
+                  "walkies",
+                  "went for a walk",
+                  "outside",
+                  "stroll"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "Paracetamol",
+                "synonyms": ["paracetamol", "tylenol", "acetaminophen"]
+              }
+            },
+            {
+              "name": {
+                "value": "Ibuprofen",
+                "synonyms": ["ibuprofen", "ibuprofin", "advil", "motrin"]
+              }
+            },
+            {
+              "name": {
+                "value": "Cream",
+                "synonyms": [
+                  "cream",
+                  "the cream",
+                  "diaper cream",
+                  "nappy cream",
+                  "ointment"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "Syrup",
+                "synonyms": ["syrup"]
+              }
+            },
+            {
+              "name": {
+                "value": "Massage",
+                "synonyms": ["massage", "a massage", "the massage"]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

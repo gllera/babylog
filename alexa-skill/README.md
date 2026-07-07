@@ -1,9 +1,19 @@
-# Alexa skill — `Bitácora de Gabita`
+# Alexa skill — `Bitácora de Gabita` / `baby log`
 
-A custom Alexa skill (Spanish, `es-ES`) that talks to the same Cloudflare
-Worker as the MCP server and the web app. Voice commands write to the same
-D1 database, so anything you say to Alexa shows up immediately in the web UI
-and in MCP clients.
+A custom Alexa skill that talks to the same Cloudflare Worker as the MCP
+server and the web app. Voice commands write to the same D1 database, so
+anything you say to Alexa shows up immediately in the web UI and in MCP
+clients.
+
+**Bilingual.** The skill supports **Spanish** (`es-ES`, invocation *"bitácora
+de gabita"*) and **English** (`en-US` + `en-GB`, invocation *"baby log"*).
+Each reply follows the request's `locale`, so you talk to it in the language
+your Alexa device is set to and it answers in kind — the language logic lives
+in `src/alexa-i18n.ts` (`langOf` / `VOICES`). Which model Alexa uses is
+decided by the **device's language setting**: set the device to English (or a
+bilingual mode) to reach the English side. Routines are stored under their
+canonical English names regardless of the spoken language, so web, MCP and
+both Alexa languages stay consistent.
 
 The skill uses an **HTTPS endpoint** (your Worker's URL + `/alexa`) — no AWS
 Lambda needed.
@@ -104,6 +114,32 @@ o con precisión que casa mal con ASR.
 Synonyms (pis ↔ pipí ↔ mojado, baño ↔ bañito ↔ ducha, etc.) live in the
 interaction model under `types[].values[].name.synonyms`.
 
+## English (`baby log`)
+
+Same skill, English locale — invocation **`baby log`**. Everything above
+about Routines and one-operation-per-session applies identically; only the
+words change. Open it with *"Alexa, open baby log"* and it replies *"Yes, how
+many milliliters?"* — then just say the number.
+
+| If you say…                                          | It does…                                                       |
+| ---------------------------------------------------- | -------------------------------------------------------------- |
+| "120" / "took 120 milliliters"                       | `record_feeding(120)` (+ gap since the previous one)           |
+| "did a pee" / "did a poop" / "both"                  | `record_diaper(...)`                                           |
+| "gave vitamin D" / "did bath time"                   | `record_routine("Vitamin D" / "Bath" / …)` — the canonical English name is stored, same as web and MCP |
+| "how are we doing" / "daily summary"                 | Summary of feedings + diapers + routines + last feeding        |
+| "when was the last feeding"                          | Time and volume of the last feeding + how long ago             |
+
+Spoken output is identical for `en-US` and `en-GB` (text-to-speech pronounces
+"milliliters"/"millilitres" the same); both locales share
+[`interaction-model.en.json`](./interaction-model.en.json), whose sample
+utterances accept either spelling. English synonyms (pee ↔ wee ↔ wet, bath ↔
+shower ↔ bath time, etc.) live in that file under
+`types[].values[].name.synonyms`.
+
+For 1-utterance feedings, set up an **Alexa Routine** exactly as in the
+Spanish section above, using an English action phrase such as *"tell baby log
+that took one hundred twenty milliliters"*.
+
 ## Setup
 
 You'll need an Amazon developer account (free) and a deployed copy of this
@@ -124,20 +160,25 @@ be that URL + `/alexa`.
 1. Go to <https://developer.amazon.com/alexa/console/ask> and click
    **Create Skill**.
 2. **Skill name**: `Bitácora de Gabita`. **Primary locale**: `Spanish (ES)`.
+   Then under **Skill → Languages** add **English (US)** and **English (UK)**
+   as additional locales (they share one skill).
 3. **Experience**: *Other* → *Custom*. **Hosting**: *Provision your own*.
 4. **Template**: *Start from Scratch*.
 
-### 3. Import the interaction model
+### 3. Import the interaction models
+
+For **each** locale, pick it in the language selector at the top of the
+Interaction Model page, then:
 
 1. In the left rail go to **Interaction Model → JSON Editor**.
-2. Replace the contents with
-   [`interaction-model.es-ES.json`](./interaction-model.es-ES.json) from
-   this folder.
+2. Replace the contents with the matching file from this folder:
+   - `Spanish (ES)` → [`interaction-model.es-ES.json`](./interaction-model.es-ES.json)
+   - `English (US)` **and** `English (UK)` → [`interaction-model.en.json`](./interaction-model.en.json) (same file for both)
 3. **Save Model**, then **Build Model** (a couple of minutes).
 
 > **Note:** this manual import is only needed when creating the skill.
-> After that, every push to `main` deploys the model automatically (the
-> `alexa-model` job in `.github/workflows/ci.yml`, via SMAPI using the
+> After that, every push to `main` deploys all three locales automatically
+> (the `alexa-model` job in `.github/workflows/ci.yml`, via SMAPI using the
 > `ASK_REFRESH_TOKEN` + `ASK_VENDOR_ID` repo secrets) — right after the
 > Worker deploys, so handlers are always live before new intents.
 
@@ -177,7 +218,10 @@ skill or from a random client are also rejected.
 2. Type or say: *abre bitácora de gabita*.
 3. Then: *tomó ciento veinte mililitros* → Alexa should answer something
    like "*120 mililitros, dos horas y diez minutos.*"
-4. Check `/app` in your browser — the entry is already there.
+4. To test English, switch the Test tab's language selector to English, then
+   say *open baby log* → *took one hundred twenty milliliters* → Alexa answers
+   like "*120 milliliters, 2 hours and 10 minutes.*"
+5. Check `/app` in your browser — the entry is already there.
 
 When happy, link the skill to your real Echo by enabling it under the
 **Your Skills → Dev** tab of the Alexa app.

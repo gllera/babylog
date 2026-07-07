@@ -60,20 +60,27 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - name: Push interaction model (es-ES)
-        run: >
-          npx ask-cli@2 smapi set-interaction-model
-          -s "$SKILL_ID" -g development -l es-ES
-          --interaction-model "file:alexa-skill/interaction-model.es-ES.json"
-      - name: Wait for model build
+      # es-ES has its own model; en-US and en-GB share alexa-skill/interaction-model.en.json.
+      - name: Push interaction models
         run: |
-          for i in $(seq 1 30); do
-            build=$(npx ask-cli@2 smapi get-skill-status -s "$SKILL_ID" --resource interactionModel 2>/dev/null \
-              | python3 -c "import json,sys; print(json.load(sys.stdin)['interactionModel']['es-ES']['lastUpdateRequest']['status'])")
-            echo "attempt $i: $build"
-            [ "$build" = "SUCCEEDED" ] && exit 0
-            [ "$build" = "FAILED" ] && exit 1
-            sleep 10
+          set -e
+          npx ask-cli@2 smapi set-interaction-model -s "$SKILL_ID" -g development -l es-ES \
+            --interaction-model "file:alexa-skill/interaction-model.es-ES.json"
+          npx ask-cli@2 smapi set-interaction-model -s "$SKILL_ID" -g development -l en-US \
+            --interaction-model "file:alexa-skill/interaction-model.en.json"
+          npx ask-cli@2 smapi set-interaction-model -s "$SKILL_ID" -g development -l en-GB \
+            --interaction-model "file:alexa-skill/interaction-model.en.json"
+      - name: Wait for model builds
+        run: |
+          for loc in es-ES en-US en-GB; do
+            ok=
+            for i in $(seq 1 30); do
+              build=$(npx ask-cli@2 smapi get-skill-status -s "$SKILL_ID" --resource interactionModel 2>/dev/null \
+                | python3 -c "import json,sys; print(json.load(sys.stdin)['interactionModel']['$loc']['lastUpdateRequest']['status'])")
+              echo "$loc attempt $i: $build"
+              [ "$build" = "SUCCEEDED" ] && { ok=1; break; }
+              [ "$build" = "FAILED" ] && { echo "$loc build FAILED" >&2; exit 1; }
+              sleep 10
+            done
+            [ -n "$ok" ] || { echo "timed out waiting for $loc model build" >&2; exit 1; }
           done
-          echo "timed out waiting for model build" >&2
-          exit 1

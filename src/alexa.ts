@@ -1,9 +1,12 @@
 // -----------------------------------------------------------------------------
-// Alexa Custom Skill endpoint (Spanish).
+// Alexa Custom Skill endpoint (bilingual: Spanish + English).
 //
 // Exposes /alexa on the same Worker so an Alexa skill can record feedings,
 // diapers and routines, and ask "how is the day going" — all by voice. The
-// skill's interaction model lives in `alexa-skill/interaction-model.es-ES.json`.
+// language of each reply follows the request's `locale` (see `langOf` /
+// `VOICES` in `alexa-i18n.ts`). The interaction models live in
+// `alexa-skill/interaction-model.es-ES.json` (es-ES) and
+// `alexa-skill/interaction-model.en.json` (en-US + en-GB).
 //
 // Auth: every Alexa request includes the skill's `applicationId`. We compare
 // it against `ALEXA_APPLICATION_ID` (a wrangler secret). If `Signature` and
@@ -21,6 +24,7 @@ import {
 } from "./lib";
 import type { DiaperKind } from "./types";
 import { getBabies, pickBaby } from "./users";
+import { langOf, VOICES, type Lang } from "./alexa-i18n";
 
 export type AlexaEnv = {
   DB: D1Database;
@@ -201,38 +205,7 @@ function slotNumber(slot: AlexaSlot | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-// ---- Spanish formatters ----------------------------------------------------
-
-function pluralEs(n: number, singular: string, plural: string): string {
-  return n === 1 ? singular : plural;
-}
-
-function humanGapEs(deltaMs: number): string {
-  if (deltaMs < 0) return "en el futuro";
-  const totalMin = Math.round(deltaMs / 60_000);
-  if (totalMin < 1) return "menos de un minuto";
-  if (totalMin < 60) {
-    return totalMin === 1 ? "un minuto" : `${totalMin} minutos`;
-  }
-  const hours = Math.floor(totalMin / 60);
-  const mins = totalMin % 60;
-  if (hours < 24) {
-    const hStr = hours === 1 ? "una hora" : `${hours} horas`;
-    if (mins === 0) return hStr;
-    return `${hStr} y ${pluralEs(mins, "un minuto", `${mins} minutos`)}`;
-  }
-  const days = Math.floor(hours / 24);
-  const h = hours % 24;
-  const dStr = days === 1 ? "un día" : `${days} días`;
-  if (h === 0) return dStr;
-  return `${dStr} y ${pluralEs(h, "una hora", `${h} horas`)}`;
-}
-
-function diaperKindEs(kind: DiaperKind): string {
-  if (kind === "pee") return "pis";
-  if (kind === "poop") return "caca";
-  return "pis y caca";
-}
+// ---- Routine name mapping (input side) -------------------------------------
 
 // Canonical routine names match the web UI's English labels. When Alexa's
 // synonym resolution fails (status != ER_SUCCESS_MATCH) the handler falls
@@ -285,36 +258,41 @@ const ROUTINE_CANONICAL: Record<string, string> = {
   masaje: "Massage",
   masajito: "Massage",
   "el masaje": "Massage",
+  // English fallback forms (the synonyms above are also in the en model).
+  vitamin: "Vitamin D",
+  "the vitamin": "Vitamin D",
+  "vitamin drops": "Vitamin D",
+  "vitamin dee": "Vitamin D",
+  "a bath": "Bath",
+  "bath time": "Bath",
+  "the bath": "Bath",
+  shower: "Bath",
+  bathtub: "Bath",
+  "bath tub": "Bath",
+  "belly time": "Tummy",
+  "on her tummy": "Tummy",
+  "on his tummy": "Tummy",
+  "on the tummy": "Tummy",
+  "a walk": "Walk",
+  walkies: "Walk",
+  "went for a walk": "Walk",
+  outside: "Walk",
+  stroll: "Walk",
+  tylenol: "Paracetamol",
+  acetaminophen: "Paracetamol",
+  advil: "Ibuprofen",
+  motrin: "Ibuprofen",
+  ibuprofin: "Ibuprofen",
+  "the cream": "Cream",
+  "diaper cream": "Cream",
+  "nappy cream": "Cream",
+  ointment: "Cream",
+  "a massage": "Massage",
+  "the massage": "Massage",
 };
 
 function canonicalRoutineName(raw: string): string {
   return ROUTINE_CANONICAL[raw.toLowerCase().trim()] ?? raw;
-}
-
-// Spanish display names for the voice response (the canonical name is the
-// English form stored in the DB; this only affects what Alexa speaks back).
-const ROUTINE_DISPLAY_ES: Record<string, string> = {
-  "Vitamin D": "vitamina D",
-  Bath: "baño",
-  Tummy: "tummy",
-  Walk: "paseo",
-  Paracetamol: "paracetamol",
-  Ibuprofen: "ibuprofeno",
-  Cream: "pomada",
-  Syrup: "jarabe",
-  Massage: "masaje",
-};
-
-function routineDisplayEs(canonical: string): string {
-  return ROUTINE_DISPLAY_ES[canonical] ?? canonical;
-}
-
-function gapTailEs(
-  prev: { ts: string } | undefined,
-  now: number
-): string {
-  if (!prev) return "";
-  return `, ${humanGapEs(now - Date.parse(prev.ts))}`;
 }
 
 // ---- Request verification --------------------------------------------------
@@ -498,69 +476,69 @@ export async function handleAlexa(
     return new Response("Stale request timestamp.", { status: 400 });
   }
 
+  const lang = langOf(envelope.request.locale);
+
   let reply: AlexaResponseEnvelope;
   try {
-    reply = await route(envelope, env);
+    reply = await route(envelope, env, lang);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    reply = speak(`Lo siento, ha habido un error registrando eso: ${msg}`);
+    reply = speak(VOICES[lang].errorRecording(msg));
   }
   return jsonResponse(reply);
 }
 
 async function route(
   envelope: AlexaRequestEnvelope,
-  env: AlexaEnv
+  env: AlexaEnv,
+  lang: Lang
 ): Promise<AlexaResponseEnvelope> {
   const r = envelope.request;
-  if (r.type === "LaunchRequest") return handleLaunch();
+  if (r.type === "LaunchRequest") return handleLaunch(lang);
   if (r.type === "SessionEndedRequest") return speak("");
   if (r.type !== "IntentRequest" || !r.intent) {
-    return speak("Lo siento, no he entendido.");
+    return speak(VOICES[lang].notUnderstood);
   }
-  return dispatchIntent(r.intent, env);
+  return dispatchIntent(r.intent, env, lang);
 }
 
-function handleLaunch(): AlexaResponseEnvelope {
-  return speak("Sí, ¿cuántos mililitros?", {
+function handleLaunch(lang: Lang): AlexaResponseEnvelope {
+  const v = VOICES[lang];
+  return speak(v.launchPrompt, {
     endSession: false,
-    reprompt:
-      'Dime los mililitros, o di "hizo caca", "le di vitamina D", "cómo vamos".',
+    reprompt: v.launchReprompt,
   });
 }
 
 async function dispatchIntent(
   intent: AlexaIntent,
-  env: AlexaEnv
+  env: AlexaEnv,
+  lang: Lang
 ): Promise<AlexaResponseEnvelope> {
+  const v = VOICES[lang];
   switch (intent.name) {
     case "RecordFeedingIntent":
-      return handleRecordFeeding(intent, env);
+      return handleRecordFeeding(intent, env, lang);
     case "RecordDiaperIntent":
-      return handleRecordDiaper(intent, env);
+      return handleRecordDiaper(intent, env, lang);
     case "RecordRoutineIntent":
-      return handleRecordRoutine(intent, env);
+      return handleRecordRoutine(intent, env, lang);
     case "GetStatsIntent":
-      return handleGetStats(env);
+      return handleGetStats(env, lang);
     case "LastFeedingIntent":
-      return handleLastFeeding(env);
+      return handleLastFeeding(env, lang);
     case "AMAZON.HelpIntent":
-      return speak(
-        'Di solo el número para registrar una toma, "hizo pis" o "hizo caca" '
-          + 'para un pañal, "le di vitamina D" o "ya hicimos el baño" para una '
-          + 'rutina, o "cómo vamos" para el resumen del día. ¿Qué quieres hacer?',
-        { endSession: false, reprompt: "Dime qué quieres registrar." }
-      );
+      return speak(v.help, { endSession: false, reprompt: v.helpReprompt });
     case "AMAZON.CancelIntent":
     case "AMAZON.StopIntent":
-      return speak("Hasta luego.");
+      return speak(v.goodbye);
     case "AMAZON.FallbackIntent":
-      return speak(
-        'No te he entendido. Puedes decir "tomó 120 mililitros" o "hizo caca". ¿Qué quieres registrar?',
-        { endSession: false, reprompt: "¿Qué quieres registrar?" }
-      );
+      return speak(v.fallback, {
+        endSession: false,
+        reprompt: v.fallbackReprompt,
+      });
     default:
-      return speak("No conozco esa orden todavía.");
+      return speak(v.unknownCommand);
   }
 }
 
@@ -568,13 +546,15 @@ async function dispatchIntent(
 
 async function handleRecordFeeding(
   intent: AlexaIntent,
-  env: AlexaEnv
+  env: AlexaEnv,
+  lang: Lang
 ): Promise<AlexaResponseEnvelope> {
+  const v = VOICES[lang];
   const amount = slotNumber(intent.slots?.amount);
   if (amount === undefined || amount <= 0) {
-    return speak("¿Cuántos mililitros tomó?", {
+    return speak(v.askMl, {
       endSession: false,
-      reprompt: 'Dime los mililitros, por ejemplo "ciento veinte".',
+      reprompt: v.askMlReprompt,
     });
   }
   const amountMl = Math.round(amount);
@@ -591,34 +571,50 @@ async function handleRecordFeeding(
     ).bind(ts, amountMl, babyId, ALEXA_USER)
   );
 
-  const tail = gapTailEs(prev, now);
-  return speak(`${amountMl} mililitros${tail}.`, {
-    cardTitle: "Toma registrada",
+  const tail = v.gapTail(prev, now);
+  return speak(v.feedingRecorded(amountMl, tail), {
+    cardTitle: v.feedingCard,
   });
 }
 
 async function handleRecordDiaper(
   intent: AlexaIntent,
-  env: AlexaEnv
+  env: AlexaEnv,
+  lang: Lang
 ): Promise<AlexaResponseEnvelope> {
+  const v = VOICES[lang];
   const id = slotResolvedId(intent.slots?.kind);
   let kind: DiaperKind | null = null;
   if (id === "pee" || id === "poop" || id === "both") {
     kind = id;
   } else {
-    // Best-effort fallback if the model wasn't built with ids.
+    // Best-effort fallback (es + en) if synonym resolution gave no id. Combined
+    // phrasings ("pis y caca" / "pee and poop") are checked first so they
+    // aren't misread as just one kind.
     const raw = (
       slotResolvedName(intent.slots?.kind) ?? slotRaw(intent.slots?.kind) ?? ""
     ).toLowerCase();
-    if (/(^|\W)(pip[ií]?|pis|mojado)(\W|$)/.test(raw)) kind = "pee";
-    else if (/cac|pop[oó]|deposici|sucio/.test(raw)) kind = "poop";
-    else if (/(ambos|las\s*dos|los\s*dos|todo|complet|las\s*dos\s*cosas)/.test(raw))
+    if (
+      /(pis|pip[ií]|pee|wee).*(caca|pop[oó]|poop|poo)|(caca|pop[oó]|poop|poo).*(pis|pip[ií]|pee|wee)|ambos|las\s*dos|los\s*dos|todo|complet|both|everything|the works/.test(
+        raw
+      )
+    )
       kind = "both";
+    else if (
+      /(^|\W)(pip[ií]?|pis|mojado|pee|wee|wet)(\W|$)/.test(raw) ||
+      /number one/.test(raw)
+    )
+      kind = "pee";
+    else if (
+      /cac|pop[oó]|deposici|sucio|poop|poo|dirty/.test(raw) ||
+      /number two/.test(raw)
+    )
+      kind = "poop";
   }
   if (!kind) {
-    return speak("¿Qué tipo de pañal? Puedes decir pis, caca o las dos cosas.", {
+    return speak(v.askDiaper, {
       endSession: false,
-      reprompt: "Dime pis, caca o las dos cosas.",
+      reprompt: v.askDiaperReprompt,
     });
   }
   const babyId = await alexaBabyId(env);
@@ -634,16 +630,18 @@ async function handleRecordDiaper(
     ).bind(ts, kind, babyId, ALEXA_USER)
   );
 
-  const tail = gapTailEs(prev, now);
-  return speak(`${diaperKindEs(kind)}${tail}.`, {
-    cardTitle: "Pañal registrado",
+  const tail = v.gapTail(prev, now);
+  return speak(v.diaperRecorded(kind, tail), {
+    cardTitle: v.diaperCard,
   });
 }
 
 async function handleRecordRoutine(
   intent: AlexaIntent,
-  env: AlexaEnv
+  env: AlexaEnv,
+  lang: Lang
 ): Promise<AlexaResponseEnvelope> {
+  const v = VOICES[lang];
   // Alexa auto-generates an opaque `id` hash for every slot value when the
   // interaction model doesn't set one explicitly. The Routine slot type
   // defines no ids — only canonical name.value strings — so we read `name`
@@ -654,9 +652,9 @@ async function handleRecordRoutine(
     slotResolvedName(intent.slots?.routine) ??
     slotRaw(intent.slots?.routine);
   if (!raw) {
-    return speak("¿Qué rutina quieres registrar?", {
+    return speak(v.askRoutine, {
       endSession: false,
-      reprompt: 'Puedes decir, por ejemplo, "vitamina D", "baño" o "paseo".',
+      reprompt: v.askRoutineReprompt,
     });
   }
   const name = canonicalRoutineName(raw);
@@ -673,13 +671,17 @@ async function handleRecordRoutine(
     ).bind(ts, name, babyId, ALEXA_USER)
   );
 
-  const tail = gapTailEs(prev, now);
-  return speak(`${routineDisplayEs(name)}${tail}.`, {
-    cardTitle: "Rutina registrada",
+  const tail = v.gapTail(prev, now);
+  return speak(v.routineRecorded(name, tail), {
+    cardTitle: v.routineCard,
   });
 }
 
-async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
+async function handleGetStats(
+  env: AlexaEnv,
+  lang: Lang
+): Promise<AlexaResponseEnvelope> {
+  const v = VOICES[lang];
   // Window: "today" in Madrid local — same day boundary as check_indications.
   const now = new Date();
   const startIso = madridMidnightUtc(madridDateOf(now)).toISOString();
@@ -718,47 +720,34 @@ async function handleGetStats(env: AlexaEnv): Promise<AlexaResponseEnvelope> {
   const parts: string[] = [];
 
   if (feed.n > 0) {
-    const total = Math.round(feed.total);
-    parts.push(
-      feed.n === 1
-        ? `1 toma, ${total} mililitros.`
-        : `${feed.n} tomas, ${total} mililitros.`
-    );
+    parts.push(v.feedingSummary(feed.n, Math.round(feed.total)));
   }
 
   const pee = diaper.pee_n ?? 0;
   const poop = diaper.poop_n ?? 0;
   if (pee > 0 || poop > 0) {
-    const dp: string[] = [];
-    if (pee > 0) dp.push(pee === 1 ? "1 pis" : `${pee} pises`);
-    if (poop > 0) dp.push(poop === 1 ? "1 caca" : `${poop} cacas`);
-    parts.push(`${dp.join(", ")}.`);
+    parts.push(v.diaperSummary(pee, poop));
   }
 
   if (routines.length > 0) {
-    const r = routines
-      .slice(0, 3)
-      .map((x) => {
-        const d = routineDisplayEs(x.name);
-        return x.n === 1 ? d : `${d} ${x.n} veces`;
-      })
-      .join(", ");
-    parts.push(`${r}.`);
+    parts.push(v.routineSummary(routines.slice(0, 3)));
   }
 
   if (feed.last_ts) {
-    parts.push(`Última a las ${madridHHMM(feed.last_ts)}.`);
+    parts.push(v.lastAt(madridHHMM(feed.last_ts)));
   }
 
   if (parts.length === 0) {
-    return speak("Sin registros hoy.", { cardTitle: "Resumen de hoy" });
+    return speak(v.statsEmpty, { cardTitle: v.statsCard });
   }
-  return speak(parts.join(" "), { cardTitle: "Resumen de hoy" });
+  return speak(parts.join(" "), { cardTitle: v.statsCard });
 }
 
 async function handleLastFeeding(
-  env: AlexaEnv
+  env: AlexaEnv,
+  lang: Lang
 ): Promise<AlexaResponseEnvelope> {
+  const v = VOICES[lang];
   const babyId = await alexaBabyId(env);
   const row = await env.DB.prepare(
     "SELECT ts, amount_ml FROM feedings WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
@@ -766,13 +755,12 @@ async function handleLastFeeding(
     .bind(babyId)
     .first<{ ts: string; amount_ml: number }>();
   if (!row) {
-    return speak("No tengo ninguna toma registrada todavía.");
+    return speak(v.lastFeedingNone);
   }
-  const ago = humanGapEs(Date.now() - Date.parse(row.ts));
+  const ago = v.humanGap(Date.now() - Date.parse(row.ts));
   const amount = Math.round(row.amount_ml);
-  return speak(
-    `La última toma fue hace ${ago}, a las ${madridHHMM(row.ts)}, de ${amount} mililitros.`,
-    { cardTitle: "Última toma" }
-  );
+  return speak(v.lastFeeding(ago, madridHHMM(row.ts), amount), {
+    cardTitle: v.lastFeedingCard,
+  });
 }
 
