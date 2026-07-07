@@ -52,12 +52,6 @@ export type HeightRow = {
   height_cm: number;
 };
 
-export type ProfileRow = {
-  name: string | null;
-  sex: "male" | "female" | "other" | null;
-  date_of_birth: string | null;
-};
-
 export type BabyRow = {
   id: number;
   household_id: number;

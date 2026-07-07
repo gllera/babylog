@@ -361,7 +361,8 @@ async function handleDashboard(
           ind.metric,
           ind.filter,
           madridDayWindow(day, ind.period_days).start,
-          dayEnd
+          dayEnd,
+          babyId
         )
       )
     );

@@ -15,7 +15,6 @@ import type {
   NoteRow,
   WeightRow,
   HeightRow,
-  ProfileRow,
 } from "./types";
 import {
   DAY_MS,
@@ -141,58 +140,66 @@ export function buildIndicationStatement(
   metric: IndicationMetric,
   filter: string | null,
   start: string,
-  end: string
+  end: string,
+  babyId: number
 ): D1PreparedStatement {
   switch (metric) {
     case "feeding_total_ml":
       return db
         .prepare(
-          "SELECT COALESCE(SUM(amount_ml), 0) AS v FROM feedings WHERE ts >= ? AND ts < ?"
+          "SELECT COALESCE(SUM(amount_ml), 0) AS v FROM feedings WHERE baby_id = ? AND ts >= ? AND ts < ?"
         )
-        .bind(start, end);
+        .bind(babyId, start, end);
     case "feeding_count":
       return db
-        .prepare("SELECT COUNT(*) AS v FROM feedings WHERE ts >= ? AND ts < ?")
-        .bind(start, end);
+        .prepare(
+          "SELECT COUNT(*) AS v FROM feedings WHERE baby_id = ? AND ts >= ? AND ts < ?"
+        )
+        .bind(babyId, start, end);
     case "feeding_gap_max_min":
       // Also fetch the last feeding *before* the window so the gap across
       // the window start is measured (see maxGapMinutes).
       return db
         .prepare(
-          `SELECT ts FROM (SELECT ts FROM feedings WHERE ts < ? ORDER BY ts DESC LIMIT 1)
+          `SELECT ts FROM (SELECT ts FROM feedings WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1)
            UNION ALL
-           SELECT ts FROM feedings WHERE ts >= ? AND ts < ? ORDER BY ts`
+           SELECT ts FROM feedings WHERE baby_id = ? AND ts >= ? AND ts < ? ORDER BY ts`
         )
-        .bind(start, start, end);
+        .bind(babyId, start, babyId, start, end);
     case "diaper_count": {
-      let sql = "SELECT COUNT(*) AS v FROM diapers WHERE ts >= ? AND ts < ?";
+      let sql =
+        "SELECT COUNT(*) AS v FROM diapers WHERE baby_id = ? AND ts >= ? AND ts < ?";
       if (filter === "pee") sql += " AND kind IN ('pee','both')";
       else if (filter === "poop") sql += " AND kind IN ('poop','both')";
       else if (filter === "both") sql += " AND kind = 'both'";
-      return db.prepare(sql).bind(start, end);
+      return db.prepare(sql).bind(babyId, start, end);
     }
     case "routine_count":
       if (filter) {
         return db
           .prepare(
-            "SELECT COUNT(*) AS v FROM routines WHERE ts >= ? AND ts < ? AND LOWER(name) LIKE ?"
+            "SELECT COUNT(*) AS v FROM routines WHERE baby_id = ? AND ts >= ? AND ts < ? AND LOWER(name) LIKE ?"
           )
-          .bind(start, end, `%${filter.toLowerCase()}%`);
+          .bind(babyId, start, end, `%${filter.toLowerCase()}%`);
       }
       return db
-        .prepare("SELECT COUNT(*) AS v FROM routines WHERE ts >= ? AND ts < ?")
-        .bind(start, end);
+        .prepare(
+          "SELECT COUNT(*) AS v FROM routines WHERE baby_id = ? AND ts >= ? AND ts < ?"
+        )
+        .bind(babyId, start, end);
     case "note_count":
       if (filter) {
         return db
           .prepare(
-            "SELECT COUNT(*) AS v FROM notes WHERE ts >= ? AND ts < ? AND LOWER(text) LIKE ?"
+            "SELECT COUNT(*) AS v FROM notes WHERE baby_id = ? AND ts >= ? AND ts < ? AND LOWER(text) LIKE ?"
           )
-          .bind(start, end, `%${filter.toLowerCase()}%`);
+          .bind(babyId, start, end, `%${filter.toLowerCase()}%`);
       }
       return db
-        .prepare("SELECT COUNT(*) AS v FROM notes WHERE ts >= ? AND ts < ?")
-        .bind(start, end);
+        .prepare(
+          "SELECT COUNT(*) AS v FROM notes WHERE baby_id = ? AND ts >= ? AND ts < ?"
+        )
+        .bind(babyId, start, end);
   }
 }
 
@@ -1098,6 +1105,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .describe(
               "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). note_count: substring of note text. Not allowed for feeding_*."
             ),
+          baby: babyField,
         },
         outputSchema: {
           id: z.number().int(),
@@ -1116,6 +1124,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         comparison,
         period_days,
         filter,
+        baby,
       }) => {
         if (metric === "diaper_count" && filter) {
           if (!["pee", "poop", "both"].includes(filter)) {
@@ -1147,10 +1156,13 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           };
         }
 
+        const t = await this.tenant();
+        const targetBaby = pickBaby(t.babies, baby);
+
         const inserted = await db
           .prepare(
-            `INSERT INTO indications (label, metric, filter, target, comparison, period_days)
-             VALUES (?, ?, ?, ?, ?, ?)
+            `INSERT INTO indications (label, metric, filter, target, comparison, period_days, baby_id, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              RETURNING id`
           )
           .bind(
@@ -1159,7 +1171,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             filter ?? null,
             target,
             comparison ?? ">=",
-            period_days ?? 1
+            period_days ?? 1,
+            targetBaby.id,
+            t.email
           )
           .first<{ id: number }>();
 
@@ -1200,6 +1214,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .boolean()
             .optional()
             .describe("Include indications where active=0. Default false."),
+          baby: babyField,
         },
         outputSchema: {
           count: z.number().int(),
@@ -1217,14 +1232,19 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           ),
         },
       },
-      async ({ include_inactive }) => {
-        const where = include_inactive ? "" : "WHERE active = 1";
+      async ({ include_inactive, baby }) => {
+        const t = await this.tenant();
+        const targetBaby = pickBaby(t.babies, baby);
+        const where = include_inactive
+          ? "WHERE baby_id = ?"
+          : "WHERE active = 1 AND baby_id = ?";
         const { results } = await db
           .prepare(
             `SELECT id, label, metric, filter, target, comparison, period_days, active
              FROM indications ${where}
              ORDER BY active DESC, id`
           )
+          .bind(targetBaby.id)
           .all<IndicationRow>();
 
         const structured = results.map((r) => ({
@@ -1287,6 +1307,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .describe(
               "ISO date YYYY-MM-DD (Europe/Madrid calendar day) to evaluate. Defaults to today."
             ),
+          baby: babyField,
         },
         outputSchema: {
           date: z.string(),
@@ -1308,7 +1329,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           ),
         },
       },
-      async ({ date }) => {
+      async ({ date, baby }) => {
+        const t = await this.tenant();
+        const targetBaby = pickBaby(t.babies, baby);
         const now = new Date();
         const nowIso = now.toISOString();
         const day = date ?? madridDateOf(now);
@@ -1318,17 +1341,13 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         // to now while the day is still running.
         const gapBoundary = end < nowIso ? end : nowIso;
 
-        const [indRes, profileRes] = await db.batch([
-          db.prepare(
+        const { results: indications } = await db
+          .prepare(
             `SELECT id, label, metric, filter, target, comparison, period_days, active
-             FROM indications WHERE active = 1 ORDER BY id`
-          ),
-          db.prepare(
-            "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
-          ),
-        ]);
-        const indications = indRes.results as IndicationRow[];
-        const profile = (profileRes.results as ProfileRow[])[0];
+             FROM indications WHERE active = 1 AND baby_id = ? ORDER BY id`
+          )
+          .bind(targetBaby.id)
+          .all<IndicationRow>();
 
         if (indications.length === 0) {
           return {
@@ -1348,8 +1367,8 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           };
         }
 
-        const ageS = profile?.date_of_birth
-          ? `, ${computeAge(profile.date_of_birth, dayStart)}`
+        const ageS = targetBaby.date_of_birth
+          ? `, ${computeAge(targetBaby.date_of_birth, dayStart)}`
           : "";
 
         const actualResults = await db.batch(
@@ -1359,7 +1378,8 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
               ind.metric,
               ind.filter,
               madridDayWindow(day, ind.period_days).start,
-              end
+              end,
+              targetBaby.id
             )
           )
         );
@@ -1449,6 +1469,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .datetime({ offset: true })
             .optional()
             .describe("End of the window (ISO timestamp). Default: now."),
+          baby: babyField,
         },
         outputSchema: {
           start: z.string(),
@@ -1484,7 +1505,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .nullable(),
         },
       },
-      async ({ window, since, until }) => {
+      async ({ window, since, until, baby }) => {
+        const t = await this.tenant();
+        const targetBaby = pickBaby(t.babies, baby);
         const now = Date.now();
         const nowIso = new Date(now).toISOString();
         let start: string;
@@ -1508,7 +1531,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           noteAgg,
           weightLatest,
           heightLatest,
-          profileRow,
         ] = await db.batch([
           db.prepare(
             `SELECT
@@ -1517,8 +1539,8 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
                COALESCE(AVG(amount_ml), 0) AS avg_ml,
                MAX(ts)                     AS last_ts
              FROM feedings
-             WHERE ts >= ? AND ts < ?`
-          ).bind(start, end),
+             WHERE baby_id = ? AND ts >= ? AND ts < ?`
+          ).bind(targetBaby.id, start, end),
           db.prepare(
             `SELECT
                COUNT(*)                                                   AS event_count,
@@ -1526,34 +1548,31 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
                SUM(CASE WHEN kind IN ('poop', 'both') THEN 1 ELSE 0 END)  AS poop_count,
                MAX(ts)                                                    AS last_ts
              FROM diapers
-             WHERE ts >= ? AND ts < ?`
-          ).bind(start, end),
+             WHERE baby_id = ? AND ts >= ? AND ts < ?`
+          ).bind(targetBaby.id, start, end),
           db.prepare(
             `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
              FROM routines
-             WHERE ts >= ? AND ts < ?`
-          ).bind(start, end),
+             WHERE baby_id = ? AND ts >= ? AND ts < ?`
+          ).bind(targetBaby.id, start, end),
           db.prepare(
             `SELECT name, COUNT(*) AS n
              FROM routines
-             WHERE ts >= ? AND ts < ?
+             WHERE baby_id = ? AND ts >= ? AND ts < ?
              GROUP BY name
              ORDER BY n DESC`
-          ).bind(start, end),
+          ).bind(targetBaby.id, start, end),
           db.prepare(
             `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
              FROM notes
-             WHERE ts >= ? AND ts < ?`
-          ).bind(start, end),
+             WHERE baby_id = ? AND ts >= ? AND ts < ?`
+          ).bind(targetBaby.id, start, end),
           db.prepare(
-            "SELECT ts, weight_g FROM weights ORDER BY ts DESC LIMIT 1"
-          ),
+            "SELECT ts, weight_g FROM weights WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
+          ).bind(targetBaby.id),
           db.prepare(
-            "SELECT ts, height_cm FROM heights ORDER BY ts DESC LIMIT 1"
-          ),
-          db.prepare(
-            "SELECT name, sex, date_of_birth FROM profile WHERE id = 1"
-          ),
+            "SELECT ts, height_cm FROM heights WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
+          ).bind(targetBaby.id),
         ]);
 
         const feed = feedAgg.results[0] as {
@@ -1581,7 +1600,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           last_ts: string | null;
         };
 
-        const profile = (profileRow.results as ProfileRow[])[0];
         const latestWeight = (
           weightLatest.results as Array<{ ts: string; weight_g: number }>
         )[0];
@@ -1590,14 +1608,12 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         )[0];
 
         const lines: string[] = [];
-        if (
-          profile &&
-          (profile.name || profile.sex || profile.date_of_birth)
-        ) {
+        if (targetBaby.name || targetBaby.sex || targetBaby.date_of_birth) {
           const bits: string[] = [];
-          if (profile.name) bits.push(profile.name);
-          if (profile.sex) bits.push(profile.sex);
-          if (profile.date_of_birth) bits.push(computeAge(profile.date_of_birth));
+          if (targetBaby.name) bits.push(targetBaby.name);
+          if (targetBaby.sex) bits.push(targetBaby.sex);
+          if (targetBaby.date_of_birth)
+            bits.push(computeAge(targetBaby.date_of_birth));
           lines.push(`Baby: ${bits.join(", ")}`);
           lines.push("");
         }
@@ -1749,6 +1765,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .min(1)
             .max(20)
             .describe("List of events to record (1-20)"),
+          baby: babyField,
         },
         outputSchema: {
           count: z.number().int(),
@@ -1762,7 +1779,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           errors: z.array(z.string()),
         },
       },
-      async ({ events, when: defaultWhen }) => {
+      async ({ events, when: defaultWhen, baby }) => {
+        const t = await this.tenant();
+        const targetBaby = pickBaby(t.babies, baby);
         const defaultTs = normalizeTs(defaultWhen);
         type EvType = "feeding" | "diaper" | "routine" | "note";
         const stmts: D1PreparedStatement[] = [];
@@ -1780,9 +1799,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             stmts.push(
               db
                 .prepare(
-                  "INSERT INTO feedings (ts, amount_ml) VALUES (?, ?) RETURNING id"
+                  "INSERT INTO feedings (ts, amount_ml, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
                 )
-                .bind(ts, ev.amount_ml)
+                .bind(ts, ev.amount_ml, targetBaby.id, t.email)
             );
             stmtMeta.push({ type: "feeding", ts });
           } else if (ev.type === "diaper") {
@@ -1793,9 +1812,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             stmts.push(
               db
                 .prepare(
-                  "INSERT INTO diapers (ts, kind) VALUES (?, ?) RETURNING id"
+                  "INSERT INTO diapers (ts, kind, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
                 )
-                .bind(ts, ev.kind)
+                .bind(ts, ev.kind, targetBaby.id, t.email)
             );
             stmtMeta.push({ type: "diaper", ts });
           } else if (ev.type === "routine") {
@@ -1806,9 +1825,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             stmts.push(
               db
                 .prepare(
-                  "INSERT INTO routines (ts, name) VALUES (?, ?) RETURNING id"
+                  "INSERT INTO routines (ts, name, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
                 )
-                .bind(ts, ev.name)
+                .bind(ts, ev.name, targetBaby.id, t.email)
             );
             stmtMeta.push({ type: "routine", ts });
           } else if (ev.type === "note") {
@@ -1819,9 +1838,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             stmts.push(
               db
                 .prepare(
-                  "INSERT INTO notes (ts, text) VALUES (?, ?) RETURNING id"
+                  "INSERT INTO notes (ts, text, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
                 )
-                .bind(ts, ev.text)
+                .bind(ts, ev.text, targetBaby.id, t.email)
             );
             stmtMeta.push({ type: "note", ts });
           }
