@@ -1,4 +1,4 @@
-# baby-feeding-mcp
+# babylog
 
 A remote **Model Context Protocol** (MCP) server, deployed to **Cloudflare
 Workers**, that records baby feedings and diapers (pee / poop / both).
