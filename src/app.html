@@ -44,6 +44,11 @@
       --daypast: #9aa0a6;
       --warn: #d97700;
       --ok: #1a7f37;
+      /* Shared shape + rhythm: every tab's surfaces (cards, charts, forms,
+         lists), controls, and section gaps draw from these three tokens. */
+      --radius-surface: 10px;
+      --radius-control: 6px;
+      --stack: 16px;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -78,6 +83,9 @@
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
+    /* Reserve the scrollbar gutter permanently: tabs that don't overflow would
+       otherwise drop the scrollbar and shift the centered layout sideways. */
+    html { scrollbar-gutter: stable; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
@@ -103,7 +111,7 @@
       background: transparent;
       border: 1px solid transparent;
       padding: 6px 12px;
-      border-radius: 6px;
+      border-radius: var(--radius-control);
       cursor: pointer;
       font-size: 14px;
       color: var(--muted);
@@ -131,9 +139,9 @@
     form.entry-form, form.settings-form {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius-surface);
       padding: 16px;
-      margin-bottom: 18px;
+      margin-bottom: var(--stack);
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
@@ -148,13 +156,13 @@
       color: var(--muted);
       flex: 1 1 140px;
       text-transform: uppercase;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.04em;
     }
     form.entry-form input, form.settings-form input,
     form.entry-form select, form.settings-form select {
       padding: 8px 10px;
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: var(--radius-control);
       font-size: 14px;
       font-family: inherit;
       color: var(--text);
@@ -174,7 +182,7 @@
       color: white;
       border: 0;
       padding: 10px 20px;
-      border-radius: 4px;
+      border-radius: var(--radius-control);
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
@@ -186,7 +194,7 @@
     .list {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius-surface);
       overflow: hidden;
     }
     .list-empty,
@@ -195,7 +203,10 @@
       text-align: center;
       color: var(--muted);
       font-size: 14px;
+      font-style: italic;
     }
+    /* Chart placeholders (loading / empty / error) match the list ones. */
+    .week-chart .card-empty { text-align: center; padding: 28px 16px; }
     table { width: 100%; border-collapse: collapse; }
     th, td {
       text-align: left;
@@ -222,7 +233,7 @@
       border: 1px solid var(--border);
       color: var(--danger);
       padding: 4px 10px;
-      border-radius: 4px;
+      border-radius: var(--radius-control);
       cursor: pointer;
       font-size: 13px;
       font-family: inherit;
@@ -236,7 +247,7 @@
       background: var(--toast-bg);
       color: var(--toast-text);
       padding: 10px 16px;
-      border-radius: 6px;
+      border-radius: var(--radius-control);
       font-size: 14px;
       box-shadow: 0 4px 16px rgba(0,0,0,.2);
       opacity: 0;
@@ -266,7 +277,7 @@
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: var(--radius-surface);
       padding: 16px;
       display: flex;
       flex-direction: column;
@@ -297,10 +308,11 @@
     .week-chart {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: var(--radius-surface);
       padding: 16px;
-      margin-bottom: 16px;
+      margin-bottom: var(--stack);
     }
+    #today-timeline { margin-top: var(--stack); }
     .chart-head {
       display: flex;
       align-items: center;
@@ -312,7 +324,7 @@
       background: transparent;
       border: 1px solid var(--border);
       color: var(--text);
-      border-radius: 6px;
+      border-radius: var(--radius-control);
       padding: 4px 10px;
       cursor: pointer;
       font-size: 13px;
@@ -430,7 +442,7 @@
       color: #fff;
       border: 0;
       padding: 9px 14px;
-      border-radius: 6px;
+      border-radius: var(--radius-control);
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
@@ -450,7 +462,7 @@
       border: 1px solid var(--border);
       padding: 4px 8px;
       font-size: 12px;
-      border-radius: 4px;
+      border-radius: var(--radius-control);
       cursor: pointer;
       font-family: inherit;
       color: var(--muted);
@@ -479,7 +491,7 @@
       background: var(--chip);
       border: 1px solid var(--border);
       padding: 10px 8px;
-      border-radius: 6px;
+      border-radius: var(--radius-control);
       cursor: pointer;
       font-family: inherit;
       font-size: 14px;
@@ -500,7 +512,7 @@
       display: block;
       padding: 6px 10px;
       background: var(--when-bg);
-      border-radius: 4px;
+      border-radius: var(--radius-control);
       font-size: 16px;
       font-family: inherit;
       color: var(--text);
@@ -543,7 +555,7 @@
       border: 1px solid var(--border);
       color: var(--muted);
       padding: 10px 16px;
-      border-radius: 4px;
+      border-radius: var(--radius-control);
       cursor: pointer;
       font-size: 14px;
       font-family: inherit;
@@ -599,7 +611,7 @@
     .amount-step {
       background: var(--hover);
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: var(--radius-control);
       padding: 4px 10px;
       cursor: pointer;
       font-family: inherit;
@@ -669,7 +681,7 @@
       color: #fff;
     }
     /* Settings tab */
-    #tab-settings .card { margin-bottom: 14px; }
+    #tab-settings .card { margin-bottom: var(--stack); }
     .lang-options { display: flex; gap: 6px; flex-wrap: wrap; }
     .lang-options button {
       border: 1px solid var(--border);
@@ -718,9 +730,10 @@
       margin: 10px 0 0;
     }
     @media (max-width: 640px) {
+      :root { --stack: 14px; }
       header { padding: 8px 10px; gap: 8px; }
       nav { gap: 3px; }
-      nav button { padding: 5px 9px; font-size: 13px; border-radius: 5px; }
+      nav button { padding: 5px 9px; font-size: 13px; }
       /* Mobile: restore the More dropdown — its tabs live behind the ⋯ button. */
       .more-menu { display: inline-block; position: relative; }
       #more-btn { display: inline-block; font-size: 18px; line-height: 1; padding: 5px 9px; }
@@ -733,7 +746,7 @@
         margin-top: 4px;
         background: var(--card);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: var(--radius-control);
         box-shadow: 0 4px 12px rgba(0,0,0,.08);
         padding: 4px;
         min-width: 140px;
@@ -759,7 +772,7 @@
       .quick-row { gap: 6px; margin-top: 8px; }
       .quick-btn { padding: 7px 10px; font-size: 13px; min-height: 32px; }
 
-      form.entry-form { padding: 12px; gap: 8px; margin-bottom: 14px; }
+      form.entry-form { padding: 12px; gap: 8px; }
       form.entry-form label, form.settings-form label { font-size: 11px; flex: 1 1 100%; }
       form.entry-form button[type=submit], form.settings-form button[type=submit] { width: 100%; padding: 11px; }
       form.entry-form .cancel-edit { width: 100%; padding: 10px; }
@@ -824,7 +837,7 @@
           <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
       </div>
-      <div class="week-chart" id="today-timeline" hidden style="margin-top: 14px;">
+      <div class="week-chart" id="today-timeline" hidden>
         <div class="card-title daychart-title" data-i18n="Today's diary">Today's diary</div>
       </div>
     </section>
@@ -845,14 +858,14 @@
         <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
       <div class="week-chart" id="feedings-daychart">
-        <div class="card-title" data-i18n="Selected day — vs 2 days before">Selected day &mdash; vs 2 days before</div>
+        <div class="card-title daychart-title" data-i18n="Selected day — vs 2 days before">Selected day &mdash; vs 2 days before</div>
         <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
       <div class="week-chart" id="feedings-chart">
-        <div class="card-title" data-i18n="This week — ml per day">This week &mdash; ml per day</div>
+        <div class="card-title daychart-title" data-i18n="This week — ml per day">This week &mdash; ml per day</div>
         <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
-      <div class="list" id="list-feedings"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
+      <div class="list" id="list-feedings"><div class="list-loading" data-i18n="Loading…">Loading&hellip;</div></div>
     </section>
 
     <section id="tab-diapers" class="tab">
@@ -872,14 +885,14 @@
         <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
       <div class="week-chart" id="diapers-daychart">
-        <div class="card-title" data-i18n="Selected day — vs 2 days before">Selected day &mdash; vs 2 days before</div>
+        <div class="card-title daychart-title" data-i18n="Selected day — vs 2 days before">Selected day &mdash; vs 2 days before</div>
         <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
       <div class="week-chart" id="diapers-chart">
-        <div class="card-title" data-i18n="This week — diapers per day">This week &mdash; diapers per day</div>
+        <div class="card-title daychart-title" data-i18n="This week — diapers per day">This week &mdash; diapers per day</div>
         <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
-      <div class="list" id="list-diapers"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
+      <div class="list" id="list-diapers"><div class="list-loading" data-i18n="Loading…">Loading&hellip;</div></div>
     </section>
 
     <section id="tab-routines" class="tab">
@@ -898,7 +911,7 @@
         <button type="submit" data-i18n="Add">Add</button>
         <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
-      <div class="list" id="list-routines"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
+      <div class="list" id="list-routines"><div class="list-loading" data-i18n="Loading…">Loading&hellip;</div></div>
     </section>
 
     <section id="tab-weights" class="tab">
@@ -916,7 +929,7 @@
         <div class="card-title daychart-title" data-i18n="Weight over time">Weight over time</div>
         <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
-      <div class="list" id="list-weights"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
+      <div class="list" id="list-weights"><div class="list-loading" data-i18n="Loading…">Loading&hellip;</div></div>
     </section>
 
     <section id="tab-heights" class="tab">
@@ -934,7 +947,7 @@
         <div class="card-title daychart-title" data-i18n="Height over time">Height over time</div>
         <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
-      <div class="list" id="list-heights"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
+      <div class="list" id="list-heights"><div class="list-loading" data-i18n="Loading…">Loading&hellip;</div></div>
     </section>
 
     <section id="tab-notes" class="tab">
@@ -948,7 +961,7 @@
         <button type="submit" data-i18n="Add">Add</button>
         <button type="button" class="cancel-edit" hidden data-i18n="Cancel">Cancel</button>
       </form>
-      <div class="list" id="list-notes"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
+      <div class="list" id="list-notes"><div class="list-loading" data-i18n="Loading…">Loading&hellip;</div></div>
     </section>
 
     <section id="tab-settings" class="tab">
@@ -1714,7 +1727,7 @@
         renderWeek(key);
       } catch (err) {
         if (err.message === "Unauthorized") return;
-        el.innerHTML = '<div class="card-empty">Error loading chart: ' + escapeHtml(err.message) + '</div>';
+        el.innerHTML = '<div class="card-empty">' + escapeHtml(i18n("Error loading: {e}", { e: err.message })) + '</div>';
       }
     }
 
@@ -1728,7 +1741,7 @@
       el.innerHTML =
         '<div class="chart-head">' +
           '<button type="button" class="chart-nav" data-week="-1" aria-label="' + escapeHtml(i18n("Previous week")) + '">&#9664;</button>' +
-          '<div class="card-title chart-title">' + title + '</div>' +
+          '<div class="card-title">' + title + '</div>' +
           '<button type="button" class="chart-nav" data-week="1" aria-label="' + escapeHtml(i18n("Next week")) + '"' + (isCurrent ? " disabled" : "") + '>&#9654;</button>' +
         '</div>' +
         c.renderBars(c);
@@ -2441,6 +2454,7 @@
         tabs[j].classList.toggle("active", tabs[j].id === "tab-" + name);
       }
       closeMoreDropdown();
+      window.scrollTo(0, 0);
       try { history.replaceState(null, "", "#" + name); } catch (_) {}
       if (name === "today") {
         loadDashboard();
