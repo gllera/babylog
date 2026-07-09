@@ -21,6 +21,12 @@ import {
   indicationUnit,
   type IndicationRow,
 } from "./tools";
+import {
+  estimateWeightG,
+  ageDaysAt,
+  resolveIndicationTarget,
+  type WeightSample,
+} from "./growth";
 import { getAccessEmail } from "./access";
 import {
   pickBaby,
@@ -347,9 +353,20 @@ async function handleDashboard(
       "SELECT id, ts, height_cm FROM heights WHERE baby_id = ? ORDER BY ts DESC LIMIT 2"
     ).bind(babyId),
     env.DB.prepare(
-      "SELECT id, label, metric, filter, target, comparison, period_days, active FROM indications WHERE active = 1 AND baby_id = ? ORDER BY id"
+      "SELECT id, label, metric, filter, target, comparison, period_days, active, formula FROM indications WHERE active = 1 AND baby_id = ? ORDER BY id"
     ).bind(babyId),
   ]);
+
+  // Growth-formula indications resolve their target from the baby's estimated
+  // current weight and age; static indications ignore this context.
+  const growthCtx = {
+    estWeightG: estimateWeightG(
+      recentWeights.results as unknown as WeightSample[],
+      now,
+      sel.baby.date_of_birth
+    ),
+    ageDays: ageDaysAt(sel.baby.date_of_birth, now),
+  };
 
   const indications = indicationsRes.results as unknown as IndicationRow[];
   let indicationsOut: unknown[] = [];
@@ -368,11 +385,13 @@ async function handleDashboard(
     );
     indicationsOut = indications.map((ind, i) => {
       const actual = extractIndicationActual(ind.metric, actuals[i], gapBoundary);
+      const target = resolveIndicationTarget(ind, growthCtx);
       return {
         ...ind,
+        target,
         actual,
         unit: indicationUnit(ind.metric),
-        met: ind.comparison === ">=" ? actual >= ind.target : actual <= ind.target,
+        met: ind.comparison === ">=" ? actual >= target : actual <= target,
       };
     });
   }
@@ -392,6 +411,7 @@ async function handleDashboard(
     recent_weights: recentWeights.results,
     recent_heights: recentHeights.results,
     indications: indicationsOut,
+    est_weight_g: growthCtx.estWeightG,
   });
 }
 

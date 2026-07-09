@@ -31,6 +31,15 @@ import {
 } from "./lib";
 import { SERVER_ORIGIN } from "./web";
 import {
+  GROWTH_FORMULAS,
+  GROWTH_FORMULA_KEYS,
+  isGrowthFormula,
+  resolveIndicationTarget,
+  estimateWeightG,
+  ageDaysAt,
+  type WeightSample,
+} from "./growth";
+import {
   pickBaby,
   resolveTenant,
   notRegisteredMessage,
@@ -62,6 +71,7 @@ const INDICATION_METRICS = [
 type IndicationMetric = (typeof INDICATION_METRICS)[number];
 const indicationMetricSchema = z.enum(INDICATION_METRICS);
 const comparisonSchema = z.enum([">=", "<="] as const);
+const formulaSchema = z.enum(GROWTH_FORMULA_KEYS);
 
 const WINDOW_OFFSET_MS = {
   "24h": DAY_MS,
@@ -134,6 +144,8 @@ export type IndicationRow = {
   comparison: ">=" | "<=";
   period_days: number;
   active: number;
+  // Growth-formula key (see src/growth.ts). NULL → a plain static target.
+  formula: string | null;
 };
 
 export function buildIndicationStatement(
@@ -1106,6 +1118,11 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .describe(
               "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). note_count: substring of note text. Not allowed for feeding_*."
             ),
+          formula: formulaSchema
+            .optional()
+            .describe(
+              "Make the target auto-progress with the baby's weight and age instead of staying fixed. When set, `target` becomes only a fallback (used when weight/age are unknown) and `metric` must match the formula: milk_ml_per_kg_day→feeding_total_ml, feeds_per_day→feeding_count, feed_gap_max_by_age→feeding_gap_max_min, poops_per_day_by_age→diaper_count."
+            ),
           baby: babyField,
         },
         outputSchema: {
@@ -1116,6 +1133,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           target: z.number(),
           comparison: comparisonSchema,
           period_days: z.number().int(),
+          formula: z.string().nullable(),
         },
       },
       async ({
@@ -1125,6 +1143,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         comparison,
         period_days,
         filter,
+        formula,
         baby,
       }) => {
         if (metric === "diaper_count" && filter) {
@@ -1156,14 +1175,25 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             isError: true,
           };
         }
+        if (formula && GROWTH_FORMULAS[formula].metric !== metric) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Formula '${formula}' requires metric='${GROWTH_FORMULAS[formula].metric}', not '${metric}'.`,
+              },
+            ],
+            isError: true,
+          };
+        }
 
         const t = await this.tenant();
         const targetBaby = pickBaby(t.babies, baby);
 
         const inserted = await db
           .prepare(
-            `INSERT INTO indications (label, metric, filter, target, comparison, period_days, baby_id, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO indications (label, metric, filter, target, comparison, period_days, baby_id, formula, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
              RETURNING id`
           )
           .bind(
@@ -1174,6 +1204,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             comparison ?? ">=",
             period_days ?? 1,
             targetBaby.id,
+            formula ?? null,
             t.email
           )
           .first<{ id: number }>();
@@ -1183,13 +1214,14 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         const periodS = period === 1 ? "/d" : `/${period}d`;
         const id = inserted?.id ?? 0;
         const cmp = comparison ?? ">=";
+        const formulaS = formula ? ` (auto: ${formula})` : "";
         return {
           content: [
             {
               type: "text",
               text: `Added indication #${id}: ${label}  [${metric}${
                 filter ? `:${filter}` : ""
-              } ${cmp} ${target}${unit ? " " + unit : ""}${periodS}]`,
+              } ${cmp} ${target}${unit ? " " + unit : ""}${periodS}]${formulaS}`,
             },
           ],
           structuredContent: {
@@ -1200,6 +1232,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             target,
             comparison: cmp,
             period_days: period,
+            formula: formula ?? null,
           },
         };
       }
@@ -1229,6 +1262,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
               comparison: comparisonSchema,
               period_days: z.number().int(),
               active: z.boolean(),
+              formula: z.string().nullable(),
             })
           ),
         },
@@ -1241,7 +1275,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           : "WHERE active = 1 AND baby_id = ?";
         const { results } = await db
           .prepare(
-            `SELECT id, label, metric, filter, target, comparison, period_days, active
+            `SELECT id, label, metric, filter, target, comparison, period_days, active, formula
              FROM indications ${where}
              ORDER BY active DESC, id`
           )
@@ -1257,6 +1291,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           comparison: r.comparison,
           period_days: r.period_days,
           active: r.active === 1,
+          formula: r.formula,
         }));
 
         if (results.length === 0) {
@@ -1276,9 +1311,10 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         const lines = results.map((r) => {
           const unit = indicationUnit(r.metric);
           const periodS = r.period_days === 1 ? "/d" : `/${r.period_days}d`;
+          const auto = r.formula ? `  (auto: ${r.formula})` : "";
           return `#${r.id}  ${r.active ? " " : "[off]"} ${r.label}  →  ${r.metric}${
             r.filter ? `:${r.filter}` : ""
-          } ${r.comparison} ${r.target}${unit ? " " + unit : ""}${periodS}`;
+          } ${r.comparison} ${r.target}${unit ? " " + unit : ""}${periodS}${auto}`;
         });
         return {
           content: [{ type: "text", text: lines.join("\n") }],
@@ -1326,6 +1362,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
               actual: z.number(),
               unit: z.string(),
               met: z.boolean(),
+              formula: z.string().nullable(),
             })
           ),
         },
@@ -1342,13 +1379,29 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         // to now while the day is still running.
         const gapBoundary = end < nowIso ? end : nowIso;
 
-        const { results: indications } = await db
-          .prepare(
-            `SELECT id, label, metric, filter, target, comparison, period_days, active
-             FROM indications WHERE active = 1 AND baby_id = ? ORDER BY id`
-          )
-          .bind(targetBaby.id)
-          .all<IndicationRow>();
+        const [indicationsRes, weightsRes] = await db.batch([
+          db
+            .prepare(
+              `SELECT id, label, metric, filter, target, comparison, period_days, active, formula
+               FROM indications WHERE active = 1 AND baby_id = ? ORDER BY id`
+            )
+            .bind(targetBaby.id),
+          db
+            .prepare(
+              "SELECT ts, weight_g FROM weights WHERE baby_id = ? ORDER BY ts DESC LIMIT 2"
+            )
+            .bind(targetBaby.id),
+        ]);
+        const indications = indicationsRes.results as unknown as IndicationRow[];
+        // Growth-formula targets are computed as of the evaluated day.
+        const growthCtx = {
+          estWeightG: estimateWeightG(
+            weightsRes.results as unknown as WeightSample[],
+            dayStart,
+            targetBaby.date_of_birth
+          ),
+          ageDays: ageDaysAt(targetBaby.date_of_birth, dayStart),
+        };
 
         if (indications.length === 0) {
           return {
@@ -1399,38 +1452,41 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           actual: number;
           unit: string;
           met: boolean;
+          formula: string | null;
         }> = [];
         let met = 0;
         for (let i = 0; i < indications.length; i++) {
           const ind = indications[i];
+          // Growth-formula rows resolve to a live target; static rows keep theirs.
+          const target = resolveIndicationTarget(ind, growthCtx);
           const actual = extractIndicationActual(
             ind.metric,
             actualResults[i],
             gapBoundary
           );
           const ok =
-            ind.comparison === ">="
-              ? actual >= ind.target
-              : actual <= ind.target;
+            ind.comparison === ">=" ? actual >= target : actual <= target;
           if (ok) met++;
           const unit = indicationUnit(ind.metric);
           const unitS = unit ? ` ${unit}` : "";
           const window =
             ind.period_days === 1 ? "/day" : ` over last ${ind.period_days} days`;
+          const auto = ind.formula ? " auto" : "";
           lines.push(
-            `${ok ? "[OK]  " : "[MISS]"} ${ind.label}  →  ${actual}${unitS} (target ${ind.comparison} ${ind.target}${unitS}${window})`
+            `${ok ? "[OK]  " : "[MISS]"} ${ind.label}  →  ${actual}${unitS} (target ${ind.comparison} ${target}${unitS}${auto}${window})`
           );
           structured.push({
             id: ind.id,
             label: ind.label,
             metric: ind.metric,
             filter: ind.filter,
-            target: ind.target,
+            target,
             comparison: ind.comparison,
             period_days: ind.period_days,
             actual,
             unit,
             met: ok,
+            formula: ind.formula,
           });
         }
         lines.push("");

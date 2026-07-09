@@ -2007,7 +2007,7 @@
       var d = dashboardData;
       var recent = d.recent_feedings || [];
       feedingShortcuts = computeShortcuts(recent);
-      renderTargets(d.indications || []);
+      renderTargets(d.indications || [], d.est_weight_g);
       renderLastFeeding(recent[0] || null, gapTargetMinutes(d.indications || []));
       renderLastDiaper(d.last_diaper);
       var routines = d.last_routines || [];
@@ -2025,7 +2025,7 @@
 
     // One row per active indication with live progress from the server
     // (computed over each indication's own Madrid-day window).
-    function renderTargets(indications) {
+    function renderTargets(indications, estWeightG) {
       var el = document.getElementById("card-targets");
       if (!indications.length) { el.hidden = true; return; }
       el.hidden = false;
@@ -2037,6 +2037,10 @@
           ? ind.actual + "/" + ind.target + unitS
           : ind.actual + "/" + ind.target + unitS + " " + i18n("max");
         if (ind.period_days > 1) value += " · " + ind.period_days + "d";
+        // Make the weight-driven milk target transparent, not magic.
+        if (ind.formula === "milk_ml_per_kg_day" && typeof estWeightG === "number") {
+          value += " · ≈" + (estWeightG / 1000).toFixed(2) + " kg";
+        }
         var over = !ind.met && ind.comparison === "<=";
         var cls = (ind.met ? " met" : "") + (over ? " over" : "");
         var state = ind.met ? "&#10003;" : over ? "&#9888;" : "&#9675;";
