@@ -59,8 +59,19 @@ Keep `workers_dev: false` so the unfronted `*.workers.dev` origin stays shut.
 
 ## 6. Deploy
 
+Pushes to `main` deploy automatically via GitHub Actions
+(`.github/workflows/ci.yml`): typecheck + tests, then remote D1 migrations,
+then `wrangler deploy`, then the Alexa interaction models. It needs a
+`CLOUDFLARE_API_TOKEN` repo secret with **Workers Scripts: Edit** and **D1:
+Edit** (plus `ASK_REFRESH_TOKEN` / `ASK_VENDOR_ID` for the Alexa job).
+
+Don't also connect the repo to Cloudflare's own Git build (Workers Builds) —
+that deploys every push a second time and never applies D1 migrations.
+
+Manual deploy still works:
+
 ```bash
-npm run deploy
+npm run db:migrate:remote && npm run deploy
 ```
 
 ## Tests
@@ -79,9 +90,9 @@ Both run in CI (`.github/workflows/ci.yml`) on pushes to `main` and on PRs.
   Settings tab or run `add_caregiver` (same household) or `create_household`
   (separate tenant) from an MCP client. Until both are done they get the
   Access login but a 403 from the app.
-- **D1 migrations are applied manually** (`npm run db:migrate:remote`), not by
-  CI. Migration numbering jumps 0017 → 0020 because the production
-  `d1_migrations` table already recorded 0018/0019 for a removed feature.
+- **D1 migrations are applied by CI** right before each deploy, so keep them
+  additive (new tables/columns with sane defaults): the old Worker must
+  tolerate the new schema for the seconds between the two steps.
 - The Worker name in `wrangler.jsonc` is `baby-feeding-mcp` (the repo's original
   name). Renaming it would create a new Worker and orphan the routes, secrets,
   and Durable Object namespace, so it is intentionally left unchanged.

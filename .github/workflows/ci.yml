@@ -28,6 +28,9 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: dbdb8961e24f100cde9bc1aa2127f014
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -35,10 +38,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Schema before code: migrations are additive, so the old Worker tolerates
+      # the new schema but the new Worker may require it (the growth-targets
+      # deploy shipped without 0002 and broke /api/dashboard in prod).
+      - run: npm run db:migrate:remote
       - run: npm run deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: dbdb8961e24f100cde9bc1aa2127f014
 
   # Deploys after the Worker so new intents never go live before their handlers.
   # Always pushes the model (idempotent — an unchanged model just rebuilds).
@@ -70,17 +74,25 @@ jobs:
             --interaction-model "file:alexa-skill/interaction-model.en.json"
           npx ask-cli@2 smapi set-interaction-model -s "$SKILL_ID" -g development -l en-GB \
             --interaction-model "file:alexa-skill/interaction-model.en.json"
+      # SMAPI's status payload doesn't reliably list every locale — a locale can
+      # drop out of the response once its build settles, which KeyError'd the old
+      # per-locale poll. Aggregate whatever locales it does report instead.
       - name: Wait for model builds
         run: |
-          for loc in es-ES en-US en-GB; do
-            ok=
-            for i in $(seq 1 30); do
-              build=$(npx ask-cli@2 smapi get-skill-status -s "$SKILL_ID" --resource interactionModel 2>/dev/null \
-                | python3 -c "import json,sys; print(json.load(sys.stdin)['interactionModel']['$loc']['lastUpdateRequest']['status'])")
-              echo "$loc attempt $i: $build"
-              [ "$build" = "SUCCEEDED" ] && { ok=1; break; }
-              [ "$build" = "FAILED" ] && { echo "$loc build FAILED" >&2; exit 1; }
-              sleep 10
-            done
-            [ -n "$ok" ] || { echo "timed out waiting for $loc model build" >&2; exit 1; }
+          for i in $(seq 1 30); do
+            agg=$(npx ask-cli@2 smapi get-skill-status -s "$SKILL_ID" --resource interactionModel 2>/dev/null | python3 -c '
+          import json, sys
+          try:
+              models = json.load(sys.stdin).get("interactionModel", {})
+          except Exception:
+              models = {}
+          st = [v.get("lastUpdateRequest", {}).get("status", "") for v in models.values()]
+          print("FAILED" if "FAILED" in st else "SUCCEEDED" if st and all(s == "SUCCEEDED" for s in st) else "IN_PROGRESS")
+          ')
+            echo "attempt $i: $agg"
+            [ "$agg" = "SUCCEEDED" ] && exit 0
+            [ "$agg" = "FAILED" ] && { echo "interaction model build FAILED" >&2; exit 1; }
+            sleep 10
           done
+          echo "timed out waiting for interaction model builds" >&2
+          exit 1
