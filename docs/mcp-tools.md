@@ -14,6 +14,7 @@ All record / list / stats / indication tools accept an optional `baby`
 | `add_baby`          | Add a baby to the household (`name`, optional `sex` / `date_of_birth`)  |
 | `set_default_baby`  | Change which baby tools target when `baby` is omitted                   |
 | `add_caregiver`     | Register another email into the caller's household                      |
+| `remove_caregiver`  | Remove a caregiver's email from the caller's household (not yourself)   |
 | `create_household`  | Create a new isolated household with its first caregiver + default baby |
 | `record_feeding`    | Log a feeding: `amount_ml` (required), `when` (ISO ts). Returns the gap since the previous feeding |
 | `list_feedings`     | List feedings, newest first. Optional `since` / `until` / `limit`       |

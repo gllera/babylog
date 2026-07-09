@@ -40,7 +40,10 @@ import {
   type WeightSample,
 } from "./growth";
 import {
+  addBaby,
+  addCaregiver,
   pickBaby,
+  removeCaregiver,
   resolveTenant,
   notRegisteredMessage,
   type Tenant,
@@ -1976,28 +1979,23 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       },
       async ({ name, sex, date_of_birth }) => {
         const t = await this.tenant();
-        const isDefault = t.babies.length === 0 ? 1 : 0;
-        const inserted = await db
-          .prepare(
-            "INSERT INTO babies (household_id, name, sex, date_of_birth, is_default) VALUES (?, ?, ?, ?, ?) RETURNING id"
-          )
-          .bind(
-            t.householdId,
-            name,
-            sex ?? null,
-            date_of_birth ?? null,
-            isDefault
-          )
-          .first<{ id: number }>();
-        const id = inserted?.id ?? 0;
+        const created = await addBaby(db, t.householdId, t.babies.length, {
+          name,
+          sex,
+          date_of_birth,
+        });
         return {
           content: [
             {
               type: "text",
-              text: `Added baby '${name}' (#${id})${isDefault === 1 ? " as the default baby" : ""}.`,
+              text: `Added baby '${name}' (#${created.id})${created.is_default ? " as the default baby" : ""}.`,
             },
           ],
-          structuredContent: { id, name, is_default: isDefault === 1 },
+          structuredContent: {
+            id: created.id,
+            name,
+            is_default: created.is_default,
+          },
         };
       }
     );
@@ -2052,34 +2050,63 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       async ({ email }) => {
         const t = await this.tenant();
         const norm = email.toLowerCase();
-        const existing = await db
-          .prepare("SELECT id, email, household_id FROM users WHERE email = ?")
-          .bind(norm)
-          .first<UserRow>();
-        if (existing) {
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  existing.household_id === t.householdId
-                    ? `${norm} is already a caregiver in your household.`
-                    : `${norm} already belongs to another household.`,
-              },
-            ],
-            isError: true,
-          };
+        const error = await addCaregiver(db, t.householdId, email);
+        if (error) {
+          return { content: [{ type: "text", text: error }], isError: true };
         }
-        await db
-          .prepare("INSERT INTO users (email, household_id) VALUES (?, ?)")
-          .bind(norm, t.householdId)
-          .run();
         return {
           content: [
             {
               type: "text",
               text: `Added ${norm} to your household. Make sure the Cloudflare Access policy also allows this email, or they cannot reach the app.`,
             },
+          ],
+        };
+      }
+    );
+
+    this.server.registerTool(
+      "remove_caregiver",
+      {
+        description:
+          "Remove a caregiver's email from the caller's household so they no longer see or record its data. You cannot remove yourself. This does not touch the Cloudflare Access policy (that lives in Cloudflare, not here).",
+        inputSchema: {
+          email: z
+            .string()
+            .email()
+            .describe("Email address of the caregiver to remove"),
+        },
+      },
+      async ({ email }) => {
+        const t = await this.tenant();
+        const norm = email.toLowerCase();
+        const target = await db
+          .prepare(
+            "SELECT id, email, household_id FROM users WHERE email = ? AND household_id = ?"
+          )
+          .bind(norm, t.householdId)
+          .first<UserRow>();
+        if (!target) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `${norm} is not a caregiver in your household.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        const res = await removeCaregiver(db, t, target.id);
+        if (!res.ok) {
+          return {
+            content: [{ type: "text", text: res.message }],
+            isError: true,
+          };
+        }
+        return {
+          content: [
+            { type: "text", text: `Removed ${norm} from your household.` },
           ],
         };
       }

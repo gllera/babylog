@@ -128,7 +128,7 @@
     }
     .tab { display: none; }
     .tab.active { display: block; }
-    form.entry-form {
+    form.entry-form, form.settings-form {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -139,7 +139,7 @@
       gap: 10px;
       align-items: flex-end;
     }
-    form.entry-form label {
+    form.entry-form label, form.settings-form label {
       display: flex;
       flex-direction: column;
       gap: 4px;
@@ -150,8 +150,8 @@
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
-    form.entry-form input,
-    form.entry-form select {
+    form.entry-form input, form.settings-form input,
+    form.entry-form select, form.settings-form select {
       padding: 8px 10px;
       border: 1px solid var(--border);
       border-radius: 4px;
@@ -163,13 +163,13 @@
       letter-spacing: normal;
       font-weight: 400;
     }
-    form.entry-form input:focus,
-    form.entry-form select:focus {
+    form.entry-form input:focus, form.settings-form input:focus,
+    form.entry-form select:focus, form.settings-form select:focus {
       outline: 2px solid var(--primary);
       outline-offset: -1px;
       border-color: var(--primary);
     }
-    form.entry-form button[type=submit] {
+    form.entry-form button[type=submit], form.settings-form button[type=submit] {
       background: var(--primary);
       color: white;
       border: 0;
@@ -181,8 +181,8 @@
       font-family: inherit;
       align-self: flex-end;
     }
-    form.entry-form button[type=submit]:hover { background: var(--primary-hover); }
-    form.entry-form button[type=submit]:disabled { opacity: 0.5; cursor: not-allowed; }
+    form.entry-form button[type=submit]:hover, form.settings-form button[type=submit]:hover { background: var(--primary-hover); }
+    form.entry-form button[type=submit]:disabled, form.settings-form button[type=submit]:disabled { opacity: 0.5; cursor: not-allowed; }
     .list {
       background: var(--card);
       border: 1px solid var(--border);
@@ -217,7 +217,7 @@
     .ts-col { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .num-col { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .actions-col { text-align: right; width: 1%; white-space: nowrap; }
-    .delete-btn {
+    .delete-btn, .cg-remove {
       background: transparent;
       border: 1px solid var(--border);
       color: var(--danger);
@@ -227,7 +227,7 @@
       font-size: 13px;
       font-family: inherit;
     }
-    .delete-btn:hover { background: var(--danger-soft); border-color: var(--danger); }
+    .delete-btn:hover, .cg-remove:hover { background: var(--danger-soft); border-color: var(--danger); }
     .toast {
       position: fixed;
       bottom: 18px;
@@ -648,24 +648,74 @@
       border-color: var(--primary);
       color: #fff;
     }
-    /* Language switcher (EN | ES), pinned to the right of the header. */
-    #lang-switcher { display: flex; gap: 4px; flex: none; margin-left: auto; }
-    #lang-switcher button {
+    /* Settings gear, pinned to the right of the header. */
+    #settings-btn {
+      flex: none;
+      margin-left: auto;
       border: 1px solid var(--border);
       background: var(--chip);
       color: var(--muted);
       border-radius: 999px;
       padding: 3px 10px;
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 15px;
+      line-height: 1.3;
       cursor: pointer;
       font-family: inherit;
     }
-    #lang-switcher button:hover { background: var(--chip-hover); color: var(--text); }
-    #lang-switcher button.active {
+    #settings-btn:hover { background: var(--chip-hover); color: var(--text); }
+    #settings-btn.active {
       background: var(--primary);
       border-color: var(--primary);
       color: #fff;
+    }
+    /* Settings tab */
+    #tab-settings .card { margin-bottom: 14px; }
+    .lang-options { display: flex; gap: 6px; flex-wrap: wrap; }
+    .lang-options button {
+      border: 1px solid var(--border);
+      background: var(--chip);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .lang-options button.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .settings-list { display: flex; flex-direction: column; }
+    .settings-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .settings-row:last-child { border-bottom: 0; }
+    .settings-row .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .settings-sub { color: var(--muted); font-size: 12px; }
+    .settings-badge {
+      flex: none;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+      border-radius: 999px;
+      padding: 1px 8px;
+    }
+    .settings-note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+    /* Settings forms reuse the entry-form field styles but sit inside a card. */
+    #tab-settings form.settings-form {
+      background: none;
+      border: 0;
+      border-top: 1px solid var(--border);
+      border-radius: 0;
+      padding: 12px 0 0;
+      margin: 10px 0 0;
     }
     @media (max-width: 640px) {
       header { padding: 8px 10px; gap: 8px; }
@@ -710,8 +760,8 @@
       .quick-btn { padding: 7px 10px; font-size: 13px; min-height: 32px; }
 
       form.entry-form { padding: 12px; gap: 8px; margin-bottom: 14px; }
-      form.entry-form label { font-size: 11px; flex: 1 1 100%; }
-      form.entry-form button[type=submit] { width: 100%; padding: 11px; }
+      form.entry-form label, form.settings-form label { font-size: 11px; flex: 1 1 100%; }
+      form.entry-form button[type=submit], form.settings-form button[type=submit] { width: 100%; padding: 11px; }
       form.entry-form .cancel-edit { width: 100%; padding: 10px; }
       .when-display { font-size: 15px; }
       .when-quick { gap: 3px; }
@@ -736,7 +786,7 @@
         </div>
       </div>
     </nav>
-    <div id="lang-switcher"></div>
+    <button type="button" id="settings-btn" aria-label="Settings" data-i18n-aria-label="Settings" title="Settings" data-i18n-title="Settings">&#9881;&#65038;</button>
   </header>
 
   <main>
@@ -900,6 +950,52 @@
       </form>
       <div class="list" id="list-notes"><div class="list-loading" data-i18n="Loading…">Loading...</div></div>
     </section>
+
+    <section id="tab-settings" class="tab">
+      <div class="card">
+        <div class="card-title" data-i18n="Language">Language</div>
+        <div class="lang-options" id="settings-lang">
+          <button type="button" data-lang="en">English</button>
+          <button type="button" data-lang="es">Espa&ntilde;ol</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="Babies">Babies</div>
+        <div class="settings-list" id="settings-babies">
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
+        </div>
+        <form class="settings-form" id="form-add-baby">
+          <label><span data-i18n="Name">Name</span>
+            <input type="text" name="name" maxlength="100" required placeholder="Sof&iacute;a">
+          </label>
+          <label><span data-i18n="Sex">Sex</span>
+            <select name="sex">
+              <option value="">&mdash;</option>
+              <option value="female" data-i18n="Girl">Girl</option>
+              <option value="male" data-i18n="Boy">Boy</option>
+              <option value="other" data-i18n="Other">Other</option>
+            </select>
+          </label>
+          <label><span data-i18n="Birth date">Birth date</span>
+            <input type="date" name="date_of_birth">
+          </label>
+          <button type="submit" data-i18n="Add baby">Add baby</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="Partners">Partners</div>
+        <div class="settings-list" id="settings-caregivers">
+          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
+        </div>
+        <form class="settings-form" id="form-invite">
+          <label><span data-i18n="Email">Email</span>
+            <input type="email" name="email" required placeholder="partner@example.com">
+          </label>
+          <button type="submit" data-i18n="Invite">Invite</button>
+        </form>
+        <p class="settings-note" data-i18n="Invited partners must also be allowed by the Cloudflare Access policy, or they cannot log in.">Invited partners must also be allowed by the Cloudflare Access policy, or they cannot log in.</p>
+      </div>
+    </section>
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -1038,7 +1134,28 @@
         // Quick-add toasts
         "Recorded: {a} ml": "Registrado: {a} ml",
         "Diaper: {k}": "Pañal: {k}",
-        "Routine: {r}": "Rutina: {r}"
+        "Routine: {r}": "Rutina: {r}",
+        // Settings
+        "Settings": "Ajustes",
+        "Language": "Idioma",
+        "Babies": "Bebés",
+        "Name": "Nombre",
+        "Sex": "Sexo",
+        "Girl": "Niña",
+        "Boy": "Niño",
+        "Other": "Otro",
+        "Birth date": "Fecha de nacimiento",
+        "Add baby": "Añadir bebé",
+        "default": "predeterminado",
+        "Partners": "Cuidadores",
+        "Email": "Correo",
+        "Invite": "Invitar",
+        "you": "tú",
+        "Remove": "Quitar",
+        "Removed": "Eliminado",
+        "Invited {e}": "Invitado {e}",
+        "Invited partners must also be allowed by the Cloudflare Access policy, or they cannot log in.":
+          "Los cuidadores invitados también deben estar permitidos en la política de Cloudflare Access, o no podrán entrar."
       }
     };
 
@@ -1081,23 +1198,15 @@
       }
     }
 
-    // EN | ES toggle in the header; the choice reloads so all views re-render.
-    function renderLangSwitcher() {
-      var el = document.getElementById("lang-switcher");
+    // Language choice in Settings; picking one reloads (like the baby
+    // switcher) so every static and dynamic string re-renders.
+    function initSettingsLang() {
+      var el = document.getElementById("settings-lang");
       if (!el) return;
-      var opts = [["en", "EN"], ["es", "ES"]];
-      var html = "";
-      for (var i = 0; i < opts.length; i++) {
-        html += '<button type="button" data-lang="' + opts[i][0] + '"' +
-          (opts[i][0] === LANG ? ' class="active"' : "") + ">" + opts[i][1] + "</button>";
+      var btns = el.querySelectorAll("[data-lang]");
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle("active", btns[i].getAttribute("data-lang") === LANG);
       }
-      el.innerHTML = html;
-    }
-
-    function initLangSwitcher() {
-      var el = document.getElementById("lang-switcher");
-      if (!el) return;
-      renderLangSwitcher();
       el.addEventListener("click", function(e) {
         var t2 = e.target;
         if (!t2 || !t2.getAttribute) return;
@@ -1969,6 +2078,119 @@
       location.reload();
     });
 
+    // --- Settings (language, babies, partners) ---
+    async function loadSettings() {
+      try {
+        var d = await fetchJson("/api/household");
+        renderSettingsBabies(d.babies || []);
+        renderSettingsCaregivers(d.caregivers || [], d.me || {});
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast(i18n("Error loading: {e}", { e: err.message }), true);
+      }
+    }
+
+    function renderSettingsBabies(babies) {
+      var el = document.getElementById("settings-babies");
+      var html = "";
+      for (var i = 0; i < babies.length; i++) {
+        var b = babies[i];
+        html += '<div class="settings-row">' +
+          '<span class="grow">' + escapeHtml(b.name || "Baby #" + b.id) +
+          (b.date_of_birth ? ' <span class="settings-sub">&middot; ' + escapeHtml(b.date_of_birth) + '</span>' : "") +
+          '</span>' +
+          (b.is_default ? '<span class="settings-badge">' + escapeHtml(i18n("default")) + '</span>' : "") +
+          '</div>';
+      }
+      el.innerHTML = html || '<div class="card-empty">' + escapeHtml(i18n("No entries yet.")) + '</div>';
+    }
+
+    function renderSettingsCaregivers(caregivers, me) {
+      var el = document.getElementById("settings-caregivers");
+      var html = "";
+      for (var i = 0; i < caregivers.length; i++) {
+        var c = caregivers[i];
+        var self = c.id === me.id;
+        html += '<div class="settings-row">' +
+          '<span class="grow">' + escapeHtml(c.email) +
+          (self ? ' <span class="settings-sub">&middot; ' + escapeHtml(i18n("you")) + '</span>' : "") +
+          '</span>' +
+          (self ? "" : '<button type="button" class="cg-remove" data-id="' + c.id + '">' + escapeHtml(i18n("Remove")) + '</button>') +
+          '</div>';
+      }
+      el.innerHTML = html;
+    }
+
+    // Two-tap remove, mirroring the entity lists' delete confirmation.
+    document.getElementById("settings-caregivers").addEventListener("click", async function(e) {
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains("cg-remove")) return;
+      if (!t.classList.contains("pending")) {
+        t.classList.add("pending");
+        t.textContent = i18n("Confirm?");
+        setTimeout(function() {
+          if (t.classList.contains("pending")) {
+            t.classList.remove("pending");
+            t.textContent = i18n("Remove");
+          }
+        }, 4000);
+        return;
+      }
+      t.disabled = true;
+      try {
+        await sendJson("DELETE", "/api/caregivers/" + encodeURIComponent(t.getAttribute("data-id")));
+        toast(i18n("Removed"));
+        loadSettings();
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+      } finally {
+        t.disabled = false;
+      }
+    });
+
+    document.getElementById("form-add-baby").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      var form = e.currentTarget;
+      var fd = new FormData(form);
+      var body = { name: String(fd.get("name") || "").trim() };
+      if (!body.name) return;
+      if (fd.get("sex")) body.sex = String(fd.get("sex"));
+      if (fd.get("date_of_birth")) body.date_of_birth = String(fd.get("date_of_birth"));
+      var btn = form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      try {
+        await postJson("/api/babies", body);
+        form.reset();
+        toast(i18n("Saved"));
+        loadSettings();
+        // The header switcher shows up once the household has two babies.
+        loadDashboard();
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("form-invite").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      var form = e.currentTarget;
+      var fd = new FormData(form);
+      var email = String(fd.get("email") || "").trim();
+      if (!email) return;
+      var btn = form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      try {
+        await postJson("/api/caregivers", { email: email });
+        form.reset();
+        toast(i18n("Invited {e}", { e: email.toLowerCase() }));
+        loadSettings();
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
     // One aggregated fetch (the server batches the queries in a single D1
     // round trip); the payload is cached so the periodic re-render can keep
     // the "ago" strings fresh without refetching.
@@ -2212,6 +2434,8 @@
       }
       var moreBtn = document.getElementById("more-btn");
       if (moreBtn) moreBtn.classList.toggle("active", !!MORE_TABS[name]);
+      var settingsBtn = document.getElementById("settings-btn");
+      if (settingsBtn) settingsBtn.classList.toggle("active", name === "settings");
       var tabs = document.querySelectorAll(".tab");
       for (var j = 0; j < tabs.length; j++) {
         tabs[j].classList.toggle("active", tabs[j].id === "tab-" + name);
@@ -2220,11 +2444,17 @@
       try { history.replaceState(null, "", "#" + name); } catch (_) {}
       if (name === "today") {
         loadDashboard();
+      } else if (name === "settings") {
+        loadSettings();
       } else if (entities[name]) {
         if (charts[name]) resetChartWeek(name);
         loadList(name);
       }
     }
+
+    document.getElementById("settings-btn").addEventListener("click", function() {
+      showTab("settings");
+    });
 
     document.getElementById("nav").addEventListener("click", function(e) {
       var t = e.target;
@@ -2589,10 +2819,10 @@
     // Restore the tab from the URL hash so a refresh keeps the selected tab.
     function tabFromHash() {
       var h = (location.hash || "").replace(/^#/, "");
-      return (h === "today" || entities[h]) ? h : "today";
+      return (h === "today" || h === "settings" || entities[h]) ? h : "today";
     }
     applyStaticI18n();
-    initLangSwitcher();
+    initSettingsLang();
     window.addEventListener("hashchange", function() { showTab(tabFromHash()); });
     showTab(tabFromHash());
 

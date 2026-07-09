@@ -75,9 +75,10 @@ Both run in CI (`.github/workflows/ci.yml`) on pushes to `main` and on PRs.
 ## Operational notes
 
 - **Onboarding a new caregiver takes two steps:** allow their email in the
-  Cloudflare Access policy, and run `add_caregiver` (same household) or
-  `create_household` (separate tenant) from an MCP client. Until both are done
-  they get the Access login but a 403 from the app.
+  Cloudflare Access policy, and register them — invite from the web app's
+  Settings tab or run `add_caregiver` (same household) or `create_household`
+  (separate tenant) from an MCP client. Until both are done they get the
+  Access login but a 403 from the app.
 - **D1 migrations are applied manually** (`npm run db:migrate:remote`), not by
   CI. Migration numbering jumps 0017 → 0020 because the production
   `d1_migrations` table already recorded 0018/0019 for a removed feature.

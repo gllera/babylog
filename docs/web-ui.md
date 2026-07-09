@@ -33,6 +33,22 @@ Growth trend charts with WHO Child Growth Standards percentile bands (P3–P97,
 when the profile has sex + birth date) plus the current percentile estimate.
 Dashboard cards show deltas vs the previous measurement.
 
+## Settings tab
+
+Opened with the gear button in the header:
+
+- **Language** — English / Spanish (persisted in `localStorage`, guessed from
+  the browser on first visit).
+- **Babies** — the household's babies with the default marked, plus an
+  add-baby form (name, optional sex and birth date). The first baby added to
+  an empty household becomes the default.
+- **Partners** — the household's caregivers, an invite-by-email form, and a
+  two-tap Remove per caregiver (you can't remove yourself). Backed by
+  `/api/household`, `/api/caregivers`, and `/api/babies`; same semantics as
+  the `add_caregiver` / `remove_caregiver` / `add_baby` MCP tools. Inviting
+  only registers the email in the household — it must also be allowed by the
+  Cloudflare Access policy to log in at all.
+
 ## Multi-baby & platform
 
 - Households with more than one baby get a switcher above the tabs; the

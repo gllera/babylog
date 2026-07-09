@@ -29,7 +29,11 @@ import {
 } from "./growth";
 import { getAccessEmail } from "./access";
 import {
+  addBaby,
+  addCaregiver,
+  listCaregivers,
   pickBaby,
+  removeCaregiver,
   resolveTenant,
   notRegisteredMessage,
   type Tenant,
@@ -415,6 +419,81 @@ async function handleDashboard(
   });
 }
 
+// Everything the Settings tab needs in one request: who shares the household
+// and which babies it has.
+async function handleHousehold(env: Env, tenant: Tenant): Promise<Response> {
+  return jsonOk({
+    household_id: tenant.householdId,
+    me: { id: tenant.userId, email: tenant.email },
+    caregivers: await listCaregivers(env.DB, tenant.householdId),
+    babies: tenant.babies,
+  });
+}
+
+const createBabySchema = z.object({
+  name: z.string().min(1).max(100),
+  sex: z.enum(["male", "female", "other"]).optional(),
+  date_of_birth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+});
+
+async function handleBabies(
+  request: Request,
+  env: Env,
+  tenant: Tenant
+): Promise<Response> {
+  if (request.method.toUpperCase() !== "POST") {
+    return jsonError(405, "Method not allowed.");
+  }
+  const parsed = await readBody(request, createBabySchema);
+  if (!parsed.ok) return jsonError(400, parsed.error);
+  const created = await addBaby(
+    env.DB,
+    tenant.householdId,
+    tenant.babies.length,
+    parsed.value
+  );
+  return jsonOk({ ...parsed.value, ...created }, 201);
+}
+
+// POST /api/caregivers invites a partner; DELETE /api/caregivers/<id> removes
+// one. The DB row only grants tenancy — the email must also be allowed by the
+// Cloudflare Access policy (managed in Cloudflare) to reach the app at all.
+async function handleCaregivers(
+  request: Request,
+  env: Env,
+  tenant: Tenant,
+  idStr: string | undefined
+): Promise<Response> {
+  const method = request.method.toUpperCase();
+  if (method === "POST" && !idStr) {
+    const parsed = await readBody(
+      request,
+      z.object({ email: z.string().email() })
+    );
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const error = await addCaregiver(
+      env.DB,
+      tenant.householdId,
+      parsed.value.email
+    );
+    if (error) return jsonError(409, error);
+    return jsonOk({ email: parsed.value.email.trim().toLowerCase() }, 201);
+  }
+  if (method === "DELETE" && idStr) {
+    const id = parseIdParam(idStr);
+    if (id === null) return jsonError(400, "Invalid id.");
+    const res = await removeCaregiver(env.DB, tenant, id);
+    if (!res.ok) {
+      return jsonError(res.code === "not_found" ? 404 : 400, res.message);
+    }
+    return jsonOk({ deleted: id });
+  }
+  return jsonError(405, "Method not allowed.");
+}
+
 // The app shell reads the selected baby's sex/DOB for the WHO percentile
 // bands, plus the full list for the switcher.
 function handleProfile(tenant: Tenant, url: URL): Response {
@@ -452,6 +531,18 @@ export async function handleApi(
       return jsonError(405, "Method not allowed.");
     }
     return handleProfile(tenant, url);
+  }
+  if (parts[1] === "household" && parts.length === 2) {
+    if (request.method.toUpperCase() !== "GET") {
+      return jsonError(405, "Method not allowed.");
+    }
+    return handleHousehold(env, tenant);
+  }
+  if (parts[1] === "babies" && parts.length === 2) {
+    return handleBabies(request, env, tenant);
+  }
+  if (parts[1] === "caregivers") {
+    return handleCaregivers(request, env, tenant, parts[2]);
   }
   const cfg = ENTITIES[parts[1]];
   if (!cfg) return jsonError(404, "Unknown entity.");
