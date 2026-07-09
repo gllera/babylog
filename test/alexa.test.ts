@@ -72,13 +72,15 @@ describe("voiceEn fragments", () => {
   });
 
   it("feedingRecorded", () => {
-    expect(v.feedingRecorded(120, "")).toBe("120 milliliters.");
-    expect(v.feedingRecorded(120, ", an hour")).toBe("120 milliliters, an hour.");
+    expect(v.feedingRecorded(120, "")).toBe("Logged: 120 milliliters.");
+    expect(v.feedingRecorded(120, ", an hour since the previous feeding")).toBe(
+      "Logged: 120 milliliters, an hour since the previous feeding."
+    );
   });
 
-  it("feedingSummary pluralizes", () => {
+  it("feedingSummary pluralizes and marks the total", () => {
     expect(v.feedingSummary(1, 100)).toBe("1 feeding, 100 milliliters.");
-    expect(v.feedingSummary(3, 450)).toBe("3 feedings, 450 milliliters.");
+    expect(v.feedingSummary(3, 450)).toBe("3 feedings, 450 milliliters in total.");
   });
 
   it("diaperSummary pluralizes and joins", () => {
@@ -97,24 +99,24 @@ describe("voiceEn fragments", () => {
     ).toBe("bath, walk 2 times.");
   });
 
-  it("lastAt and lastFeeding", () => {
-    expect(v.lastAt("20:10")).toBe("Last at 20:10.");
+  it("lastFeedingAt and lastFeeding name what the time refers to", () => {
+    expect(v.lastFeedingAt("20:10")).toBe("Last feeding at 20:10.");
     expect(v.lastFeeding("an hour", "20:10", 120)).toBe(
       "The last feeding was an hour ago, at 20:10, of 120 milliliters."
     );
   });
 
-  it("gapTail formats a gap from the previous entry", () => {
+  it("gapTail names what the gap refers to, per entity", () => {
     const now = 10 * 60_000;
     const prev = { ts: new Date(0).toISOString() };
-    expect(v.gapTail(prev, now)).toBe(", 10 minutes");
-    expect(v.gapTail(undefined, now)).toBe("");
+    expect(v.gapTail(prev, now, "feeding")).toBe(", 10 minutes since the previous feeding");
+    expect(v.gapTail(prev, now, "diaper")).toBe(", 10 minutes since the previous diaper");
+    expect(v.gapTail(prev, now, "routine")).toBe(", 10 minutes since the last time");
+    expect(v.gapTail(undefined, now, "feeding")).toBe("");
   });
 });
 
-// Characterization tests locking the existing Spanish behavior through the
-// refactor into the voice layer.
-describe("voiceEs (unchanged behavior)", () => {
+describe("voiceEs", () => {
   const v = VOICES.es;
 
   it("humanGap", () => {
@@ -126,8 +128,9 @@ describe("voiceEs (unchanged behavior)", () => {
     expect(v.diaperKind("both")).toBe("pis y caca");
   });
 
-  it("feedingSummary", () => {
-    expect(v.feedingSummary(3, 450)).toBe("3 tomas, 450 mililitros.");
+  it("feedingSummary marks the total", () => {
+    expect(v.feedingSummary(1, 100)).toBe("1 toma, 100 mililitros.");
+    expect(v.feedingSummary(3, 450)).toBe("3 tomas, 450 mililitros en total.");
   });
 
   it("diaperSummary", () => {
@@ -136,5 +139,23 @@ describe("voiceEs (unchanged behavior)", () => {
 
   it("routineDisplay", () => {
     expect(v.routineDisplay("Bath")).toBe("baño");
+  });
+
+  it("record confirmations name what the gap refers to", () => {
+    const now = 10 * 60_000;
+    const prev = { ts: new Date(0).toISOString() };
+    expect(v.feedingRecorded(120, v.gapTail(prev, now, "feeding"))).toBe(
+      "Apuntado: 120 mililitros, 10 minutos desde la toma anterior."
+    );
+    expect(v.diaperRecorded("poop", v.gapTail(prev, now, "diaper"))).toBe(
+      "Apuntado: caca, 10 minutos desde el pañal anterior."
+    );
+    expect(v.routineRecorded("Vitamin D", v.gapTail(prev, now, "routine"))).toBe(
+      "Apuntado: vitamina D, 10 minutos desde la última vez."
+    );
+  });
+
+  it("lastFeedingAt names the event", () => {
+    expect(v.lastFeedingAt("20:10")).toBe("Última toma a las 20:10.");
   });
 });

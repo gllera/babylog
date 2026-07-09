@@ -17,6 +17,12 @@ import type { DiaperKind } from "./types";
 
 export type Lang = "es" | "en";
 
+/** What a record confirmation's gap refers to: the previous feeding, the
+ *  previous diaper (any kind), or the previous run of the same routine. The
+ *  spoken tail names it explicitly — a bare "2 hours and 10 minutes" left
+ *  listeners guessing what the duration meant. */
+export type GapEntity = "feeding" | "diaper" | "routine";
+
 /** Collapse an Alexa locale ("en-US", "es-ES", …) to a supported language.
  *  Anything that isn't English falls back to Spanish (the original locale). */
 export function langOf(locale: string | undefined): Lang {
@@ -28,7 +34,7 @@ export interface Voice {
   humanGap(deltaMs: number): string;
   diaperKind(kind: DiaperKind): string;
   routineDisplay(canonical: string): string;
-  gapTail(prev: { ts: string } | undefined, now: number): string;
+  gapTail(prev: { ts: string } | undefined, now: number, entity: GapEntity): string;
 
   // ---- launch / meta strings ----
   launchPrompt: string;
@@ -61,10 +67,11 @@ export interface Voice {
   routineCard: string;
 
   // ---- stats (each returns one sentence, period included) ----
+  statsIntro: string;
   feedingSummary(n: number, totalMl: number): string;
   diaperSummary(pee: number, poop: number): string;
   routineSummary(routines: Array<{ name: string; n: number }>): string;
-  lastAt(hhmm: string): string;
+  lastFeedingAt(hhmm: string): string;
   statsEmpty: string;
   statsCard: string;
 
@@ -127,9 +134,15 @@ export const voiceEs: Voice = {
   routineDisplay(canonical) {
     return ROUTINE_DISPLAY_ES[canonical] ?? canonical;
   },
-  gapTail(prev, now) {
+  gapTail(prev, now, entity) {
     if (!prev) return "";
-    return `, ${humanGapEs(now - Date.parse(prev.ts))}`;
+    const since =
+      entity === "feeding"
+        ? "desde la toma anterior"
+        : entity === "diaper"
+          ? "desde el pañal anterior"
+          : "desde la última vez";
+    return `, ${humanGapEs(now - Date.parse(prev.ts))} ${since}`;
   },
 
   launchPrompt: "Sí, ¿cuántos mililitros?",
@@ -153,28 +166,29 @@ export const voiceEs: Voice = {
   askMl: "¿Cuántos mililitros tomó?",
   askMlReprompt: 'Dime los mililitros, por ejemplo "ciento veinte".',
   feedingRecorded(amountMl, tail) {
-    return `${amountMl} mililitros${tail}.`;
+    return `Apuntado: ${amountMl} mililitros${tail}.`;
   },
   feedingCard: "Toma registrada",
 
   askDiaper: "¿Qué tipo de pañal? Puedes decir pis, caca o las dos cosas.",
   askDiaperReprompt: "Dime pis, caca o las dos cosas.",
   diaperRecorded(kind, tail) {
-    return `${this.diaperKind(kind)}${tail}.`;
+    return `Apuntado: ${this.diaperKind(kind)}${tail}.`;
   },
   diaperCard: "Pañal registrado",
 
   askRoutine: "¿Qué rutina quieres registrar?",
   askRoutineReprompt: 'Puedes decir, por ejemplo, "vitamina D", "baño" o "paseo".',
   routineRecorded(canonical, tail) {
-    return `${this.routineDisplay(canonical)}${tail}.`;
+    return `Apuntado: ${this.routineDisplay(canonical)}${tail}.`;
   },
   routineCard: "Rutina registrada",
 
+  statsIntro: "Hoy:",
   feedingSummary(n, totalMl) {
     return n === 1
       ? `1 toma, ${totalMl} mililitros.`
-      : `${n} tomas, ${totalMl} mililitros.`;
+      : `${n} tomas, ${totalMl} mililitros en total.`;
   },
   diaperSummary(pee, poop) {
     const dp: string[] = [];
@@ -191,8 +205,8 @@ export const voiceEs: Voice = {
       .join(", ");
     return `${r}.`;
   },
-  lastAt(hhmm) {
-    return `Última a las ${hhmm}.`;
+  lastFeedingAt(hhmm) {
+    return `Última toma a las ${hhmm}.`;
   },
   statsEmpty: "Sin registros hoy.",
   statsCard: "Resumen de hoy",
@@ -253,9 +267,15 @@ export const voiceEn: Voice = {
   routineDisplay(canonical) {
     return ROUTINE_DISPLAY_EN[canonical] ?? canonical;
   },
-  gapTail(prev, now) {
+  gapTail(prev, now, entity) {
     if (!prev) return "";
-    return `, ${humanGapEn(now - Date.parse(prev.ts))}`;
+    const since =
+      entity === "feeding"
+        ? "since the previous feeding"
+        : entity === "diaper"
+          ? "since the previous diaper"
+          : "since the last time";
+    return `, ${humanGapEn(now - Date.parse(prev.ts))} ${since}`;
   },
 
   launchPrompt: "Yes, how many milliliters?",
@@ -279,28 +299,29 @@ export const voiceEn: Voice = {
   askMl: "How many milliliters did the baby take?",
   askMlReprompt: 'Tell me the milliliters, for example "one hundred twenty".',
   feedingRecorded(amountMl, tail) {
-    return `${amountMl} milliliters${tail}.`;
+    return `Logged: ${amountMl} milliliters${tail}.`;
   },
   feedingCard: "Feeding logged",
 
   askDiaper: "What kind of diaper? You can say pee, poop, or both.",
   askDiaperReprompt: "Tell me pee, poop, or both.",
   diaperRecorded(kind, tail) {
-    return `${this.diaperKind(kind)}${tail}.`;
+    return `Logged: ${this.diaperKind(kind)}${tail}.`;
   },
   diaperCard: "Diaper logged",
 
   askRoutine: "Which routine do you want to log?",
   askRoutineReprompt: 'You can say, for example, "vitamin D", "bath", or "walk".',
   routineRecorded(canonical, tail) {
-    return `${this.routineDisplay(canonical)}${tail}.`;
+    return `Logged: ${this.routineDisplay(canonical)}${tail}.`;
   },
   routineCard: "Routine logged",
 
+  statsIntro: "Today:",
   feedingSummary(n, totalMl) {
     return n === 1
       ? `1 feeding, ${totalMl} milliliters.`
-      : `${n} feedings, ${totalMl} milliliters.`;
+      : `${n} feedings, ${totalMl} milliliters in total.`;
   },
   diaperSummary(pee, poop) {
     const dp: string[] = [];
@@ -317,8 +338,8 @@ export const voiceEn: Voice = {
       .join(", ");
     return `${r}.`;
   },
-  lastAt(hhmm) {
-    return `Last at ${hhmm}.`;
+  lastFeedingAt(hhmm) {
+    return `Last feeding at ${hhmm}.`;
   },
   statsEmpty: "No entries today.",
   statsCard: "Today's summary",

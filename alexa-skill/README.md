@@ -63,7 +63,7 @@ basta con decir el número:
 Tú: "Alexa, abre bitácora de gabita"
 Skill: "Sí, ¿cuántos mililitros?"
 Tú: "ciento setenta y cinco"
-Skill: "175 mililitros, dos horas y diez minutos."
+Skill: "Apuntado: 175 mililitros, dos horas y diez minutos desde la toma anterior."
 ```
 
 Si querías un pañal/rutina/resumen, dilo igual ("hizo caca", "cómo

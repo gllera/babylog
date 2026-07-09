@@ -571,7 +571,7 @@ async function handleRecordFeeding(
     ).bind(ts, amountMl, babyId, ALEXA_USER)
   );
 
-  const tail = v.gapTail(prev, now);
+  const tail = v.gapTail(prev, now, "feeding");
   return speak(v.feedingRecorded(amountMl, tail), {
     cardTitle: v.feedingCard,
   });
@@ -630,7 +630,7 @@ async function handleRecordDiaper(
     ).bind(ts, kind, babyId, ALEXA_USER)
   );
 
-  const tail = v.gapTail(prev, now);
+  const tail = v.gapTail(prev, now, "diaper");
   return speak(v.diaperRecorded(kind, tail), {
     cardTitle: v.diaperCard,
   });
@@ -671,7 +671,7 @@ async function handleRecordRoutine(
     ).bind(ts, name, babyId, ALEXA_USER)
   );
 
-  const tail = v.gapTail(prev, now);
+  const tail = v.gapTail(prev, now, "routine");
   return speak(v.routineRecorded(name, tail), {
     cardTitle: v.routineCard,
   });
@@ -734,13 +734,13 @@ async function handleGetStats(
   }
 
   if (feed.last_ts) {
-    parts.push(v.lastAt(madridHHMM(feed.last_ts)));
+    parts.push(v.lastFeedingAt(madridHHMM(feed.last_ts)));
   }
 
   if (parts.length === 0) {
     return speak(v.statsEmpty, { cardTitle: v.statsCard });
   }
-  return speak(parts.join(" "), { cardTitle: v.statsCard });
+  return speak(`${v.statsIntro} ${parts.join(" ")}`, { cardTitle: v.statsCard });
 }
 
 async function handleLastFeeding(
