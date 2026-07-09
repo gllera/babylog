@@ -1059,6 +1059,18 @@
         "Last height": "Última talla",
         "Today's diary": "Diario de hoy",
         "Loading…": "Cargando…",
+        // Indication labels — stored in English in the DB (growth.ts catalog +
+        // seeded rows); known ones translate here, custom labels pass through.
+        "Daily milk": "Leche diaria",
+        "Feeds per day": "Tomas al día",
+        "Max gap between feeds": "Intervalo máx. entre tomas",
+        "Poops per day": "Cacas al día",
+        "Milk ≥ 670 ml/day": "Leche ≥ 670 ml/día",
+        "≥ 8 feedings/day": "≥ 8 tomas/día",
+        "≥ 6 pees/day": "≥ 6 pises/día",
+        "≥ 1 poop/day": "≥ 1 caca/día",
+        "Vitamin D 1×/day": "Vitamina D 1×/día",
+        "Bath every 2 days": "Baño cada 2 días",
         // Forms
         "Amount (ml)": "Cantidad (ml)",
         "When": "Cuándo",
@@ -2282,7 +2294,7 @@
         var state = ind.met ? "&#10003;" : over ? "&#9888;" : "&#9675;";
         rows += '<div class="target-row' + cls + '">' +
           '<span class="target-state">' + state + '</span>' +
-          '<span class="target-label">' + escapeHtml(ind.label) + '</span>' +
+          '<span class="target-label">' + escapeHtml(i18n(ind.label)) + '</span>' +
           '<span class="target-value">' + escapeHtml(value) + '</span>' +
         '</div>';
       }
