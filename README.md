@@ -3,17 +3,19 @@
 A baby tracker deployed to **Cloudflare Workers**, backed by a single **D1**
 database, scoped **per household** so the same history is visible to every
 caregiver. It records feedings, diapers, routines/medication, notes, and
-growth (weight & height), and evaluates daily **indications** (targets like
-"1 poop a day" or "max 4h between feedings").
+growth (weight & height), and evaluates daily **indications** — fixed targets
+like "1 poop a day" or "max 4h between feedings", plus formula-driven ones
+(e.g. ml of milk per kg per day) that auto-progress as the baby grows.
 
 One Worker exposes the data three ways over the same database:
 
 - **MCP** (`/mcp`) — a Model Context Protocol server, for Claude and other MCP
   clients. → [docs/mcp-tools.md](docs/mcp-tools.md)
-- **Web app** (`/app`) — an installable PWA with charts, a daily diary, and
-  one-tap logging. → [docs/web-ui.md](docs/web-ui.md)
-- **Alexa** (`/alexa`) — a Spanish (`es-ES`) voice skill: "*tomó 120
-  mililitros*", "*hizo caca*", "*cómo vamos hoy*". → [alexa-skill/](alexa-skill/README.md)
+- **Web app** (`/app`) — an installable PWA (English/Spanish) with charts, a
+  daily diary, and one-tap logging. → [docs/web-ui.md](docs/web-ui.md)
+- **Alexa** (`/alexa`) — a bilingual voice skill, English (`en-US`/`en-GB`:
+  "*took 120 milliliters*", "*how are we doing*") and Spanish (`es-ES`: "*tomó
+  120 mililitros*", "*cómo vamos hoy*"). → [alexa-skill/](alexa-skill/README.md)
 
 Authentication is **Cloudflare Access** (Managed OAuth) fronting the whole
 host; the Worker verifies the Access JWT and scopes all data to the
@@ -46,4 +48,6 @@ npm test            # vitest unit tests
 npm run typecheck   # tsc --noEmit
 ```
 
-Both run in CI on pushes to `main` and on PRs.
+Both run in CI on pushes to `main` and on PRs. A push to `main` then deploys
+automatically: D1 migrations → Worker → Alexa interaction models
+([docs/setup.md](docs/setup.md)).
