@@ -139,7 +139,7 @@ export async function addBaby(
   existingBabies: number,
   fields: {
     name: string;
-    sex?: "male" | "female" | "other";
+    sex?: "male" | "female";
     date_of_birth?: string;
   }
 ): Promise<{ id: number; is_default: boolean }> {

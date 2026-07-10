@@ -23,9 +23,11 @@ import {
 } from "./tools";
 import {
   estimateWeightG,
+  estimateHeightCm,
   ageDaysAt,
   resolveIndicationTarget,
   type WeightSample,
+  type HeightSample,
 } from "./growth";
 import { getAccessEmail } from "./access";
 import {
@@ -123,6 +125,12 @@ type EntityConfig = {
     clauses: string[],
     params: (string | number)[]
   ) => void;
+  // Measurement lists also carry a projected "current" value (growth.ts), so
+  // the Weight/Height tabs can show "≈ now" without a second request.
+  estimate?: {
+    key: string;
+    compute: (rows: unknown[], dob: string | null) => number | null;
+  };
 };
 
 const ENTITIES: Record<string, EntityConfig> = {
@@ -186,6 +194,11 @@ const ENTITIES: Record<string, EntityConfig> = {
       weight_g: z.number().int().positive(),
       when: whenField,
     }),
+    estimate: {
+      key: "est_weight_g",
+      compute: (rows, dob) =>
+        estimateWeightG(rows as WeightSample[], new Date(), dob),
+    },
   },
   heights: {
     table: "heights",
@@ -194,6 +207,11 @@ const ENTITIES: Record<string, EntityConfig> = {
       height_cm: z.number().int().positive(),
       when: whenField,
     }),
+    estimate: {
+      key: "est_height_cm",
+      compute: (rows, dob) =>
+        estimateHeightCm(rows as HeightSample[], new Date(), dob),
+    },
   },
 };
 
@@ -230,7 +248,21 @@ async function handleEntity(
     )
       .bind(...params)
       .all();
-    return jsonOk({ items: results });
+    const payload: Record<string, unknown> = { items: results };
+    if (cfg.estimate) {
+      // Estimate from the two newest rows overall — not from the list above,
+      // which may be filtered to a week window by the charts.
+      const recent = await env.DB.prepare(
+        `SELECT ${cols} FROM ${cfg.table} WHERE baby_id = ? ORDER BY ts DESC LIMIT 2`
+      )
+        .bind(sel.baby.id)
+        .all();
+      payload[cfg.estimate.key] = cfg.estimate.compute(
+        recent.results,
+        sel.baby.date_of_birth
+      );
+    }
+    return jsonOk(payload);
   }
 
   if (method === "POST" && !idStr) {
@@ -416,6 +448,11 @@ async function handleDashboard(
     recent_heights: recentHeights.results,
     indications: indicationsOut,
     est_weight_g: growthCtx.estWeightG,
+    est_height_cm: estimateHeightCm(
+      recentHeights.results as unknown as HeightSample[],
+      now,
+      sel.baby.date_of_birth
+    ),
   });
 }
 
@@ -432,7 +469,7 @@ async function handleHousehold(env: Env, tenant: Tenant): Promise<Response> {
 
 const createBabySchema = z.object({
   name: z.string().min(1).max(100),
-  sex: z.enum(["male", "female", "other"]).optional(),
+  sex: z.enum(["male", "female"]).optional(),
   date_of_birth: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)

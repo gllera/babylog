@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   estimateWeightG,
+  estimateHeightCm,
   ageWeightVelocityGPerDay,
+  ageHeightVelocityCmPerDay,
   ageDaysAt,
   GROWTH_FORMULAS,
   isGrowthFormula,
   resolveIndicationTarget,
   type WeightSample,
+  type HeightSample,
 } from "../src/growth";
 
 describe("ageWeightVelocityGPerDay", () => {
@@ -17,6 +20,52 @@ describe("ageWeightVelocityGPerDay", () => {
     expect(ageWeightVelocityGPerDay(179)).toBeCloseTo(150 / 7);
     expect(ageWeightVelocityGPerDay(180)).toBeCloseTo(85 / 7);
     expect(ageWeightVelocityGPerDay(400)).toBeCloseTo(40 / 7);
+  });
+});
+
+describe("ageHeightVelocityCmPerDay", () => {
+  it("tapers with age (0-3mo fastest)", () => {
+    expect(ageHeightVelocityCmPerDay(0)).toBeCloseTo(3.5 / 30.4375);
+    expect(ageHeightVelocityCmPerDay(89)).toBeCloseTo(3.5 / 30.4375);
+    expect(ageHeightVelocityCmPerDay(90)).toBeCloseTo(2.0 / 30.4375);
+    expect(ageHeightVelocityCmPerDay(180)).toBeCloseTo(1.3 / 30.4375);
+    expect(ageHeightVelocityCmPerDay(400)).toBeCloseTo(0.9 / 30.4375);
+  });
+});
+
+describe("estimateHeightCm", () => {
+  it("returns null with no measurements", () => {
+    expect(estimateHeightCm([], new Date("2026-05-01T00:00:00Z"), "2026-04-01"))
+      .toBeNull();
+  });
+
+  it("projects the baby's own trend forward (≥2 measurements)", () => {
+    // 50cm at birth, 53cm at 4wk → 3cm / 28d ≈ 0.107 cm/day.
+    const samples: HeightSample[] = [
+      { ts: "2026-04-01T09:00:00Z", height_cm: 50 },
+      { ts: "2026-04-29T09:00:00Z", height_cm: 53 },
+    ];
+    // 14 days after the latest measurement.
+    const est = estimateHeightCm(samples, new Date("2026-05-13T09:00:00Z"), "2026-04-01");
+    expect(est).toBeCloseTo(53 + (3 / 28) * 14, 1); // ≈54.5
+  });
+
+  it("single measurement projects the age-based velocity", () => {
+    // 30 days old at the measurement → 0-3mo velocity, projected 10 days.
+    const est = estimateHeightCm(
+      [{ ts: "2026-05-01T00:00:00Z", height_cm: 54 }],
+      new Date("2026-05-11T00:00:00Z"),
+      "2026-04-01"
+    );
+    expect(est).toBeCloseTo(54 + (3.5 / 30.4375) * 10, 2);
+  });
+
+  it("never assumes shrinkage (rate floored at 0)", () => {
+    const samples: HeightSample[] = [
+      { ts: "2026-04-01T00:00:00Z", height_cm: 55 },
+      { ts: "2026-04-15T00:00:00Z", height_cm: 54 }, // bogus decrease
+    ];
+    expect(estimateHeightCm(samples, new Date("2026-05-01T00:00:00Z"), null)).toBe(54);
   });
 });
 

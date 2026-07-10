@@ -11,8 +11,8 @@ One Worker exposes the data three ways over the same database:
 
 - **MCP** (`/mcp`) — a Model Context Protocol server, for Claude and other MCP
   clients. → [docs/mcp-tools.md](docs/mcp-tools.md)
-- **Web app** (`/app`) — an installable PWA (English/Spanish) with charts, a
-  daily diary, and one-tap logging. → [docs/web-ui.md](docs/web-ui.md)
+- **Web app** (`/app`) — an installable PWA (English/Spanish) with a read-only
+  Today dashboard, charts, and quick logging forms. → [docs/web-ui.md](docs/web-ui.md)
 - **Alexa** (`/alexa`) — a bilingual voice skill, English (`en-US`/`en-GB`:
   "*took 120 milliliters*", "*how are we doing*") and Spanish (`es-ES`: "*tomó
   120 mililitros*", "*cómo vamos hoy*"). → [alexa-skill/](alexa-skill/README.md)

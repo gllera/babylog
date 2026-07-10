@@ -11,13 +11,15 @@ timezone.
 
 ## Today tab
 
-- Last-event cards, and a "Today's targets" card with a progress bar per
-  active indication, grouped by kind (feeding, diapers, routines).
-- A merged chronological diary of the day.
-- One-tap quick-record buttons (with an Undo toast). The feeding quick-add
-  amounts adapt to recent entries, Vitamin D flips to a "done today" state once
-  given, and an active `feeding_gap_max_min` indication tints the Last feeding
-  card when the gap is exceeded.
+- Read-only at-a-glance dashboard — recording happens in the entity tabs (or
+  via Alexa / MCP). Last feeding and Last diaper cards, a Routines card (when
+  each routine last happened), a Growth card (projected current weight/height
+  with the last actual measurement), and a "Today's targets" card with a
+  progress bar per active indication, grouped by kind (feeding, diapers,
+  routines).
+- A merged chronological diary of the day (two columns on wide screens).
+- An active `feeding_gap_max_min` indication tints the Last feeding card when
+  the gap is exceeded.
 - Data comes from a single aggregated `/api/dashboard` request (which also
   evaluates indications server-side over Madrid-day windows), refetched
   whenever the app returns to the foreground.
@@ -30,8 +32,8 @@ Weekly charts with day-comparison overlays, day-separator list grouping, and
 ## Weight & Height tabs
 
 Growth trend charts with WHO Child Growth Standards percentile bands (P3–P97,
-when the profile has sex + birth date) plus the current percentile estimate.
-Dashboard cards show deltas vs the previous measurement.
+when the profile has sex + birth date) plus the projected current value and
+percentile in the chart title.
 
 ## Settings tab
 

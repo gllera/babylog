@@ -56,7 +56,7 @@ export type BabyRow = {
   id: number;
   household_id: number;
   name: string | null;
-  sex: "male" | "female" | "other" | null;
+  sex: "male" | "female" | null;
   date_of_birth: string | null;
   is_default: number;
 };

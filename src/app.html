@@ -432,26 +432,6 @@
     }
     .chart-legend i.d1 { border-color: var(--daypast); }
     .chart-legend i.d2 { border-color: var(--daypast); border-top-style: dotted; }
-    .quick-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 12px;
-    }
-    .quick-btn {
-      background: var(--primary);
-      color: #fff;
-      border: 0;
-      padding: 9px 14px;
-      border-radius: var(--radius-control);
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: inherit;
-      min-height: 38px;
-    }
-    .quick-btn:hover { background: var(--primary-hover); }
-    .quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .when-quick {
       display: flex;
       gap: 4px;
@@ -529,6 +509,30 @@
       font-weight: 600;
     }
     .delete-btn.pending:hover { background: var(--danger-strong); }
+    /* Read-only stat rows (Routines / Growth cards): name left, figures right. */
+    .stat-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 3px 0;
+      font-size: 14px;
+    }
+    .stat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stat-sub {
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .stat-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    /* Desktop: the tall targets card owns a column for two grid rows, the four
+       stat cards fill a 2x2 beside it — no stretched half-empty first row. */
+    @media (min-width: 641px) {
+      #card-targets { grid-row: span 2; }
+    }
     /* Feeding-gap indication exceeded: tint the Last feeding card. */
     .card.warn { border-color: var(--warn); }
     .card.warn .card-main { color: var(--warn); }
@@ -537,16 +541,6 @@
       color: var(--warn);
       font-weight: 600;
       margin-top: 4px;
-    }
-    /* Vitamin D already given today: calm "done" state instead of an add button. */
-    .quick-btn.done,
-    .quick-btn.done:hover,
-    .quick-btn.done:disabled {
-      background: transparent;
-      color: var(--muted);
-      border: 1px solid var(--border);
-      opacity: 1;
-      cursor: default;
     }
     /* Edit mode: tap a list row to load it into the form. */
     tbody tr[data-id] { cursor: pointer; }
@@ -595,7 +589,11 @@
     }
     .target-actual { color: var(--text); font-weight: 600; }
     /* Today's diary: merged chronological timeline of all entry types. */
+    /* Wide screens: the diary flows in two columns to use the row width. */
+    .tl-cols { column-count: 2; column-gap: 32px; }
+    @media (max-width: 699px) { .tl-cols { column-count: 1; } }
     .tl-row {
+      break-inside: avoid;
       display: flex;
       align-items: baseline;
       gap: 10px;
@@ -772,18 +770,18 @@
       .hide-sm { display: none; }
 
       .dashboard-grid {
-        grid-template-columns: repeat(2, 1fr);
+        /* minmax(0,…): plain 1fr lets no-wrap stat rows inflate a column past
+           the viewport and overflow the whole grid. */
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
       }
-      #card-targets { grid-column: 1 / -1; }
+      #card-targets, #card-routines, #card-growth { grid-column: 1 / -1; }
       tr.day-sep td { padding: 4px 10px; }
       .card { padding: 10px 12px; }
       .card-title { margin-bottom: 4px; font-size: 10px; }
       .card-main { font-size: 16px; }
       .card-sub { font-size: 12px; }
       .card-empty { font-size: 13px; }
-      .quick-row { gap: 6px; margin-top: 8px; }
-      .quick-btn { padding: 7px 10px; font-size: 13px; min-height: 32px; }
 
       form.entry-form { padding: 12px; gap: 8px; }
       form.entry-form label, form.settings-form label { font-size: 11px; flex: 1 1 100%; }
@@ -829,24 +827,12 @@
           <div class="card-title" data-i18n="Last diaper">Last diaper</div>
           <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
-        <div class="card" id="card-vitamin-d">
-          <div class="card-title" data-i18n="Vitamin D">Vitamin D</div>
+        <div class="card" id="card-routines">
+          <div class="card-title" data-i18n="Routines">Routines</div>
           <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
-        <div class="card" id="card-last-tummy">
-          <div class="card-title" data-i18n="Last tummy time">Last tummy time</div>
-          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
-        </div>
-        <div class="card" id="card-last-bath">
-          <div class="card-title" data-i18n="Last bath">Last bath</div>
-          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
-        </div>
-        <div class="card" id="card-last-weight">
-          <div class="card-title" data-i18n="Last weight">Last weight</div>
-          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
-        </div>
-        <div class="card" id="card-last-height">
-          <div class="card-title" data-i18n="Last height">Last height</div>
+        <div class="card" id="card-growth">
+          <div class="card-title" data-i18n="Growth">Growth</div>
           <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
         </div>
       </div>
@@ -999,7 +985,6 @@
               <option value="">&mdash;</option>
               <option value="female" data-i18n="Girl">Girl</option>
               <option value="male" data-i18n="Boy">Boy</option>
-              <option value="other" data-i18n="Other">Other</option>
             </select>
           </label>
           <label><span data-i18n="Birth date">Birth date</span>
@@ -1065,10 +1050,8 @@
         "Today's targets": "Objetivos de hoy",
         "Last feeding": "Última toma",
         "Last diaper": "Último pañal",
-        "Last tummy time": "Último rato boca abajo",
-        "Last bath": "Último baño",
-        "Last weight": "Último peso",
-        "Last height": "Última talla",
+        "Routines": "Rutinas",
+        "Growth": "Crecimiento",
         "Today's diary": "Diario de hoy",
         "Loading…": "Cargando…",
         // Indication labels — stored in English in the DB (growth.ts catalog +
@@ -1146,11 +1129,6 @@
         // Cards: empty / status
         "No feedings yet": "Sin tomas todavía",
         "No diapers yet": "Sin pañales todavía",
-        "No measurements": "Sin medidas",
-        "Not given today yet": "Aún no dado hoy",
-        "No baths yet": "Sin baños todavía",
-        "No tummy time yet": "Sin ratos boca abajo todavía",
-        "Done today": "Hecho hoy",
         "Over the {d} max gap": "Supera el intervalo máx. de {d}",
         "max": "máx",
         "now ≈": "ahora ≈",
@@ -1170,9 +1148,6 @@
         "Error loading dashboard: {e}": "Error al cargar el panel: {e}",
         "Delete error: {e}": "Error al eliminar: {e}",
         // Quick-add toasts
-        "Recorded: {a} ml": "Registrado: {a} ml",
-        "Diaper: {k}": "Pañal: {k}",
-        "Routine: {r}": "Rutina: {r}",
         // Settings
         "Settings": "Ajustes",
         "Language": "Idioma",
@@ -1181,7 +1156,6 @@
         "Sex": "Sexo",
         "Girl": "Niña",
         "Boy": "Niño",
-        "Other": "Otro",
         "Birth date": "Fecha de nacimiento",
         "Add baby": "Añadir bebé",
         "default": "predeterminado",
@@ -1292,7 +1266,6 @@
     var dashboardData = null;          // cached /api/dashboard payload
     var editState = {};                // entity -> id of the row being edited
     var listItemsById = {};            // entity -> { id: item } for rendered rows
-    var feedingShortcuts = [30, 60, 90];
     var profileData = null;            // the selected baby (from /api/profile)
 
     var selectedBabyId = null;         // baby the UI is scoped to (multi-baby households)
@@ -1576,7 +1549,9 @@
       try {
         var data = await fetchJson(cfg.endpoint);
         renderList(entity, data.items || []);
-        if (MEASURE_CHARTS[entity]) renderMeasureChart(entity, data.items || []);
+        if (MEASURE_CHARTS[entity]) {
+          renderMeasureChart(entity, data.items || [], data[MEASURE_CHARTS[entity].estKey]);
+        }
       } catch (err) {
         if (err.message === "Unauthorized") return;
         container.innerHTML = '<div class="list-empty">' + escapeHtml(i18n("Error loading: {e}", { e: err.message })) + "</div>";
@@ -1585,14 +1560,17 @@
 
     // --- Growth charts (weight / height over time, with WHO percentile bands) ---
     var MEASURE_CHARTS = {
-      weights: { elId: "weights-chart", key: "weight_g", title: "Weight over time (g)", who: "wfa", scale: 1000 },
-      heights: { elId: "heights-chart", key: "height_cm", title: "Height over time (cm)", who: "lfa", scale: 1 }
+      weights: { elId: "weights-chart", key: "weight_g", title: "Weight over time (g)", who: "wfa", scale: 1000, estKey: "est_weight_g", fmtEst: fmtEstG },
+      heights: { elId: "heights-chart", key: "height_cm", title: "Height over time (cm)", who: "lfa", scale: 1, estKey: "est_height_cm", fmtEst: fmtEstCm }
     };
 
-    function renderMeasureChart(entity, items) {
+    function renderMeasureChart(entity, items, est) {
       var mc = MEASURE_CHARTS[entity];
       var el = document.getElementById(mc.elId);
       if (!el) return;
+      var estNote = typeof est === "number"
+        ? " &middot; " + escapeHtml(i18n("now")) + " &asymp; " + escapeHtml(mc.fmtEst(est))
+        : "";
       var pts = [];
       for (var i = items.length - 1; i >= 0; i--) { // API returns newest first
         var t = new Date(items[i].ts).getTime();
@@ -1600,7 +1578,7 @@
         if (!isNaN(t) && isFinite(v)) pts.push({ t: t, v: v });
       }
       if (pts.length < 2) {
-        el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n(mc.title)) + '</div>' +
+        el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n(mc.title)) + estNote + '</div>' +
           '<div class="card-empty">' + escapeHtml(i18n("Record at least two measurements to see a trend.")) + '</div>';
         return;
       }
@@ -1630,7 +1608,7 @@
           var lmsLast = lmsAt(table, ageMo(t1));
           if (lmsLast) {
             var pct = Math.round(normCdf(lmsZ(lmsLast, pts[pts.length - 1].v / mc.scale)) * 100);
-            pctNote = " &middot; " + escapeHtml(i18n("now")) + " &asymp; " + (pct < 1 ? "&lt;P1" : pct > 99 ? "&gt;P99" : "P" + pct);
+            pctNote = " &middot; " + (pct < 1 ? "&lt;P1" : pct > 99 ? "&gt;P99" : "P" + pct);
           }
         }
       }
@@ -1689,7 +1667,7 @@
       var dateLabels =
         '<text class="cl-daylabel" x="' + LX + '" y="' + LABEL_Y + '">' + escapeHtml(fmtDayMonth(new Date(t0))) + '</text>' +
         '<text class="cl-daylabel" x="' + RX + '" y="' + LABEL_Y + '">' + escapeHtml(fmtDayMonth(new Date(t1))) + '</text>';
-      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n(mc.title)) + pctNote + '</div>' +
+      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n(mc.title)) + estNote + pctNote + '</div>' +
         '<svg class="chart-lines" viewBox="0 0 350 170" preserveAspectRatio="xMidYMid meet" role="img" aria-label="' + escapeHtml(i18n(mc.title)) + '">' +
         whoSvg +
         '<polyline class="cl-line" points="' + poly.trim() + '"></polyline>' +
@@ -2266,16 +2244,12 @@
       if (!dashboardData) return;
       var d = dashboardData;
       var recent = d.recent_feedings || [];
-      feedingShortcuts = computeShortcuts(recent);
       renderTargets(d.indications || [], d.est_weight_g);
       renderLastFeeding(recent[0] || null, gapTargetMinutes(d.indications || []));
       renderLastDiaper(d.last_diaper);
       var routines = d.last_routines || [];
-      renderRoutineCard({ cardId: "card-vitamin-d", title: "Vitamin D", name: "Vitamin D", todayOnly: true, empty: "Not given today yet" }, findRoutine(routines, "vitamin d"));
-      renderRoutineCard({ cardId: "card-last-bath", title: "Last bath", name: "Bath", empty: "No baths yet", wholeDays: true }, findRoutine(routines, "bath"));
-      renderRoutineCard({ cardId: "card-last-tummy", title: "Last tummy time", name: "Tummy", empty: "No tummy time yet", wholeDays: true }, findRoutine(routines, "tummy"));
-      renderLastMeasurement("card-last-weight", "Last weight", d.recent_weights || [], "weight_g", "g");
-      renderLastMeasurement("card-last-height", "Last height", d.recent_heights || [], "height_cm", "cm");
+      renderRoutinesCard(routines);
+      renderGrowthCard(d);
       renderTimeline(d);
       if (recent[0]) {
         var amtInput = document.querySelector('form[data-entity="feedings"] input[name="amount_ml"]');
@@ -2358,58 +2332,32 @@
         '</div>';
       }
       el.hidden = false;
-      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n("Today's diary")) + '</div>' + rows;
+      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n("Today's diary")) + '</div>' +
+        '<div class="tl-cols">' + rows + '</div>';
     }
 
-    // One renderer for the routine dashboard cards (Vitamin D / Bath / Tummy).
-    // todayOnly cards only count an entry from today (e.g. daily Vitamin D) —
-    // and once it's done, the add button becomes a calm checkmark so a daily
-    // dose can't be fat-fingered twice from the dashboard.
-    function renderRoutineCard(opts, item) {
-      var el = document.getElementById(opts.cardId);
-      var head = '<div class="card-title">' + escapeHtml(i18n(opts.title)) + '</div>';
-      var doneToday = item && new Date(item.ts).getTime() >= startOfDay().getTime();
-      var show = item && (!opts.todayOnly || doneToday);
-      var body = show
-        ? '<div class="card-main">' + escapeHtml(opts.wholeDays ? daysAgoLabel(item.ts) : timeAgo(item.ts)) + '</div>' +
-          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(formatWhenAbs(new Date(item.ts))) + '</div>'
-        : '<div class="card-empty">' + escapeHtml(i18n(opts.empty)) + '</div>';
-      var actions = opts.todayOnly && doneToday
-        ? '<div class="quick-row"><button class="quick-btn done" disabled>&#10003; ' + escapeHtml(i18n("Done today")) + '</button></div>'
-        : '<div class="quick-row">' +
-            '<button class="quick-btn" data-quick="routine" data-name="' + escapeHtml(opts.name) + '">+ ' + escapeHtml(fmtRoutine(opts.name)) + '</button>' +
-          '</div>';
-      el.innerHTML = head + body + actions;
-    }
+    // --- Read-only stat cards: Routines and Growth (merged rows, no buttons) ---
+    function capFirst(str) { return str ? str.charAt(0).toUpperCase() + str.slice(1) : str; }
 
-    // Quick-add amounts follow what's actually being fed: the 3 most frequent
-    // amounts in the last 20 feedings, padded with defaults while data is thin.
-    function computeShortcuts(recent) {
-      var freq = {}, firstSeen = {}, distinct = [];
-      for (var i = 0; i < recent.length; i++) {
-        var a = Number(recent[i].amount_ml);
-        if (!isFinite(a) || a <= 0) continue;
-        if (!(a in freq)) { freq[a] = 0; firstSeen[a] = i; distinct.push(a); }
-        freq[a]++;
+    // One row per tracked routine with when it last happened.
+    function renderRoutinesCard(routines) {
+      var el = document.getElementById("card-routines");
+      var defs = [
+        { name: "Vitamin D", needle: "vitamin d" },
+        { name: "Bath", needle: "bath" },
+        { name: "Tummy", needle: "tummy" }
+      ];
+      var rows = "";
+      for (var i = 0; i < defs.length; i++) {
+        var item = findRoutine(routines, defs[i].needle);
+        rows += '<div class="stat-row">' +
+          '<span class="stat-name">' + escapeHtml(capFirst(fmtRoutine(defs[i].name))) + '</span>' +
+          (item
+            ? '<span class="stat-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(daysAgoLabel(item.ts)) + '</span>'
+            : '<span class="stat-sub">&mdash;</span>') +
+        '</div>';
       }
-      distinct.sort(function(x, y) { return freq[y] - freq[x] || firstSeen[x] - firstSeen[y]; });
-      var top = distinct.slice(0, 3);
-      var defaults = [60, 90, 30];
-      for (var d = 0; d < defaults.length && top.length < 3; d++) {
-        if (top.indexOf(defaults[d]) === -1) top.push(defaults[d]);
-      }
-      top.sort(function(x, y) { return x - y; });
-      return top;
-    }
-
-    function feedingShortcutsHtml() {
-      var html = '<div class="quick-row">';
-      for (var i = 0; i < feedingShortcuts.length; i++) {
-        var amt = feedingShortcuts[i];
-        html += '<button class="quick-btn" data-quick="feeding" data-amount="' + amt + '">+ ' + amt + ' ml</button>';
-      }
-      html += '</div>';
-      return html;
+      el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Routines")) + '</div>' + rows;
     }
 
     // The big number is the elapsed time — "how long since the last feed?" is
@@ -2419,8 +2367,7 @@
       el.classList.remove("warn");
       if (!item) {
         el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Last feeding")) + '</div>' +
-          '<div class="card-empty">' + escapeHtml(i18n("No feedings yet")) + '</div>' +
-          feedingShortcutsHtml();
+          '<div class="card-empty">' + escapeHtml(i18n("No feedings yet")) + '</div>';
         return;
       }
       var over = gapMaxMin && (Date.now() - new Date(item.ts).getTime()) > gapMaxMin * 60000;
@@ -2432,8 +2379,7 @@
         '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
         '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' +
           escapeHtml(item.amount_ml + " ml · " + formatWhenAbs(new Date(item.ts))) + '</div>' +
-        warnNote +
-        feedingShortcutsHtml();
+        warnNote;
     }
 
     function renderLastDiaper(item) {
@@ -2443,35 +2389,33 @@
         ? '<div class="card-main">' + escapeHtml(fmtKind(item.kind)) + '</div>' +
           '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
         : '<div class="card-empty">' + escapeHtml(i18n("No diapers yet")) + '</div>';
-      var actions = '<div class="quick-row">' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="pee">+ ' + escapeHtml(i18n("Pee")) + '</button>' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="poop">+ ' + escapeHtml(i18n("Poop")) + '</button>' +
-        '<button class="quick-btn" data-quick="diaper" data-kind="both">+ ' + escapeHtml(i18n("Both")) + '</button>' +
-      '</div>';
-      el.innerHTML = head + body + actions;
+      el.innerHTML = head + body;
     }
 
-    function renderLastMeasurement(cardId, title, items, valueKey, unit) {
-      var el = document.getElementById(cardId);
-      var head = '<div class="card-title">' + escapeHtml(i18n(title)) + '</div>';
+    // Estimate display: whole grams / one-decimal centimeters.
+    function fmtEstG(v) { return typeof v === "number" ? Math.round(v) + " g" : ""; }
+    function fmtEstCm(v) { return typeof v === "number" ? (Math.round(v * 10) / 10) + " cm" : ""; }
+
+    // Weight and height share one card: the projected current value ("≈ now",
+    // same estimator the milk target uses) with the last actual measurement
+    // as context.
+    function growthRowHtml(name, items, key, unit, estStr) {
       var item = items[0];
-      if (!item) {
-        el.innerHTML = head + '<div class="card-empty">' + escapeHtml(i18n("No measurements")) + '</div>';
-        return;
-      }
-      var deltaHtml = "";
-      var prev = items[1];
-      if (prev) {
-        var diff = item[valueKey] - prev[valueKey];
-        var days = Math.max(1, Math.round((new Date(item.ts) - new Date(prev.ts)) / DAY_MS));
-        deltaHtml = '<div class="card-sub">' +
-          escapeHtml((diff > 0 ? "+" : "") + diff + " " + unit + " " + i18n("in") + " " + plural(days, "{n} day", "{n} days")) +
-          '</div>';
-      }
-      el.innerHTML = head +
-        '<div class="card-main">' + escapeHtml(item[valueKey] + " " + unit) + '</div>' +
-        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
-        deltaHtml;
+      var nameHtml = '<span class="stat-name">' + escapeHtml(name) + '</span>';
+      if (!item) return '<div class="stat-row">' + nameHtml + '<span class="stat-sub">&mdash;</span></div>';
+      var sub = '<span class="stat-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' +
+        escapeHtml(item[key] + " " + unit + " · " + daysAgoLabel(item.ts)) + '</span>';
+      var val = '<span class="stat-value">' +
+        (estStr ? '&asymp; ' + escapeHtml(estStr) : escapeHtml(item[key] + " " + unit)) +
+      '</span>';
+      return '<div class="stat-row">' + nameHtml + sub + val + '</div>';
+    }
+
+    function renderGrowthCard(d) {
+      var el = document.getElementById("card-growth");
+      el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Growth")) + '</div>' +
+        growthRowHtml(i18n("Weight"), d.recent_weights || [], "weight_g", "g", fmtEstG(d.est_weight_g)) +
+        growthRowHtml(i18n("Height"), d.recent_heights || [], "height_cm", "cm", fmtEstCm(d.est_height_cm));
     }
 
     var MORE_TABS = { weights: true, heights: true, notes: true };
@@ -2788,39 +2732,6 @@
           submitBtn.disabled = false;
         }
       });
-    }
-
-    // --- Dashboard quick-add buttons ---
-    document.addEventListener("click", async function(e) {
-      var t = e.target;
-      if (!t || t.tagName !== "BUTTON" || t.disabled) return;
-      var which = t.getAttribute("data-quick");
-      if (which === "feeding") {
-        var amt = parseFloat(t.getAttribute("data-amount"));
-        if (!isFinite(amt) || amt <= 0) return;
-        quickPost(t, "feedings", { amount_ml: amt }, i18n("Recorded: {a} ml", { a: amt }));
-      } else if (which === "diaper") {
-        var kind = t.getAttribute("data-kind");
-        if (!kind) return;
-        quickPost(t, "diapers", { kind: kind }, i18n("Diaper: {k}", { k: fmtKind(kind) }));
-      } else if (which === "routine") {
-        var routineName = t.getAttribute("data-name");
-        if (!routineName) return;
-        quickPost(t, "routines", { name: routineName }, i18n("Routine: {r}", { r: fmtRoutine(routineName) }));
-      }
-    });
-
-    async function quickPost(btn, entity, body, doneMsg) {
-      btn.disabled = true;
-      try {
-        var created = await postJson(entities[entity].endpoint, body);
-        toast(doneMsg, false, makeUndo(entity, created && created.id));
-        loadDashboard();
-      } catch (err) {
-        if (err.message !== "Unauthorized") toast("Error: " + err.message, true);
-      } finally {
-        btn.disabled = false;
-      }
     }
 
     // --- Inline delete confirmation (two-tap) ---

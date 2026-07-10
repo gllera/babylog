@@ -501,10 +501,10 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .optional()
             .describe("Baby's name, e.g. 'Sofía'"),
           sex: z
-            .enum(["male", "female", "other"])
+            .enum(["male", "female"])
             .optional()
             .describe(
-              "Biological sex: 'male', 'female', or 'other'. (Spanish 'niño'/'masculino' → 'male', 'niña'/'femenino' → 'female')"
+              "Biological sex: 'male' or 'female'. (Spanish 'niño'/'masculino' → 'male', 'niña'/'femenino' → 'female')"
             ),
           date_of_birth: z
             .string()
@@ -584,7 +584,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             z.object({
               id: z.number().int(),
               name: z.string().nullable(),
-              sex: z.enum(["male", "female", "other"]).nullable(),
+              sex: z.enum(["male", "female"]).nullable(),
               date_of_birth: z.string().nullable(),
               is_default: z.boolean(),
               age: z.string().nullable(),
@@ -1962,7 +1962,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         inputSchema: {
           name: z.string().min(1).max(100).describe("Baby's name, e.g. 'Sofía'"),
           sex: z
-            .enum(["male", "female", "other"])
+            .enum(["male", "female"])
             .optional()
             .describe("Biological sex, if known"),
           date_of_birth: z

@@ -17,22 +17,36 @@ export function ageWeightVelocityGPerDay(ageDays: number): number {
   return 40 / 7; // 12 mo+
 }
 
-// Don't extrapolate a stale weigh-in forever, and clamp noisy own-trend rates
-// (a cheap scale or a close-together pair can imply an absurd g/day).
+// Standard length-gain velocity (cm/day) by age, from WHO growth norms:
+// ~3.5 cm/month in the first 3 months, tapering with age.
+export function ageHeightVelocityCmPerDay(ageDays: number): number {
+  if (ageDays < 90) return 3.5 / 30.4375; // 0–3 mo
+  if (ageDays < 180) return 2.0 / 30.4375; // 3–6 mo
+  if (ageDays < 365) return 1.3 / 30.4375; // 6–12 mo
+  return 0.9 / 30.4375; // 12 mo+
+}
+
+export type HeightSample = { ts: string; height_cm: number };
+
+// Don't extrapolate a stale measurement forever, and clamp noisy own-trend
+// rates (a cheap scale or a close-together pair can imply an absurd rate).
 const MAX_PROJECTION_DAYS = 60;
 const MAX_TREND_G_PER_DAY = 60;
+const MAX_TREND_CM_PER_DAY = 0.25;
 
-// Estimate the baby's weight (grams) at instant `at`. Hybrid:
-//   • ≥2 weigh-ins → project the baby's own gain rate (g/day, from the two
-//     most recent) forward to `at`;
-//   • 1 weigh-in    → project age-based velocity forward from it;
-//   • 0 weigh-ins   → null (caller falls back to the stored static target).
-// Never assumes weight loss (rate floored at 0) and caps the projection window
+// Estimate a measurement's value at instant `at`. Hybrid:
+//   • ≥2 samples → project the baby's own rate (from the two most recent)
+//     forward to `at`;
+//   • 1 sample   → project age-based velocity forward from it;
+//   • 0 samples  → null (caller falls back / hides the estimate).
+// Never assumes shrinkage (rate floored at 0) and caps the projection window
 // at MAX_PROJECTION_DAYS so a months-old measurement can't run away.
-export function estimateWeightG(
-  samples: WeightSample[],
+function projectMeasure(
+  samples: Array<{ ts: string; v: number }>,
   at: Date,
-  dob: string | null
+  dob: string | null,
+  ageVelocityPerDay: (ageDays: number) => number,
+  maxTrendPerDay: number
 ): number | null {
   if (samples.length === 0) return null;
   const sorted = [...samples].sort((a, b) => a.ts.localeCompare(b.ts));
@@ -47,15 +61,43 @@ export function estimateWeightG(
   if (sorted.length >= 2) {
     const prev = sorted[sorted.length - 2];
     const days = (latestMs - Date.parse(prev.ts)) / DAY_MS;
-    ratePerDay = days > 0 ? (latest.weight_g - prev.weight_g) / days : 0;
+    ratePerDay = days > 0 ? (latest.v - prev.v) / days : 0;
   } else {
     const ageAtLatest = dob
       ? computeAgeParts(dob, new Date(latestMs))?.days ?? 0
       : 0;
-    ratePerDay = ageWeightVelocityGPerDay(ageAtLatest);
+    ratePerDay = ageVelocityPerDay(ageAtLatest);
   }
-  ratePerDay = Math.max(0, Math.min(ratePerDay, MAX_TREND_G_PER_DAY));
-  return latest.weight_g + ratePerDay * projDays;
+  ratePerDay = Math.max(0, Math.min(ratePerDay, maxTrendPerDay));
+  return latest.v + ratePerDay * projDays;
+}
+
+export function estimateWeightG(
+  samples: WeightSample[],
+  at: Date,
+  dob: string | null
+): number | null {
+  return projectMeasure(
+    samples.map((s) => ({ ts: s.ts, v: s.weight_g })),
+    at,
+    dob,
+    ageWeightVelocityGPerDay,
+    MAX_TREND_G_PER_DAY
+  );
+}
+
+export function estimateHeightCm(
+  samples: HeightSample[],
+  at: Date,
+  dob: string | null
+): number | null {
+  return projectMeasure(
+    samples.map((s) => ({ ts: s.ts, v: s.height_cm })),
+    at,
+    dob,
+    ageHeightVelocityCmPerDay,
+    MAX_TREND_CM_PER_DAY
+  );
 }
 
 export type IndicationMetricName =
