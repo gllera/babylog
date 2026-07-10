@@ -106,7 +106,7 @@ export const GROWTH_FORMULAS: Record<GrowthFormulaKey, GrowthFormula> = {
     metric: "feeding_total_ml",
     comparison: ">=",
     filter: null,
-    label: "Daily milk",
+    label: "Milk ≥ 150 ml/kg",
     fallbackTarget: 600,
     compute: ({ estWeightG }) =>
       estWeightG == null
@@ -118,7 +118,7 @@ export const GROWTH_FORMULAS: Record<GrowthFormulaKey, GrowthFormula> = {
     metric: "feeding_count",
     comparison: ">=",
     filter: null,
-    label: "Feeds per day",
+    label: "Feeds/day",
     fallbackTarget: 6,
     compute: ({ ageDays }) =>
       ageDays == null
@@ -139,7 +139,7 @@ export const GROWTH_FORMULAS: Record<GrowthFormulaKey, GrowthFormula> = {
     metric: "feeding_gap_max_min",
     comparison: "<=",
     filter: null,
-    label: "Max gap between feeds",
+    label: "Max feed gap",
     fallbackTarget: 300,
     compute: ({ ageDays }) =>
       ageDays == null ? null : ageDays < 28 ? 240 : ageDays < 90 ? 300 : 360,
@@ -149,7 +149,7 @@ export const GROWTH_FORMULAS: Record<GrowthFormulaKey, GrowthFormula> = {
     metric: "diaper_count",
     comparison: ">=",
     filter: "poop",
-    label: "Poops per day",
+    label: "Poops/day",
     fallbackTarget: 1,
     compute: ({ ageDays }) => (ageDays == null ? null : ageDays < 42 ? 2 : 1),
   },
