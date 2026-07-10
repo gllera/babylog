@@ -563,25 +563,37 @@
       align-self: flex-end;
     }
     .cancel-edit:hover { background: var(--hover); color: var(--text); }
-    /* Today's targets: one row per active indication with live progress. */
-    .target-row {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      font-size: 14px;
-      padding: 3px 0;
-    }
-    .target-state { color: var(--muted); flex: none; }
+    /* Today's targets: a two-line row per active indication — label above,
+       progress bar + numbers below. The bar mirrors the state glyph (primary
+       in progress, green met, amber over a max-limit) so color is never the
+       only signal; on "<=" targets the fill is the share of the allowance
+       used. */
+    .target-row { padding: 4px 0; font-size: 14px; }
+    .target-line { display: flex; align-items: baseline; gap: 8px; }
+    .target-state { color: var(--muted); flex: none; width: 14px; text-align: center; }
     .target-row.met .target-state { color: var(--ok); }
     .target-row.over .target-state,
-    .target-row.over .target-value { color: var(--warn); }
-    .target-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .target-row.over .target-value,
+    .target-row.over .target-actual { color: var(--warn); }
+    .target-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .target-progress { display: flex; align-items: center; gap: 10px; margin: 3px 0 0 22px; }
+    .target-track {
+      flex: 1;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--hover);
+      overflow: hidden;
+    }
+    .target-fill { display: block; height: 100%; border-radius: 2px; background: var(--primary); }
+    .target-row.met .target-fill { background: var(--ok); }
+    .target-row.over .target-fill { background: var(--warn); }
     .target-value {
       color: var(--muted);
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
-      font-size: 13px;
+      font-size: 12px;
     }
+    .target-actual { color: var(--text); font-weight: 600; }
     /* Today's diary: merged chronological timeline of all entry types. */
     .tl-row {
       display: flex;
@@ -2277,25 +2289,39 @@
       var el = document.getElementById("card-targets");
       if (!indications.length) { el.hidden = true; return; }
       el.hidden = false;
+      // Attention first: over the limit, then still pending, then met — the
+      // top of the card is always what's left today. Ties keep DB order.
+      var rank = function(ind) {
+        return !ind.met && ind.comparison === "<=" ? 0 : ind.met ? 2 : 1;
+      };
+      var sorted = indications.slice().sort(function(a, b) { return rank(a) - rank(b); });
       var rows = "";
-      for (var i = 0; i < indications.length; i++) {
-        var ind = indications[i];
+      for (var i = 0; i < sorted.length; i++) {
+        var ind = sorted[i];
         var unitS = ind.unit ? " " + ind.unit : "";
-        var value = ind.comparison === ">="
-          ? ind.actual + "/" + ind.target + unitS
-          : ind.actual + "/" + ind.target + unitS + " " + i18n("max");
-        if (ind.period_days > 1) value += " · " + ind.period_days + "d";
+        var value = '<span class="target-actual">' + escapeHtml(String(ind.actual)) + '</span>' +
+          escapeHtml(" / " + ind.target + unitS);
+        if (ind.comparison === "<=") value += " " + escapeHtml(i18n("max"));
+        if (ind.period_days > 1) value += escapeHtml(" · " + ind.period_days + "d");
         // Make the weight-driven milk target transparent, not magic.
         if (ind.formula === "milk_ml_per_kg_day" && typeof estWeightG === "number") {
-          value += " · ≈" + (estWeightG / 1000).toFixed(2) + " kg";
+          value += escapeHtml(" · ≈" + (estWeightG / 1000).toFixed(2) + " kg");
         }
         var over = !ind.met && ind.comparison === "<=";
         var cls = (ind.met ? " met" : "") + (over ? " over" : "");
         var state = ind.met ? "&#10003;" : over ? "&#9888;" : "&#9675;";
+        var pct = ind.target > 0
+          ? Math.min(100, Math.round((ind.actual / ind.target) * 100))
+          : (ind.met ? 100 : 0);
         rows += '<div class="target-row' + cls + '">' +
-          '<span class="target-state">' + state + '</span>' +
-          '<span class="target-label">' + escapeHtml(i18n(ind.label)) + '</span>' +
-          '<span class="target-value">' + escapeHtml(value) + '</span>' +
+          '<div class="target-line">' +
+            '<span class="target-state">' + state + '</span>' +
+            '<span class="target-label">' + escapeHtml(i18n(ind.label)) + '</span>' +
+          '</div>' +
+          '<div class="target-progress">' +
+            '<span class="target-track"><i class="target-fill" style="width:' + pct + '%"></i></span>' +
+            '<span class="target-value">' + value + '</span>' +
+          '</div>' +
         '</div>';
       }
       el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Today's targets")) + '</div>' + rows;
