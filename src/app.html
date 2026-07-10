@@ -292,9 +292,10 @@
       margin-bottom: 8px;
     }
     .card-main {
-      font-size: 22px;
+      font-size: 26px;
       font-weight: 700;
       line-height: 1.2;
+      font-variant-numeric: tabular-nums;
     }
     .card-sub {
       font-size: 13px;
@@ -514,9 +515,18 @@
       display: flex;
       align-items: baseline;
       gap: 8px;
-      padding: 3px 0;
+      padding: 5px 0;
       font-size: 14px;
     }
+    .stat-row + .stat-row { border-top: 1px solid var(--border); }
+    /* Last-event cards: a "today so far" summary pinned to the card bottom —
+       the cards stretch to the targets column's height on desktop, so the
+       footer turns that slack into information instead of blank space. */
+    .card-foot {
+      margin-top: auto;
+      padding-top: 12px;
+    }
+    .card-foot .stat-row { padding: 0; border-top: 1px solid var(--border); padding-top: 8px; }
     .stat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .stat-sub {
       color: var(--muted);
@@ -589,11 +599,7 @@
     }
     .target-actual { color: var(--text); font-weight: 600; }
     /* Today's diary: merged chronological timeline of all entry types. */
-    /* Wide screens: the diary flows in two columns to use the row width. */
-    .tl-cols { column-count: 2; column-gap: 32px; }
-    @media (max-width: 699px) { .tl-cols { column-count: 1; } }
     .tl-row {
-      break-inside: avoid;
       display: flex;
       align-items: baseline;
       gap: 10px;
@@ -779,7 +785,7 @@
       tr.day-sep td { padding: 4px 10px; }
       .card { padding: 10px 12px; }
       .card-title { margin-bottom: 4px; font-size: 10px; }
-      .card-main { font-size: 16px; }
+      .card-main { font-size: 19px; }
       .card-sub { font-size: 12px; }
       .card-empty { font-size: 13px; }
 
@@ -1051,6 +1057,12 @@
         "Last feeding": "Última toma",
         "Last diaper": "Último pañal",
         "Routines": "Rutinas",
+        "{n} feeding": "{n} toma",
+        "{n} feedings": "{n} tomas",
+        "{n} pee": "{n} pis",
+        "{n} pees": "{n} pises",
+        "{n} poop": "{n} caca",
+        "{n} poops": "{n} cacas",
         "Growth": "Crecimiento",
         "Today's diary": "Diario de hoy",
         "Loading…": "Cargando…",
@@ -2245,8 +2257,20 @@
       var d = dashboardData;
       var recent = d.recent_feedings || [];
       renderTargets(d.indications || [], d.est_weight_g);
-      renderLastFeeding(recent[0] || null, gapTargetMinutes(d.indications || []));
-      renderLastDiaper(d.last_diaper);
+      var tf = d.today_feedings || [];
+      var todayMl = 0;
+      for (var f = 0; f < tf.length; f++) {
+        var ml = Number(tf[f].amount_ml);
+        if (isFinite(ml)) todayMl += ml;
+      }
+      var td = d.today_diapers || [];
+      var pees = 0, poops = 0;
+      for (var dd = 0; dd < td.length; dd++) {
+        if (td[dd].kind === "pee" || td[dd].kind === "both") pees++;
+        if (td[dd].kind === "poop" || td[dd].kind === "both") poops++;
+      }
+      renderLastFeeding(recent[0] || null, gapTargetMinutes(d.indications || []), tf.length, todayMl);
+      renderLastDiaper(d.last_diaper, pees, poops);
       var routines = d.last_routines || [];
       renderRoutinesCard(routines);
       renderGrowthCard(d);
@@ -2332,8 +2356,7 @@
         '</div>';
       }
       el.hidden = false;
-      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n("Today's diary")) + '</div>' +
-        '<div class="tl-cols">' + rows + '</div>';
+      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n("Today's diary")) + '</div>' + rows;
     }
 
     // --- Read-only stat cards: Routines and Growth (merged rows, no buttons) ---
@@ -2360,14 +2383,26 @@
       el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Routines")) + '</div>' + rows;
     }
 
+    // "Today so far" footer, pinned to the card bottom.
+    function cardFootHtml(valueText) {
+      return '<div class="card-foot"><div class="stat-row">' +
+        '<span class="stat-name">' + escapeHtml(i18n("Today")) + '</span>' +
+        '<span class="stat-sub">' + escapeHtml(valueText || "—") + '</span>' +
+      '</div></div>';
+    }
+
     // The big number is the elapsed time — "how long since the last feed?" is
     // the question this card answers; the amount is detail.
-    function renderLastFeeding(item, gapMaxMin) {
+    function renderLastFeeding(item, gapMaxMin, todayCount, todayMl) {
       var el = document.getElementById("card-last-feeding");
       el.classList.remove("warn");
+      var mlStr = todayMl % 1 === 0 ? String(todayMl) : todayMl.toFixed(1);
+      var foot = cardFootHtml(todayCount > 0
+        ? mlStr + " ml · " + plural(todayCount, "{n} feeding", "{n} feedings")
+        : "");
       if (!item) {
         el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Last feeding")) + '</div>' +
-          '<div class="card-empty">' + escapeHtml(i18n("No feedings yet")) + '</div>';
+          '<div class="card-empty">' + escapeHtml(i18n("No feedings yet")) + '</div>' + foot;
         return;
       }
       var over = gapMaxMin && (Date.now() - new Date(item.ts).getTime()) > gapMaxMin * 60000;
@@ -2379,17 +2414,21 @@
         '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
         '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' +
           escapeHtml(item.amount_ml + " ml · " + formatWhenAbs(new Date(item.ts))) + '</div>' +
-        warnNote;
+        warnNote + foot;
     }
 
-    function renderLastDiaper(item) {
+    function renderLastDiaper(item, pees, poops) {
       var el = document.getElementById("card-last-diaper");
       var head = '<div class="card-title">' + escapeHtml(i18n("Last diaper")) + '</div>';
+      var parts = [];
+      if (pees > 0) parts.push(plural(pees, "{n} pee", "{n} pees"));
+      if (poops > 0) parts.push(plural(poops, "{n} poop", "{n} poops"));
+      var foot = cardFootHtml(parts.join(" · "));
       var body = item
         ? '<div class="card-main">' + escapeHtml(fmtKind(item.kind)) + '</div>' +
           '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
         : '<div class="card-empty">' + escapeHtml(i18n("No diapers yet")) + '</div>';
-      el.innerHTML = head + body;
+      el.innerHTML = head + body + foot;
     }
 
     // Estimate display: whole grams / one-decimal centimeters.

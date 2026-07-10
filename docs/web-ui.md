@@ -12,8 +12,9 @@ timezone.
 ## Today tab
 
 - Read-only at-a-glance dashboard — recording happens in the entity tabs (or
-  via Alexa / MCP). Last feeding and Last diaper cards, a Routines card (when
-  each routine last happened), a Growth card (projected current weight/height
+  via Alexa / MCP). Last feeding and Last diaper cards (with today's
+  running totals pinned to the card foot), a Routines card (when each routine
+  last happened), a Growth card (projected current weight/height
   with the last actual measurement), and a "Today's targets" card with a
   progress bar per active indication, grouped by kind (feeding, diapers,
   routines).
