@@ -1079,10 +1079,10 @@
         "Poops/day": "Cacas/día",
         "Milk ≥ 670 ml/day": "Leche ≥ 670 ml/día",
         "≥ 8 feedings/day": "≥ 8 tomas/día",
-        "≥ 6 pees/day": "≥ 6 pises/día",
+        "Pees/day": "Pises/día",
         "≥ 1 poop/day": "≥ 1 caca/día",
-        "Vitamin D 1×/day": "Vitamina D 1×/día",
-        "Bath every 2 days": "Baño cada 2 días",
+        "Vitamin D/day": "Vitamina D/día",
+        "Bath/2 days": "Baño/2 días",
         // Forms
         "Amount (ml)": "Cantidad (ml)",
         "When": "Cuándo",
@@ -2289,12 +2289,17 @@
       var el = document.getElementById("card-targets");
       if (!indications.length) { el.hidden = true; return; }
       el.hidden = false;
-      // Attention first: over the limit, then still pending, then met — the
-      // top of the card is always what's left today. Ties keep DB order.
-      var rank = function(ind) {
-        return !ind.met && ind.comparison === "<=" ? 0 : ind.met ? 2 : 1;
+      // Fixed domain order — feeding, diapers, routines — so related targets
+      // sit together in stable positions. State stays loud via glyph and bar
+      // color; sorting by state made related rows drift apart during the day.
+      var DOMAINS = {
+        feeding_total_ml: 0, feeding_count: 0, feeding_gap_max_min: 0,
+        diaper_count: 1, routine_count: 2, note_count: 3
       };
-      var sorted = indications.slice().sort(function(a, b) { return rank(a) - rank(b); });
+      var domain = function(ind) {
+        return ind.metric in DOMAINS ? DOMAINS[ind.metric] : 4;
+      };
+      var sorted = indications.slice().sort(function(a, b) { return domain(a) - domain(b); });
       var rows = "";
       for (var i = 0; i < sorted.length; i++) {
         var ind = sorted[i];

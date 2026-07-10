@@ -12,8 +12,7 @@ timezone.
 ## Today tab
 
 - Last-event cards, and a "Today's targets" card with a progress bar per
-  active indication, ordered attention-first (over a max-limit, then pending,
-  then met).
+  active indication, grouped by kind (feeding, diapers, routines).
 - A merged chronological diary of the day.
 - One-tap quick-record buttons (with an Undo toast). The feeding quick-add
   amounts adapt to recent entries, Vitamin D flips to a "done today" state once
