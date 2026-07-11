@@ -348,15 +348,23 @@ async function handleDashboard(
   const nowIso = now.toISOString();
   const day = madridDateOf(now);
   const { start: dayStart, end: dayEnd } = madridDayWindow(day);
+  // The web app's rhythm strip shows today plus the two previous days.
+  const { start: stripStart } = madridDayWindow(day, 3);
+  // The tape's marker-anchored comparison needs feeding/diaper history well
+  // behind the marker: its widest lookback is the 14-day "usual range"
+  // distribution of the days *before* the marker's 24h window, i.e. up to 15
+  // days before the marker, and the marker can sit at the tape's first midnight
+  // (2 days ago) — so history must reach 17 days before today's midnight.
+  const { start: cmpStart } = madridDayWindow(day, 18);
   // Gap metrics measure up to now while the day is still running.
   const gapBoundary = dayEnd < nowIso ? dayEnd : nowIso;
 
   const [
     recentFeedings,
-    todayFeedings,
+    stripFeedings,
     lastDiaper,
-    todayDiapers,
-    todayRoutines,
+    stripDiapers,
+    stripRoutines,
     todayNotes,
     lastRoutines,
     recentWeights,
@@ -368,16 +376,16 @@ async function handleDashboard(
     ).bind(babyId),
     env.DB.prepare(
       "SELECT id, ts, amount_ml FROM feedings WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(babyId, dayStart),
+    ).bind(babyId, cmpStart),
     env.DB.prepare(
       "SELECT id, ts, kind FROM diapers WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
     ).bind(babyId),
     env.DB.prepare(
       "SELECT id, ts, kind FROM diapers WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(babyId, dayStart),
+    ).bind(babyId, cmpStart),
     env.DB.prepare(
       "SELECT id, ts, name FROM routines WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(babyId, dayStart),
+    ).bind(babyId, stripStart),
     env.DB.prepare(
       "SELECT id, ts, text FROM notes WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
     ).bind(babyId, dayStart),
@@ -445,10 +453,10 @@ async function handleDashboard(
     babies: tenant.babies,
     baby_id: babyId,
     recent_feedings: recentFeedings.results,
-    today_feedings: todayFeedings.results,
+    strip_feedings: stripFeedings.results,
     last_diaper: lastDiaper.results[0] ?? null,
-    today_diapers: todayDiapers.results,
-    today_routines: todayRoutines.results,
+    strip_diapers: stripDiapers.results,
+    strip_routines: stripRoutines.results,
     today_notes: todayNotes.results,
     last_routines: lastRoutines.results,
     recent_weights: recentWeights.results,

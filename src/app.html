@@ -40,10 +40,14 @@
       --col-today: #f2f7ff;
       --col-selected: #eaf2ff;
       --poop: #b5651d;
-      --routine: #f5a623;
+      /* Routine marks sit next to poop's brown and the feed blue on the tape
+         and in the quick-add row — keep the three domain hues far apart if
+         retuning (the original amber was a near-twin of the brown). */
+      --routine: #15803d;
       --daypast: #9aa0a6;
       --warn: #d97700;
       --ok: #1a7f37;
+      --night: rgba(0, 0, 0, 0.04);
       /* Shared shape + rhythm: every tab's surfaces (cards, charts, forms,
          lists), controls, and section gaps draw from these three tokens. */
       --radius-surface: 10px;
@@ -75,7 +79,9 @@
         --toast-link: #0b57d0;
         --col-today: #1b2735;
         --col-selected: #20304a;
+        --night: rgba(0, 0, 0, 0.25);
         --poop: #d08344;
+        --routine: #4ade80;
         --daypast: #7f868c;
         --warn: #ffa040;
         --ok: #4ace64;
@@ -270,10 +276,383 @@
       padding: 0;
       cursor: pointer;
     }
-    .dashboard-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 14px;
+    /* Today = the 3-day rhythm strip, alone on the page background (no
+       card), styled like a chart recorder: one faint lane per domain
+       (feeds / diapers / routines, same hues as their tabs), night hours
+       shaded, the future fogged out past "now". Tape-head interaction: the
+       readout dial stands still near the viewport's RIGHT edge — the
+       future is empty, so the past deserves the width — and the tape
+       scrolls underneath its needle (drag/swipe the tape, or tap a spot to
+       bring it under the needle). Flex spacers sized to the needle's
+       offsets let 00:00 and "now" reach it; the scroll crop stops the
+       needle at "now", so it can never point at the future. The quick-add
+       buttons log at whatever time sits under it. */
+    .rhythm-wrap { position: relative; }
+    .rs-tape { position: relative; }
+    .rhythm-scroll {
+      display: flex;
+      align-items: flex-start;
+      overflow-x: auto;
+      scrollbar-width: none;
+      /* Window fades: the tape visibly runs on past both edges. */
+      -webkit-mask-image: linear-gradient(to right,
+        transparent, #000 32px, #000 calc(100% - 32px), transparent);
+      mask-image: linear-gradient(to right,
+        transparent, #000 32px, #000 calc(100% - 32px), transparent);
+    }
+    .rhythm-scroll::-webkit-scrollbar { display: none; }
+    /* Spacers keep the scroll↔minute identity: the leading one equals the
+       needle's offset from the viewport's left (100% − 48px), the trailing
+       one its offset from the right (48px) — so the svg x under the needle
+       is exactly scrollLeft, and scrollMax lands exactly on "now". */
+    .rhythm-scroll::before { content: ""; flex: 0 0 calc(100% - 48px); }
+    .rhythm-scroll::after { content: ""; flex: 0 0 48px; }
+    .rhythm-strip {
+      display: block;
+      /* Width comes inline per render: scaled so the viewport spans 12 h of
+         tape on wide screens, 4 h on narrow ones, and always cropped at
+         "now" so the scroll range ends there. */
+      flex: 0 0 auto;
+      height: auto;
+      overflow: visible; /* stamps + the un-scrollable rest of today paint past the crop */
+      cursor: grab;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    /* Night = a whisper of darkness in both themes (--night), not a hover-
+       gray block — which in dark mode even read *lighter* than the day.
+       Edges fade over the band's ends (dusk/dawn aren't cliffs). */
+    .rs-night { fill: url(#rs-ng); }
+    .rs-night-stop { stop-color: var(--night); }
+    .rs-lane { stroke: var(--border); stroke-width: 1; }
+    .rs-dot { stroke: var(--bg); stroke-width: 1; }
+    .rs-dot.feed { fill: var(--primary); }
+    .rs-dot.diaper { fill: var(--poop); }
+    .rs-dot.routine { fill: var(--routine); }
+    /* The tape's limits are fog, not fences: past "now" — and mirrored at
+       the tape's first midnight — it dissolves into the page background
+       (gradient rects painted over everything). */
+    .rs-fog-stop { stop-color: var(--bg); }
+    /* Axis furniture: hourly ticks (taller every 3 h under the labels),
+       hairline + date caption at each midnight. */
+    .rs-tick { stroke: var(--border); stroke-width: 1; }
+    .rs-tick.h3 { stroke: var(--muted); }
+    .rs-mid { stroke: var(--border); stroke-width: 1; }
+    .rs-hour {
+      font-size: 9px;
+      font-family: inherit;
+      fill: var(--muted);
+      text-anchor: middle;
+      font-variant-numeric: tabular-nums;
+    }
+    .rs-day {
+      font-size: 9px;
+      font-family: inherit;
+      font-weight: 700;
+      fill: var(--muted);
+      text-anchor: middle;
+      font-variant-numeric: tabular-nums;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    /* The tape-head readout: a fixed dial whose text ends at the needle
+       (right-aligned to its 48px inset), reading the moment the quick-add
+       would log — big relative time over a small absolute one that
+       resolves it ("Ayer · 22:05"). */
+    .rs-readout {
+      text-align: right;
+      padding: 4px 48px 6px 0;
+    }
+    .rs-readout-rel {
+      display: block;
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--primary);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .rs-readout-abs {
+      display: block;
+      margin-top: 2px;
+      min-height: 18px;
+      font-size: 14px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    /* The needle: pinned 48px in from the viewport's right edge (the
+       future side is empty, so the past gets the width), pointer-events
+       none — the tape scrolls through underneath. Same span as the night
+       band: y20–112 of the SVG's y14–138 crop → top 4.8%, bottom 21%. */
+    .rs-marker-ov { position: absolute; right: 48px; top: 0; bottom: 0; width: 0; pointer-events: none; }
+    .rs-marker-ov-line {
+      position: absolute;
+      top: 4.8%;
+      bottom: 21%;
+      left: -1px;
+      width: 0;
+      border-left: 2px solid var(--primary);
+    }
+    /* Pointer cap, tip down on the needle top — the CSS twin of the "now"
+       cursor's 8×6-unit svg triangle (≈14×11px rendered). */
+    .rs-marker-ov-tri {
+      position: absolute;
+      top: calc(4.8% - 11px);
+      left: -7px;
+      width: 0;
+      height: 0;
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-top: 11px solid var(--primary);
+    }
+    /* Quick-add: each button swaps the row for its pick (feed = an amount
+       stepper seeded with the last feed, diaper/routine = their type
+       choices); the pick logs at the marker's time. Squared hairline ghosts
+       on the page background; the only color is the "+" in each add
+       button's domain hue — until a domain is picked, when the buttons that
+       will actually draw a mark on the tape arm their hairline in that
+       domain's hue (steppers and cancel stay neutral). */
+    .strip-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      animation: strip-row-in 140ms ease-out;
+    }
+    @keyframes strip-row-in {
+      from { opacity: 0; transform: translateY(4px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .strip-actions { animation: none; }
+    }
+    /* Sized for older eyes and less steady fingers: tall targets, big type. */
+    .strip-btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 64px;
+      padding: 12px 16px;
+      font-family: inherit;
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text);
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 0;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 80ms ease;
+      font-variant-numeric: tabular-nums;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    @media (hover: hover) {
+      .strip-btn:hover { background: var(--hover); }
+    }
+    .strip-btn:active { background: var(--hover); }
+    .strip-btn:focus-visible {
+      outline: 2px solid var(--scope, var(--primary));
+      outline-offset: 2px;
+    }
+    .strip-btn[disabled] { opacity: 0.55; cursor: default; }
+    .strip-btn.s-feeding { --scope: var(--primary); }
+    .strip-btn.s-diaper { --scope: var(--poop); }
+    .strip-btn.s-routine { --scope: var(--routine); }
+    .strip-commit { border-color: var(--scope, var(--border)); }
+    .strip-plus {
+      color: var(--scope, var(--muted));
+      font-weight: 700;
+    }
+    .strip-step {
+      flex: 0 0 64px;
+      font-size: 24px;
+    }
+    /* Cancel wraps onto its own full-width line below the actions: the log
+       buttons get the whole first row, and backing out can't be fat-fingered
+       from the row's edge. Shorter than the 64px action targets on purpose —
+       full width already makes it easy to hit, and the lower profile keeps it
+       visually subordinate. */
+    .strip-cancel {
+      flex: 1 0 100%;
+      min-height: 44px;
+      font-size: 16px;
+      color: var(--muted);
+    }
+    .strip-x { font-size: 22px; line-height: 1; }
+    /* 320px-class phones: three 18px English labels overflow the row. */
+    @media (max-width: 379px) {
+      .strip-btn { font-size: 16px; padding: 12px 8px; gap: 6px; }
+      .strip-step { flex-basis: 56px; }
+    }
+    /* Feeding readout inside the tape block — where the last 24h of milk sits
+       in the baby's recent range. The tape above plots feed *events*; this
+       answers "is today usual?": a horizontal box plot across the recent daily
+       totals (whiskers to the lowest/highest day, the middle-half "usual" band,
+       a median tick) with today plotted as a feed-hue needle — the tape
+       needle's echo. It sits directly under the tape's time readout, above the
+       quick-add row, with no separator on purpose: it's the tape's second
+       trace and scrubs with it. Spacing comes from the readout's own top
+       margins (.fg-gauge / .fg-empty). */
+    /* The readout is the rail, one line tall: the scale's end labels (min …
+       max) sit in front of and after the rail on its own centerline, reading
+       as the axis's printed endpoints. Each is a number with its unit stacked
+       under it — both ends carry "ml" without paying its width, so the label
+       column stays as narrow as the number and the rail keeps the room. The
+       stack still fits inside the rail's height. */
+    .fg-gauge { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+    .fg-end {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+      font-size: 11px;
+      line-height: 1;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .fg-end-u { font-size: 9px; }
+    /* The tap popover reveals a mark's exact value just above the rail — the
+       spacing gap up to the tape's readout is the only reserved empty space
+       left, so the reveal borrows it instead of adding height. Two stacked
+       lines are taller than that gap, so the popover paints on an opaque
+       plate (the page background — invisible as a shape) that slides over
+       the tape's readout for the moment it's open. */
+    .fg-pop {
+      position: absolute;
+      bottom: 100%;
+      margin-bottom: 2px;
+      transform: translateX(-50%);
+      white-space: nowrap;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      background: var(--bg);
+      padding: 2px 6px;
+      z-index: 1;
+    }
+    .fg-pop[hidden] { display: none; }
+    /* The value's time window: its own line under the number, quieter voice —
+       small, unbolded, muted — so the number stays the headline and the
+       popover stays no wider than its widest line. */
+    .fg-pop-meta {
+      display: block;
+      margin-top: 1px;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+    /* The box plot: a dotted baseline = the axis. Dotted reads as scaffolding
+       by shape alone — no fading needed, so it survives dim screens — and can't
+       be confused with the solid whisker lines that sit on the same centerline.
+       A tinted band = usual; a muted tick = median; a feed-hue needle (with a
+       tip-down cap, the tape needle's echo) = today. */
+    .fg-bullet {
+      position: relative;
+      height: 26px;
+      flex: 1;
+      min-width: 0;
+    }
+    .fg-rail {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 0;
+      transform: translateY(-50%);
+      border-top: 1px dotted var(--border);
+    }
+    .fg-band {
+      position: absolute;
+      top: 50%;
+      height: 8px;
+      transform: translateY(-50%);
+      /* Tints are pre-blended into an opaque color, not element opacity — the
+         marks must cover the dotted axis, not let it show through. (The plain
+         declaration above each is the fallback for engines without color-mix.) */
+      background: var(--primary);
+      background: color-mix(in srgb, var(--primary) 30%, var(--bg));
+    }
+    .fg-med {
+      position: absolute;
+      top: 50%;
+      width: 2px;
+      height: 16px;
+      transform: translate(-50%, -50%);
+      background: var(--muted);
+    }
+    .fg-today {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      transform: translateX(-50%);
+      background: var(--primary);
+    }
+    .fg-today-cap {
+      position: absolute;
+      top: -1px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid var(--primary);
+    }
+    /* Every mark is tappable; the thin ones get a padded invisible hit area so a
+       fingertip can land them. (Whiskers sit earlier in the DOM, so where hit
+       areas overlap at the band's edges, the band wins.) */
+    .fg-band, .fg-med, .fg-today, .fg-tick, .fg-whisk { cursor: pointer; }
+    .fg-band::before, .fg-med::before, .fg-today::before, .fg-tick::before, .fg-whisk::before {
+      content: "";
+      position: absolute;
+      left: -9px;
+      right: -9px;
+      top: -7px;
+      bottom: -7px;
+    }
+    /* Box-plot whiskers: a faint hairline from the band out to the window's
+       lowest/highest day, each closed by a small fence tick at the extreme. */
+    .fg-whisk {
+      position: absolute;
+      top: 50%;
+      height: 1px;
+      transform: translateY(-50%);
+      background: var(--muted);
+      background: color-mix(in srgb, var(--muted) 50%, var(--bg));
+    }
+    .fg-whisk-cap {
+      position: absolute;
+      top: 50%;
+      width: 2px;
+      height: 8px;
+      transform: translateY(-50%);
+      background: var(--muted);
+    }
+    .fg-whisk.lo .fg-whisk-cap { left: 0; }
+    .fg-whisk.hi .fg-whisk-cap { right: 0; }
+    /* Early days: the rail before it has enough history to draw a band. Each day
+       on record is a muted tick placed by volume (a lighter, shorter echo of the
+       median tick); today stays the feed-hue needle. The band fills in later. */
+    .fg-tick {
+      position: absolute;
+      top: 50%;
+      width: 2px;
+      height: 12px;
+      transform: translate(-50%, -50%);
+      background: var(--muted);
+      background: color-mix(in srgb, var(--muted) 55%, var(--bg));
+    }
+    .fg-empty {
+      margin-top: 12px;
+      font-size: 15px;
+      color: var(--muted);
     }
     .card {
       background: var(--card);
@@ -291,17 +670,6 @@
       letter-spacing: 0.06em;
       margin-bottom: 8px;
     }
-    .card-main {
-      font-size: 26px;
-      font-weight: 700;
-      line-height: 1.2;
-      font-variant-numeric: tabular-nums;
-    }
-    .card-sub {
-      font-size: 13px;
-      color: var(--muted);
-      margin-top: 2px;
-    }
     .card-empty {
       font-size: 14px;
       color: var(--muted);
@@ -314,7 +682,6 @@
       padding: 16px;
       margin-bottom: var(--stack);
     }
-    #today-timeline { margin-top: var(--stack); }
     .chart-head {
       display: flex;
       align-items: center;
@@ -510,48 +877,6 @@
       font-weight: 600;
     }
     .delete-btn.pending:hover { background: var(--danger-strong); }
-    /* Read-only stat rows (Routines / Growth cards): name left, figures right. */
-    .stat-row {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      padding: 5px 0;
-      font-size: 14px;
-    }
-    .stat-row + .stat-row { border-top: 1px solid var(--border); }
-    /* Last-event cards: a "today so far" summary pinned to the card bottom —
-       the cards stretch to the targets column's height on desktop, so the
-       footer turns that slack into information instead of blank space. */
-    .card-foot {
-      margin-top: auto;
-      padding-top: 12px;
-    }
-    .card-foot .stat-row { padding: 0; border-top: 1px solid var(--border); padding-top: 8px; }
-    .stat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .stat-sub {
-      color: var(--muted);
-      font-size: 12px;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .stat-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    /* Desktop: the tall targets card owns a column for two grid rows, the four
-       stat cards fill a 2x2 beside it — no stretched half-empty first row. */
-    @media (min-width: 641px) {
-      #card-targets { grid-row: span 2; }
-    }
-    /* Feeding-gap indication exceeded: tint the Last feeding card. */
-    .card.warn { border-color: var(--warn); }
-    .card.warn .card-main { color: var(--warn); }
-    .card-warn-note {
-      font-size: 12px;
-      color: var(--warn);
-      font-weight: 600;
-      margin-top: 4px;
-    }
     /* Edit mode: tap a list row to load it into the form. */
     tbody tr[data-id] { cursor: pointer; }
     form.entry-form.editing { outline: 2px solid var(--primary); outline-offset: -1px; }
@@ -567,61 +892,6 @@
       align-self: flex-end;
     }
     .cancel-edit:hover { background: var(--hover); color: var(--text); }
-    /* Today's targets: a two-line row per active indication — label above,
-       progress bar + numbers below. The bar mirrors the state glyph (primary
-       in progress, green met, amber over a max-limit) so color is never the
-       only signal; on "<=" targets the fill is the share of the allowance
-       used. */
-    .target-row { padding: 4px 0; font-size: 14px; }
-    .target-line { display: flex; align-items: baseline; gap: 8px; }
-    .target-state { color: var(--muted); flex: none; width: 14px; text-align: center; }
-    .target-row.met .target-state { color: var(--ok); }
-    .target-row.over .target-state,
-    .target-row.over .target-value,
-    .target-row.over .target-actual { color: var(--warn); }
-    .target-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .target-progress { display: flex; align-items: center; gap: 10px; margin: 3px 0 0 22px; }
-    .target-track {
-      flex: 1;
-      height: 4px;
-      border-radius: 2px;
-      background: var(--hover);
-      overflow: hidden;
-    }
-    .target-fill { display: block; height: 100%; border-radius: 2px; background: var(--primary); }
-    .target-row.met .target-fill { background: var(--ok); }
-    .target-row.over .target-fill { background: var(--warn); }
-    .target-value {
-      color: var(--muted);
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-      font-size: 12px;
-    }
-    .target-actual { color: var(--text); font-weight: 600; }
-    /* Today's diary: merged chronological timeline of all entry types. */
-    .tl-row {
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
-      padding: 5px 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 14px;
-    }
-    .tl-row:last-child { border-bottom: 0; }
-    .tl-time { font-variant-numeric: tabular-nums; color: var(--muted); flex: none; }
-    .tl-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex: none;
-      align-self: center;
-    }
-    .tl-dot.feed { background: var(--primary); }
-    .tl-dot.diaper { background: var(--poop); }
-    .tl-dot.routine { background: var(--routine); }
-    .tl-dot.note { background: var(--daypast); }
-    .tl-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .tl-kind { color: var(--muted); font-size: 12px; flex: none; }
     /* Amount field with -10/+10 steppers. */
     .amount-row { display: flex; gap: 4px; }
     .amount-row input { flex: 1; min-width: 0; }
@@ -775,18 +1045,12 @@
       th, td { padding: 8px 10px; }
       .hide-sm { display: none; }
 
-      .dashboard-grid {
-        /* minmax(0,…): plain 1fr lets no-wrap stat rows inflate a column past
-           the viewport and overflow the whole grid. */
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-      }
-      #card-targets, #card-routines, #card-growth { grid-column: 1 / -1; }
       tr.day-sep td { padding: 4px 10px; }
+      .strip-btn { font-size: 16px; padding: 12px 8px; }
+      .rs-readout-rel { font-size: 22px; }
+      .rs-readout-abs { font-size: 13px; }
       .card { padding: 10px 12px; }
       .card-title { margin-bottom: 4px; font-size: 10px; }
-      .card-main { font-size: 19px; }
-      .card-sub { font-size: 12px; }
       .card-empty { font-size: 13px; }
 
       form.entry-form { padding: 12px; gap: 8px; }
@@ -821,29 +1085,8 @@
 
   <main>
     <section id="tab-today" class="tab active">
-      <div class="dashboard-grid">
-        <div class="card" id="card-targets" hidden>
-          <div class="card-title" data-i18n="Today's targets">Today's targets</div>
-        </div>
-        <div class="card" id="card-last-feeding">
-          <div class="card-title" data-i18n="Last feeding">Last feeding</div>
-          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
-        </div>
-        <div class="card" id="card-last-diaper">
-          <div class="card-title" data-i18n="Last diaper">Last diaper</div>
-          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
-        </div>
-        <div class="card" id="card-routines">
-          <div class="card-title" data-i18n="Routines">Routines</div>
-          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
-        </div>
-        <div class="card" id="card-growth">
-          <div class="card-title" data-i18n="Growth">Growth</div>
-          <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
-        </div>
-      </div>
-      <div class="week-chart" id="today-timeline" hidden>
-        <div class="card-title daychart-title" data-i18n="Today's diary">Today's diary</div>
+      <div id="today-strip">
+        <div class="card-empty" data-i18n="Loading…">Loading&hellip;</div>
       </div>
     </section>
 
@@ -1052,20 +1295,18 @@
         "Note": "Nota",
         "More tabs": "Más pestañas",
         "More": "Más",
-        // Dashboard cards
-        "Today's targets": "Objetivos de hoy",
-        "Last feeding": "Última toma",
-        "Last diaper": "Último pañal",
-        "Routines": "Rutinas",
-        "{n} feeding": "{n} toma",
-        "{n} feedings": "{n} tomas",
-        "{n} pee": "{n} pis",
-        "{n} pees": "{n} pises",
-        "{n} poop": "{n} caca",
-        "{n} poops": "{n} cacas",
-        "Growth": "Crecimiento",
-        "Today's diary": "Diario de hoy",
+        // Dashboard (Today tab)
         "Loading…": "Cargando…",
+        // Feeding readout under the Today tape
+        "No feeds in this window yet.": "Aún no hay tomas en esta ventana.",
+        "usual": "habitual",
+        "median": "mediana",
+        "lowest day": "día más bajo",
+        "highest day": "día más alto",
+        "day total {n} ml": "total del día {n} ml",
+        "24h before marker": "24 h antes del marcador",
+        "{n} day before marker": "{n} día antes del marcador",
+        "{n} days before marker": "{n} días antes del marcador",
         // Indication labels — stored in English in the DB (growth.ts catalog +
         // seeded rows); known ones translate here, custom labels pass through.
         "Milk ≥ 150 ml/kg": "Leche ≥ 150 ml/kg",
@@ -1132,17 +1373,11 @@
         "now": "ahora",
         "{d} ago": "hace {d}",
         "In {d}": "En {d}",
-        "{n} day ago": "hace {n} día",
-        "{n} days ago": "hace {n} días",
         "{n} day": "{n} día",
         "{n} days": "{n} días",
         "yesterday {t}": "ayer {t}",
         "in": "en",
         // Cards: empty / status
-        "No feedings yet": "Sin tomas todavía",
-        "No diapers yet": "Sin pañales todavía",
-        "Over the {d} max gap": "Supera el intervalo máx. de {d}",
-        "max": "máx",
         "now ≈": "ahora ≈",
         // Lists / toasts / errors
         "No entries yet.": "Sin registros todavía.",
@@ -1425,20 +1660,6 @@
       if (diff < 45 * 1000) return i18n("now");
       if (diff >= 30 * DAY_MS) return fmtFullDate(new Date(s));
       return i18n("{d} ago", { d: durationLabel(diff) });
-    }
-
-    // Whole Madrid calendar days ago: "Today", "1 day ago", "12 days ago".
-    // Yesterday afternoon reads "1 day ago" on today's morning, even if
-    // fewer than 24 hours have passed.
-    function daysAgoLabel(s) {
-      var d = new Date(s);
-      if (isNaN(d.getTime())) return String(s);
-      var w = toWall(d); w.setUTCHours(0, 0, 0, 0);
-      var t = toWall(new Date()); t.setUTCHours(0, 0, 0, 0);
-      var days = Math.round((t.getTime() - w.getTime()) / DAY_MS);
-      if (days <= 0) return i18n("Today");
-      if (days >= 30) return fmtFullDate(d);
-      return plural(days, "{n} day ago", "{n} days ago");
     }
 
     function absoluteTs(s) {
@@ -2232,230 +2453,705 @@
       }
     }
 
-    function findRoutine(rows, needle) {
-      var best = null;
-      for (var i = 0; i < rows.length; i++) {
-        var n = String(rows[i].name || "").toLowerCase();
-        if (n.indexOf(needle) !== -1 && (!best || rows[i].ts > best.ts)) best = rows[i];
-      }
-      return best;
-    }
-
-    // Doctor's max-gap-between-feedings indication (minutes), if one is active.
-    function gapTargetMinutes(indications) {
-      for (var i = 0; i < indications.length; i++) {
-        var ind = indications[i];
-        if (ind.metric === "feeding_gap_max_min" && ind.comparison === "<=") {
-          return Number(ind.target);
-        }
-      }
-      return null;
-    }
-
     function renderDashboard() {
       if (!dashboardData) return;
       var d = dashboardData;
+      renderStrip(d);
       var recent = d.recent_feedings || [];
-      renderTargets(d.indications || [], d.est_weight_g);
-      var tf = d.today_feedings || [];
-      var todayMl = 0;
-      for (var f = 0; f < tf.length; f++) {
-        var ml = Number(tf[f].amount_ml);
-        if (isFinite(ml)) todayMl += ml;
-      }
-      var td = d.today_diapers || [];
-      var pees = 0, poops = 0;
-      for (var dd = 0; dd < td.length; dd++) {
-        if (td[dd].kind === "pee" || td[dd].kind === "both") pees++;
-        if (td[dd].kind === "poop" || td[dd].kind === "both") poops++;
-      }
-      renderLastFeeding(recent[0] || null, gapTargetMinutes(d.indications || []), tf.length, todayMl);
-      renderLastDiaper(d.last_diaper, pees, poops);
-      var routines = d.last_routines || [];
-      renderRoutinesCard(routines);
-      renderGrowthCard(d);
-      renderTimeline(d);
       if (recent[0]) {
         var amtInput = document.querySelector('form[data-entity="feedings"] input[name="amount_ml"]');
         if (amtInput) amtInput.placeholder = recent[0].amount_ml;
       }
     }
 
-    // One row per active indication with live progress from the server
-    // (computed over each indication's own Madrid-day window).
-    function renderTargets(indications, estWeightG) {
-      var el = document.getElementById("card-targets");
-      if (!indications.length) { el.hidden = true; return; }
-      el.hidden = false;
-      // Fixed domain order — feeding, diapers, routines — so related targets
-      // sit together in stable positions. State stays loud via glyph and bar
-      // color; sorting by state made related rows drift apart during the day.
-      var DOMAINS = {
-        feeding_total_ml: 0, feeding_count: 0, feeding_gap_max_min: 0,
-        diaper_count: 1, routine_count: 2, note_count: 3
-      };
-      var domain = function(ind) {
-        return ind.metric in DOMAINS ? DOMAINS[ind.metric] : 4;
-      };
-      var sorted = indications.slice().sort(function(a, b) { return domain(a) - domain(b); });
-      var rows = "";
-      for (var i = 0; i < sorted.length; i++) {
-        var ind = sorted[i];
-        var unitS = ind.unit ? " " + ind.unit : "";
-        var value = '<span class="target-actual">' + escapeHtml(String(ind.actual)) + '</span>' +
-          escapeHtml(" / " + ind.target + unitS);
-        if (ind.comparison === "<=") value += " " + escapeHtml(i18n("max"));
-        if (ind.period_days > 1) value += escapeHtml(" · " + ind.period_days + "d");
-        // Make the weight-driven milk target transparent, not magic.
-        if (ind.formula === "milk_ml_per_kg_day" && typeof estWeightG === "number") {
-          value += escapeHtml(" · ≈" + (estWeightG / 1000).toFixed(2) + " kg");
+    // Strip geometry, shared by render and scroll math: RS_DAYS days ending
+    // today, minutes 0..RS_MIN (0 = midnight two days ago, Madrid) mapped to
+    // x = RS_PAD .. RS_PAD+RS_AXIS in an RS_VB-unit-wide viewBox. Px per
+    // viewBox unit is FIXED (RS_UPX) so dots/type/height never change size;
+    // density comes from giving the axis more units: the viewport always
+    // shows a fixed slice of tape — 12 h on wide screens, 4 h on narrow
+    // ones, where a fingertip swipe must move the marker in finer steps.
+    var RS_DAYS = 3, RS_PAD = 10, RS_DAY_W = 460;
+    var RS_MIN = RS_DAYS * 1440;
+    var RS_AXIS0 = RS_DAYS * RS_DAY_W; // base axis units (scale floor)
+    var RS_UPX = 2560 / (RS_AXIS0 + 2 * RS_PAD); // px per viewBox unit
+    var RS_AXIS = RS_AXIS0;
+    var RS_VB = RS_AXIS + 2 * RS_PAD;
+    var stripPx = RS_VB * RS_UPX; // px width of the full axis at this scale
+    var RS_VPMIN = 720; // minutes of tape per viewport, set by rsSetScale
+    function rsSetScale(cw) {
+      if (!cw) return; // hidden/unmeasurable: keep the last scale
+      RS_VPMIN = cw < 640 ? 240 : 720; // matches the app's mobile breakpoint
+      RS_AXIS = Math.max(RS_AXIS0, cw * RS_MIN / (RS_VPMIN * RS_UPX));
+      RS_VB = RS_AXIS + 2 * RS_PAD;
+      stripPx = RS_VB * RS_UPX;
+    }
+    function rsX(min) { return RS_PAD + (min / RS_MIN) * RS_AXIS; }
+    // Wall-clock ms of the strip's first midnight; wall space is continuous
+    // (fromWall re-applies the DST offset), so day arithmetic is safe.
+    function rsStartWallMs() {
+      var w = toWall(new Date());
+      w.setUTCHours(0, 0, 0, 0);
+      return w.getTime() - (RS_DAYS - 1) * DAY_MS;
+    }
+    function rsNowMin() {
+      return Math.floor((toWall(new Date()).getTime() - rsStartWallMs()) / 60000);
+    }
+
+    // Tape-head model: the marker is fixed 48px in from the viewport's
+    // right edge and the scroll position IS the picked time — the leading
+    // flex spacer matches the needle's left offset, so the svg x under the
+    // needle equals scrollLeft. While the tape sits pushed against the
+    // "now" clamp it follows now across re-renders.
+    var stripFollowNow = true;
+    var stripChoice = null;    // quick-add awaiting a kind/name/amount pick
+    var stripAmt = 0;          // feed amount being stepped in the pick row
+    var stripBusy = false;     // a quick-add POST is in flight
+    var stripDragId = null;    // active mouse/pen tape-drag pointer
+    var stripDragX = 0, stripDragLeft = 0, stripDragMoved = false;
+    // Fling state for mouse/pen drags (touch gets native momentum): release
+    // velocity is sampled during the drag and decays in a rAF loop.
+    var stripVel = 0, stripVelT = 0, stripLastX = 0, stripMomentum = null;
+
+    function stripStopMomentum() {
+      if (stripMomentum !== null) {
+        cancelAnimationFrame(stripMomentum);
+        stripMomentum = null;
+      }
+    }
+
+    // iOS-feel inertia: exponential decay (τ≈325 ms), stopped by the day
+    // clamps or by grabbing the tape again. v is scrollLeft px/ms; each
+    // frame's scroll fires the clamp/label handlers as usual.
+    function stripStartMomentum(v) {
+      stripStopMomentum();
+      var last = performance.now();
+      function step(t) {
+        stripMomentum = null;
+        var sc = stripScroller();
+        if (!sc || !sc.querySelector(".rhythm-strip")) return;
+        var dt = Math.min(t - last, 64);
+        last = t;
+        sc.scrollLeft += v * dt;
+        v *= Math.exp(-dt / 325);
+        var lo = rsScrollFor(sc, 0);
+        var hi = rsScrollFor(sc, rsNowMin());
+        if (Math.abs(v) > 0.02 && sc.scrollLeft > lo && sc.scrollLeft < hi) {
+          stripMomentum = requestAnimationFrame(step);
         }
-        var over = !ind.met && ind.comparison === "<=";
-        var cls = (ind.met ? " met" : "") + (over ? " over" : "");
-        var state = ind.met ? "&#10003;" : over ? "&#9888;" : "&#9675;";
-        var pct = ind.target > 0
-          ? Math.min(100, Math.round((ind.actual / ind.target) * 100))
-          : (ind.met ? 100 : 0);
-        rows += '<div class="target-row' + cls + '">' +
-          '<div class="target-line">' +
-            '<span class="target-state">' + state + '</span>' +
-            '<span class="target-label">' + escapeHtml(i18n(ind.label)) + '</span>' +
-          '</div>' +
-          '<div class="target-progress">' +
-            '<span class="target-track"><i class="target-fill" style="width:' + pct + '%"></i></span>' +
-            '<span class="target-value">' + value + '</span>' +
-          '</div>' +
+      }
+      stripMomentum = requestAnimationFrame(step);
+    }
+
+    function stripScroller() { return document.querySelector("#today-strip .rhythm-scroll"); }
+
+    // Scroll offset for a given minute (svg px), i.e. what scrollLeft must be
+    // for that minute to sit under the marker. Uses the render-time scale
+    // stripPx (the tape element is cropped at "now", so its measured width
+    // is NOT the full-axis width).
+    function rsScrollFor(sc, min) {
+      return rsX(min) / RS_VB * stripPx;
+    }
+
+    // Snapped when scrolled back so the distance from now is a multiple of
+    // 10 minutes (the label reads "2h 20m ago", never "2h 13m ago"); exact
+    // when riding "now".
+    function stripMarkerMin() {
+      var sc = stripScroller();
+      if (!sc || !sc.querySelector(".rhythm-strip")) return rsNowMin();
+      var raw = (sc.scrollLeft / stripPx * RS_VB - RS_PAD) / RS_AXIS * RS_MIN;
+      var now = rsNowMin();
+      // Half a grid step of slack: scrollLeft is floored to whole px (~1.7
+      // min here), so a tape parked on "now" can read fractionally early.
+      if (raw >= now - 5) return now;
+      var diff = Math.round((now - raw) / 10) * 10;
+      return Math.max(0, now - diff);
+    }
+
+    // The instant the marker points at (strip minutes past the first midnight).
+    function markerInstant() {
+      return fromWall(rsStartWallMs() + stripMarkerMin() * 60000);
+    }
+
+    // "Yesterday<sep>22:05" — the marker's absolute label (clock time alone
+    // once the marker is inside today). Shared by the tape readout and the
+    // milk readout's eyebrow so the two can never disagree.
+    function markerAbsLabel(sep) {
+      var m = stripMarkerMin(), t = formatTimeOfDay(markerInstant());
+      return m >= (RS_DAYS - 1) * 1440 ? t
+        : relDayLabel(fromWall(rsStartWallMs() + Math.floor(m / 1440) * DAY_MS)) + sep + t;
+    }
+
+    function renderStrip(d) {
+      if (stripDragId !== null) return; // mid-drag: don't yank the tape
+      var el = document.getElementById("today-strip");
+      var prev = el.querySelector(".rhythm-scroll");
+      var prevLeft = prev ? prev.scrollLeft : -1;
+      // Scroll→minute is affine (the RS_PAD offset), so carrying a position
+      // across a possible scale change must go through the minute, not a
+      // bare scrollLeft ratio.
+      var prevMin = prevLeft < 0 ? -1
+        : (prevLeft / stripPx * RS_VB - RS_PAD) / RS_AXIS * RS_MIN;
+      rsSetScale((prev || el).clientWidth);
+      el.innerHTML = rhythmStripHtml(d) + '<div class="strip-compare"></div>' + stripActionsHtml(d);
+      var sc = el.querySelector(".rhythm-scroll");
+      // Glued to "now" until the user scrolls back in time; a scrolled-back
+      // tape keeps its position across re-renders (30 s tick, refetches).
+      sc.scrollLeft = rsScrollFor(sc, (stripFollowNow || prevLeft < 0) ? rsNowMin() : prevMin);
+      updateStripMarker();
+    }
+
+    // The last RS_DAYS days as one continuous axis (Madrid wall time), tall
+    // enough to be the tab's whole surface: one lane per domain with events
+    // as dots, night hours shaded (21:00–07:00, merged across midnight),
+    // hairlines + date captions at each midnight, hourly ticks under the
+    // axis, and a cursor at "now" riding the tape; the fixed tape-head
+    // marker is an HTML overlay on the wrap, outside the scroller.
+    function rhythmStripHtml(d) {
+      function x(min) { return rsX(min).toFixed(1); }
+      var startWall = rsStartWallMs();
+      function evMin(ts) {
+        return Math.floor((toWall(new Date(ts)).getTime() - startWall) / 60000);
+      }
+      var LANES = { feed: 38, diaper: 66, routine: 94 };
+      var nowMin = rsNowMin();
+      // viewBox starts at y=14 (the band above, the old day-stamp strip, is
+      // empty — cropping it keeps the readout close to the tape) and ENDS at
+      // "now": the element takes no scroll width beyond it, so the browser's
+      // own scroll limit stops the marker exactly at "now" — no JS
+      // clamp fighting native touch momentum. The rest of today still paints
+      // through overflow:visible; it's just not scrollable-to.
+      var vbw = rsX(nowMin);
+      var svg = '<svg class="rhythm-strip" style="width:' + (vbw / RS_VB * stripPx).toFixed(1) +
+        'px" viewBox="0 14 ' + vbw.toFixed(1) + ' 124" role="img">';
+      svg += '<defs><linearGradient id="rs-ng">' +
+        '<stop offset="0" class="rs-night-stop" stop-opacity="0"/>' +
+        '<stop offset="0.12" class="rs-night-stop"/>' +
+        '<stop offset="0.88" class="rs-night-stop"/>' +
+        '<stop offset="1" class="rs-night-stop" stop-opacity="0"/>' +
+        '</linearGradient></defs>';
+      var dayI;
+      for (dayI = -1; dayI < RS_DAYS; dayI++) {
+        var ns = Math.max(0, dayI * 1440 + 21 * 60);
+        var ne = Math.min(RS_MIN, dayI * 1440 + 31 * 60);
+        if (ne > ns) {
+          svg += '<rect class="rs-night" x="' + x(ns) + '" y="20" width="' +
+            ((ne - ns) / RS_MIN * RS_AXIS).toFixed(1) + '" height="92"/>';
+        }
+      }
+      var lane;
+      for (lane in LANES) {
+        svg += '<line class="rs-lane" x1="' + x(0) + '" y1="' + LANES[lane] + '" x2="' + x(RS_MIN) + '" y2="' + LANES[lane] + '"/>';
+      }
+      // Half-hour ticks, taller on the hour, on both scales. Hour numerals
+      // stay sparse: every 2 h on the 12 h (desktop) viewport — the hourly
+      // tall ticks carry the in-between beats — hourly on the 4 h (mobile)
+      // one, where skipping would leave the viewport nearly unlabelled.
+      var labelEvery = RS_VPMIN > 240 ? 2 : 1;
+      var h;
+      for (h = 0; h <= RS_DAYS * 24; h += 0.5) {
+        var tall = h % 1 === 0;
+        svg += '<line class="rs-tick' + (tall ? " h3" : "") + '" x1="' + x(h * 60) + '" y1="114" x2="' + x(h * 60) +
+          '" y2="' + (tall ? 121 : 118) + '"/>';
+        if (h % labelEvery === 0 && h % 24 !== 0) {
+          svg += '<text class="rs-hour" x="' + x(h * 60) + '" y="131">' + (h % 24) + '</text>';
+        }
+      }
+      // Day stamps sit in the axis band with the hour numerals, centred on
+      // their midnight tick (midnights carry no hour label). Relative like
+      // the rest of the readout — Today / Yesterday, weekday beyond that.
+      // The first one centres on the tape edge — the svg overflows visibly
+      // so it isn't clipped.
+      for (dayI = 0; dayI < RS_DAYS; dayI++) {
+        var dt = new Date(startWall + dayI * DAY_MS);
+        var dayLbl = dayI === RS_DAYS - 1 ? i18n("Today")
+          : dayI === RS_DAYS - 2 ? i18n("Yesterday")
+          : WEEK_DAY_LABELS[(dt.getUTCDay() + 6) % 7];
+        svg += '<text class="rs-day" x="' + x(dayI * 1440) + '" y="131">' +
+          escapeHtml(dayLbl) + '</text>';
+        if (dayI > 0) {
+          svg += '<line class="rs-mid" x1="' + x(dayI * 1440) + '" y1="20" x2="' + x(dayI * 1440) + '" y2="112"/>';
+        }
+      }
+      svg += '<text class="rs-hour" x="' + x(RS_MIN) + '" y="131">24</text>';
+      function dots(items, type, r, label) {
+        var out = "", i;
+        for (i = 0; i < items.length; i++) {
+          var m = evMin(items[i].ts);
+          if (m < 0 || m > RS_MIN) continue;
+          var when = new Date(items[i].ts);
+          var whenS = m < (RS_DAYS - 1) * 1440 ? absoluteTs(items[i].ts) : formatTimeOfDay(when);
+          out += '<circle class="rs-dot ' + type + '" cx="' + x(m) + '" cy="' + LANES[type] + '" r="' + r + '">' +
+            '<title>' + escapeHtml(whenS + " · " + label(items[i])) + '</title></circle>';
+        }
+        return out;
+      }
+      svg += dots(d.strip_feedings || [], "feed", 6, function(f) { return f.amount_ml + " ml"; });
+      svg += dots(d.strip_diapers || [], "diaper", 5, function(dp) { return fmtKind(dp.kind); });
+      svg += dots(d.strip_routines || [], "routine", 5, function(r) { return fmtRoutine(r.name); });
+      // Both tape limits read as fog, not lines: an eased fade over ~30 min
+      // of tape (~50 px at either scale) reaches full opacity, so the future
+      // past "now" — and, mirrored, the moments before the tape's first
+      // midnight — are completely hidden beyond it (pad spread). The scroll
+      // crop already stops the marker at now — the fog only paints over
+      // regions the marker can't dwell on anyway.
+      svg += '<defs><linearGradient id="rs-fg" gradientUnits="userSpaceOnUse" x1="' +
+        x(nowMin) + '" x2="' + x(nowMin + 30) + '" y1="0" y2="0">' +
+        '<stop offset="0" class="rs-fog-stop" stop-opacity="0"/>' +
+        '<stop offset="0.35" class="rs-fog-stop" stop-opacity="0.55"/>' +
+        '<stop offset="1" class="rs-fog-stop" stop-opacity="1"/>' +
+        '</linearGradient>' +
+        '<linearGradient id="rs-fg0" gradientUnits="userSpaceOnUse" x1="' +
+        x(0) + '" x2="' + x(30) + '" y1="0" y2="0">' +
+        '<stop offset="0" class="rs-fog-stop" stop-opacity="1"/>' +
+        '<stop offset="0.65" class="rs-fog-stop" stop-opacity="0.55"/>' +
+        '<stop offset="1" class="rs-fog-stop" stop-opacity="0"/>' +
+        '</linearGradient></defs>' +
+        '<rect x="' + x(nowMin) + '" y="14" width="' + (RS_VB - rsX(nowMin)).toFixed(1) +
+        '" height="124" fill="url(#rs-fg)"/>' +
+        // -24: also blanket the first day stamp's overflow left of x=0
+        '<rect x="-24" y="14" width="' + (rsX(30) + 24).toFixed(1) +
+        '" height="124" fill="url(#rs-fg0)"/>';
+      return '<div class="rhythm-wrap">' +
+        '<div class="rs-readout">' +
+          '<span class="rs-readout-rel"></span>' +
+          '<span class="rs-readout-abs"></span>' +
+        '</div>' +
+        '<div class="rs-tape">' +
+          '<div class="rhythm-scroll">' + svg + '</svg></div>' +
+          '<div class="rs-marker-ov"><span class="rs-marker-ov-line"></span><span class="rs-marker-ov-tri"></span></div>' +
+        '</div></div>';
+    }
+
+    // Quick-add row under the strip: each button swaps the row for its pick —
+    // feed steps an amount ±10 from the last feed (same idiom as the form's
+    // steppers), diaper/routine show the same choices as their tab's form
+    // (single source for labels/values). The center/choice tap logs at the
+    // marker's time.
+    function stripActionsHtml(d) {
+      var dis = stripBusy ? " disabled" : "";
+      var cancel = '<button type="button" class="strip-btn strip-cancel" data-strip="cancel"' + dis + '>' +
+        '<span class="strip-x">&times;</span>' + escapeHtml(i18n("Cancel")) + '</button>';
+      var out = '<div class="strip-actions">';
+      if (stripChoice === "feedings") {
+        out += '<button type="button" class="strip-btn strip-step" data-strip="amt" data-d="-10"' + dis + '>&minus;</button>' +
+          '<button type="button" class="strip-btn strip-commit s-feeding" data-strip="feed"' + dis + '>' +
+            '<span class="strip-plus">+</span>' + stripAmt + ' ml</button>' +
+          '<button type="button" class="strip-btn strip-step" data-strip="amt" data-d="10"' + dis + '>+</button>' +
+          cancel;
+      } else if (stripChoice) {
+        var cls = stripChoice === "diapers" ? "s-diaper" : "s-routine";
+        var btns = document.querySelectorAll('form[data-entity="' + stripChoice + '"] .choice-btn');
+        for (var i = 0; i < btns.length; i++) {
+          out += '<button type="button" class="strip-btn strip-commit ' + cls + '" data-strip="choice" data-value="' +
+            escapeHtml(btns[i].getAttribute("data-value")) + '"' + dis + '>' +
+            escapeHtml(btns[i].textContent.trim()) + '</button>';
+        }
+        out += cancel;
+      } else {
+        out += '<button type="button" class="strip-btn s-feeding" data-strip="pick" data-entity="feedings"' + dis + '>' +
+            '<span class="strip-plus">+</span>' + escapeHtml(i18n("Feeding")) + '</button>' +
+          '<button type="button" class="strip-btn s-diaper" data-strip="pick" data-entity="diapers"' + dis + '>' +
+            '<span class="strip-plus">+</span>' + escapeHtml(i18n("Diaper")) + '</button>' +
+          '<button type="button" class="strip-btn s-routine" data-strip="pick" data-entity="routines"' + dis + '>' +
+            '<span class="strip-plus">+</span>' + escapeHtml(i18n("Routine")) + '</button>';
+      }
+      return out + '</div>';
+    }
+
+    function updateStripActions() {
+      var el = document.querySelector("#today-strip .strip-actions");
+      if (el && dashboardData) el.outerHTML = stripActionsHtml(dashboardData);
+    }
+
+    // Feeding readout under the tape (see the .strip-compare CSS). Everything is
+    // derived on the client from the payload's raw feed events and recomputed on
+    // every marker move, so scrubbing the tape stays instant with no round-trip.
+    // FG_WINDOW_DAYS = how many prior days define the "usual" range that the
+    // last 24h is compared against (the backend widens its history fetch to
+    // match — see cmpStart in api.ts).
+    var FG_WINDOW_DAYS = 14;
+    var FG_MIN_DAYS = 5;     // prior days needed before the usual-range bullet appears
+    function fgMl(v) { return Math.round(v); }
+
+    // Linear-interpolated quantile of an ascending array (p in [0,1]).
+    function fgQuantile(sorted, p) {
+      if (sorted.length === 1) return sorted[0];
+      var i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+      return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+    }
+
+    // Selected baby's birth instant (ms), or null when unknown — lets a window
+    // that lies entirely before the baby existed blank out instead of reading a
+    // misleading zero.
+    function selectedBornMs(d) {
+      var b = d.babies || [], i;
+      for (i = 0; i < b.length; i++) {
+        if (String(b[i].id) === String(d.baby_id) && b[i].date_of_birth)
+          return new Date(b[i].date_of_birth + "T00:00:00Z").getTime();
+      }
+      return null;
+    }
+
+    // Feed ml/count and pee/poop over (startMs, endMs] — half-open at the start
+    // so an event on a shared boundary lands in exactly one window.
+    function sumRange(d, startMs, endMs) {
+      var s = { ml: 0, feeds: 0, pee: 0, poop: 0 }, i, t;
+      var f = d.strip_feedings || [];
+      for (i = 0; i < f.length; i++) {
+        t = new Date(f[i].ts).getTime();
+        if (t > startMs && t <= endMs) { s.ml += f[i].amount_ml || 0; s.feeds++; }
+      }
+      var dp = d.strip_diapers || [];
+      for (i = 0; i < dp.length; i++) {
+        t = new Date(dp[i].ts).getTime();
+        if (t > startMs && t <= endMs) {
+          var k = dp[i].kind;
+          if (k === "pee" || k === "both") s.pee++;
+          if (k === "poop" || k === "both") s.poop++;
+        }
+      }
+      return s;
+    }
+
+    // The 24h ending at endMs. Null when the window predates birth entirely.
+    function windowStats(d, endMs, bornMs) {
+      if (bornMs != null && endMs <= bornMs) return null;
+      return sumRange(d, endMs - DAY_MS, endMs);
+    }
+
+    // The largest rolling 24h intake anywhere in the loaded feed history — the
+    // stable ceiling for the rail's scale. The max window can always be taken to
+    // end on a feed event, so a two-pointer sweep over the events finds it.
+    function fgMaxDaily(feeds) {
+      var ev = [], i;
+      for (i = 0; i < feeds.length; i++)
+        ev.push({ t: new Date(feeds[i].ts).getTime(), a: feeds[i].amount_ml || 0 });
+      ev.sort(function (a, b) { return a.t - b.t; });
+      var max = 0, sum = 0, l = 0, r;
+      for (r = 0; r < ev.length; r++) {
+        sum += ev[r].a;
+        while (ev[l].t <= ev[r].t - DAY_MS) { sum -= ev[l].a; l++; }
+        if (sum > max) max = sum;
+      }
+      return max;
+    }
+
+    // The lowest rolling 24h intake across the last FG_WINDOW_DAYS windows
+    // ending at nowMs — the pinned floor for the rail's scale. Anchored to the
+    // clock, not the marker, so scrubbing never resizes the axis. Windows that
+    // predate tracking (or a gap day) sum to zero and pull the floor to 0,
+    // which keeps young or spotty histories on the full 0-based rail.
+    function fgMinDaily(feeds, nowMs) {
+      var min = Infinity, j, i, t, end, sum;
+      for (j = 0; j < FG_WINDOW_DAYS; j++) {
+        end = nowMs - j * DAY_MS;
+        sum = 0;
+        for (i = 0; i < feeds.length; i++) {
+          t = new Date(feeds[i].ts).getTime();
+          if (t > end - DAY_MS && t <= end) sum += feeds[i].amount_ml || 0;
+        }
+        if (sum < min) min = sum;
+      }
+      return min === Infinity ? 0 : min;
+    }
+
+    // One tappable mark: carries its own value (data-v, shown on tap), its
+    // rail position (data-x, where the tap popover sits), and optionally the
+    // time window behind the number (data-m, the popover's quieter suffix —
+    // worded relative to the marker, since scrubbing moves the whole window).
+    function fgMark(cls, xPct, val, inner, meta) {
+      return '<div class="' + cls + '" data-x="' + xPct.toFixed(1) +
+        '" data-v="' + escapeHtml(val) +
+        (meta ? '" data-m="' + escapeHtml(meta) : '') +
+        '" style="left:' + xPct.toFixed(1) + '%">' +
+        (inner || '') + '</div>';
+    }
+
+    function stripCompareHtml(d) {
+      var endMs = markerInstant().getTime();
+      var born = selectedBornMs(d);
+      var w0 = windowStats(d, endMs, born);           // the last 24h
+
+      // Marker window entirely before birth: nothing honest to show yet.
+      if (w0 == null)
+        return '<div class="fg-empty">' + escapeHtml(i18n("No feeds in this window yet.")) + '</div>';
+
+      var today = w0.ml;
+
+      // The "usual" range = the distribution of the prior FG_WINDOW_DAYS daily
+      // totals, today excluded so it can't bias its own band. Floor the sample
+      // at the first feeding record: days before tracking began would read as
+      // false zeros and drag the range down. (Birth is implied — you can't feed
+      // before it — so this floor supersedes the born cutoff.)
+      var firstFeedMs = null, feeds = d.strip_feedings || [], fi, ft;
+      for (fi = 0; fi < feeds.length; fi++) {
+        ft = new Date(feeds[fi].ts).getTime();
+        if (firstFeedMs == null || ft < firstFeedMs) firstFeedMs = ft;
+      }
+      var statFloor = firstFeedMs == null ? born
+        : born == null ? firstFeedMs : Math.max(born, firstFeedMs);
+
+      // priorDays keeps each total paired with how many days before the
+      // marker it fell — the early ticks reveal that on tap; priors is the
+      // same list sorted for the quantiles.
+      var priors = [], priorDays = [], j, ws;
+      for (j = 1; j <= FG_WINDOW_DAYS; j++) {
+        ws = windowStats(d, endMs - j * DAY_MS, statFloor);
+        if (ws != null) { priors.push(ws.ml); priorDays.push({ ml: ws.ml, j: j }); }
+      }
+      priors.sort(function (a, b) { return a - b; });
+      // The window behind every aggregate mark, revealed with its value.
+      var winMeta = plural(priors.length, "{n} day before marker", "{n} days before marker");
+
+      // Absolute scale — the rail is a daily-intake gauge. Its two ends are the
+      // only printed numbers; every mark's exact value is a tap away. The top is
+      // the largest 24h intake anywhere in the loaded history (rounded up past
+      // it), so the scale holds still while you scrub instead of resizing. The
+      // bottom trims the dead left of the rail — intake grows with the baby, so
+      // an always-0 axis ends up mostly empty — but only when the trim frees at
+      // least a quarter of the rail; marks are positions, not bars, so a nonzero
+      // floor stays honest. Anything below the floor clamps to the rail's end
+      // (its tap value is still exact).
+      var axMax = (Math.floor(fgMaxDaily(feeds) / 50) + 1) * 50;
+      var axMin = Math.floor(fgMinDaily(feeds, Date.now()) / 50) * 50;
+      if (axMin < axMax * 0.25) axMin = 0;
+      var pos = function (v) {
+        return Math.max(0, Math.min(100, (v - axMin) / (axMax - axMin) * 100));
+      };
+      var mi;
+      var fgEnd = function (v) {
+        return '<span class="fg-end">' + v + '<span class="fg-end-u">ml</span></span>';
+      };
+      var endLo = fgEnd(axMin), endHi = fgEnd(axMax);
+      var needle = fgMark("fg-today", pos(today), i18n("day total {n} ml", { n: fgMl(today) }),
+        '<span class="fg-today-cap"></span>', i18n("24h before marker"));
+
+      // Too little history for an honest range yet — so this is the rail before
+      // it can draw a band: the days on record are muted ticks (each tappable
+      // for its total and which day it was), today the feed-hue needle. The
+      // band fills in later.
+      if (priors.length < FG_MIN_DAYS) {
+        var ticks = '';
+        for (mi = 0; mi < priorDays.length; mi++)
+          ticks += fgMark("fg-tick", pos(priorDays[mi].ml), fgMl(priorDays[mi].ml) + " ml", '',
+            plural(priorDays[mi].j, "{n} day before marker", "{n} days before marker"));
+        return '<div class="fg-gauge">' + endLo +
+          '<div class="fg-bullet">' +
+            '<div class="fg-rail"></div>' + ticks + needle +
+            '<div class="fg-pop" hidden></div>' +
+          '</div>' + endHi +
         '</div>';
       }
-      el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Today's targets")) + '</div>' + rows;
+
+      var q1 = fgQuantile(priors, 0.25), med = fgQuantile(priors, 0.5), q3 = fgQuantile(priors, 0.75);
+      var bl = pos(q1), br = pos(q3);
+      // A horizontal box plot: whiskers span the window's lowest→highest day,
+      // the band is the q1–q3 box, the median ticks inside it, and today's
+      // needle reads against all of it. Every mark holds its number for a tap;
+      // nothing is printed but the scale's ends.
+      var band = '<div class="fg-band" data-x="' + ((bl + br) / 2).toFixed(1) +
+        '" data-v="' + escapeHtml(i18n("usual") + " " + fgMl(q1) + "–" + fgMl(q3) + " ml") +
+        '" data-m="' + escapeHtml(winMeta) +
+        '" style="left:' + bl.toFixed(1) + '%;width:' + (br - bl).toFixed(1) + '%"></div>';
+      var median = fgMark("fg-med", pos(med), i18n("median") + " " + fgMl(med) + " ml", '', winMeta);
+      var wLo = pos(priors[0]), wHi = pos(priors[priors.length - 1]);
+      var whisks =
+        '<div class="fg-whisk lo" data-x="' + wLo.toFixed(1) +
+          '" data-v="' + escapeHtml(i18n("lowest day") + " " + fgMl(priors[0]) + " ml") +
+          '" data-m="' + escapeHtml(winMeta) +
+          '" style="left:' + wLo.toFixed(1) + '%;width:' + Math.max(0, bl - wLo).toFixed(1) + '%">' +
+          '<span class="fg-whisk-cap"></span></div>' +
+        '<div class="fg-whisk hi" data-x="' + wHi.toFixed(1) +
+          '" data-v="' + escapeHtml(i18n("highest day") + " " + fgMl(priors[priors.length - 1]) + " ml") +
+          '" data-m="' + escapeHtml(winMeta) +
+          '" style="left:' + br.toFixed(1) + '%;width:' + Math.max(0, wHi - br).toFixed(1) + '%">' +
+          '<span class="fg-whisk-cap"></span></div>';
+      return '<div class="fg-gauge">' + endLo +
+        '<div class="fg-bullet">' +
+          '<div class="fg-rail"></div>' + whisks + band + median + needle +
+          '<div class="fg-pop" hidden></div>' +
+        '</div>' + endHi +
+      '</div>';
     }
 
-    // Merged chronological diary of everything recorded today, newest first.
-    function renderTimeline(d) {
-      var el = document.getElementById("today-timeline");
-      var events = [];
-      var i;
-      var tf = d.today_feedings || [];
-      for (i = 0; i < tf.length; i++) events.push({ ts: tf[i].ts, type: "feed", kind: i18n("Feeding"), text: tf[i].amount_ml + " ml" });
-      var td = d.today_diapers || [];
-      for (i = 0; i < td.length; i++) events.push({ ts: td[i].ts, type: "diaper", kind: i18n("Diaper"), text: fmtKind(td[i].kind) });
-      var tr = d.today_routines || [];
-      for (i = 0; i < tr.length; i++) events.push({ ts: tr[i].ts, type: "routine", kind: i18n("Routine"), text: fmtRoutine(tr[i].name) });
-      var tn = d.today_notes || [];
-      for (i = 0; i < tn.length; i++) events.push({ ts: tn[i].ts, type: "note", kind: i18n("Note"), text: tn[i].text });
-      if (!events.length) { el.hidden = true; return; }
-      events.sort(function(a, b) { return a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0; });
-      var rows = "";
-      for (i = 0; i < events.length; i++) {
-        var ev = events[i];
-        rows += '<div class="tl-row">' +
-          '<span class="tl-time">' + escapeHtml(formatTimeOfDay(new Date(ev.ts))) + '</span>' +
-          '<i class="tl-dot ' + ev.type + '"></i>' +
-          '<span class="tl-text">' + escapeHtml(ev.text) + '</span>' +
-          '<span class="tl-kind">' + escapeHtml(ev.kind) + '</span>' +
-        '</div>';
+    function updateStripCompare() {
+      var el = document.querySelector("#today-strip .strip-compare");
+      if (!el || !dashboardData) return;
+      el.innerHTML = stripCompareHtml(dashboardData);
+      // Tap a mark to reveal its value in a popover under it; tap anywhere else
+      // to dismiss. Bound once (the container outlives the re-rendered innards);
+      // each re-render ships a fresh hidden popover, so nothing goes stale.
+      if (!el.dataset.popBound) {
+        el.dataset.popBound = "1";
+        el.addEventListener("click", function (e) {
+          var pop = el.querySelector(".fg-pop");
+          if (!pop) return;
+          var m = e.target.closest("[data-v]");
+          if (!m) { pop.hidden = true; return; }
+          pop.textContent = m.getAttribute("data-v");
+          // The mark's time window rides along on a second line, so every
+          // tap also answers "over which days?". Parenthesized: the brackets
+          // mark it as an aside even where the muted color barely reads.
+          var meta = m.getAttribute("data-m");
+          if (meta) {
+            var ms = document.createElement("span");
+            ms.className = "fg-pop-meta";
+            ms.textContent = "(" + meta + ")";
+            pop.appendChild(ms);
+          }
+          pop.style.left = Math.max(8, Math.min(92, parseFloat(m.getAttribute("data-x")))) + "%";
+          pop.hidden = false;
+        });
       }
-      el.hidden = false;
-      el.innerHTML = '<div class="card-title daychart-title">' + escapeHtml(i18n("Today's diary")) + '</div>' + rows;
     }
 
-    // --- Read-only stat cards: Routines and Growth (merged rows, no buttons) ---
-    function capFirst(str) { return str ? str.charAt(0).toUpperCase() + str.slice(1) : str; }
-
-    // One row per tracked routine with when it last happened.
-    function renderRoutinesCard(routines) {
-      var el = document.getElementById("card-routines");
-      var defs = [
-        { name: "Vitamin D", needle: "vitamin d" },
-        { name: "Bath", needle: "bath" },
-        { name: "Tummy", needle: "tummy" }
-      ];
-      var rows = "";
-      for (var i = 0; i < defs.length; i++) {
-        var item = findRoutine(routines, defs[i].needle);
-        rows += '<div class="stat-row">' +
-          '<span class="stat-name">' + escapeHtml(capFirst(fmtRoutine(defs[i].name))) + '</span>' +
-          (item
-            ? '<span class="stat-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(daysAgoLabel(item.ts)) + '</span>'
-            : '<span class="stat-sub">&mdash;</span>') +
-        '</div>';
+    // Refresh the readout from the scroll position: relative to now on the
+    // big line ("2h 5m ago"), resolved on the small one ("Yesterday ·
+    // 22:05" — clock time alone once the marker is inside today).
+    function updateStripMarker() {
+      var rel = document.querySelector("#today-strip .rs-readout-rel");
+      if (!rel) return;
+      var m = stripMarkerMin();
+      var diff = rsNowMin() - m;
+      if (diff <= 0) {
+        rel.textContent = i18n("Now");
+      } else {
+        // Unlike durationLabel, never drop zero sections, and zero-pad the
+        // inner ones ("1h 00m", "1d 09h 50m"): while scrubbing, "2h" ↔
+        // "2h 10m" ↔ "2h 9m" would make the centred label flicker in width.
+        var days = Math.floor(diff / 1440), rest = diff % 1440;
+        var hrs = Math.floor(rest / 60), mins = rest % 60;
+        var dur = days
+          ? days + "d " + pad2(hrs) + "h " + pad2(mins) + "m"
+          : hrs ? hrs + "h " + pad2(mins) + "m" : mins + "m";
+        rel.textContent = i18n("{d} ago", { d: dur });
       }
-      el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Routines")) + '</div>' + rows;
+      document.querySelector("#today-strip .rs-readout-abs").textContent = markerAbsLabel(" · ");
+      updateStripCompare();
     }
 
-    // "Today so far" footer, pinned to the card bottom.
-    function cardFootHtml(valueText) {
-      return '<div class="card-foot"><div class="stat-row">' +
-        '<span class="stat-name">' + escapeHtml(i18n("Today")) + '</span>' +
-        '<span class="stat-sub">' + escapeHtml(valueText || "—") + '</span>' +
-      '</div></div>';
+    // Keep the marker inside the loggable day: the tape stops with 00:00 or
+    // "now" under the head, so the future can never be picked. Re-assigning
+    // scrollLeft here re-fires scroll once with an in-range value.
+    function stripScrollClamp() {
+      var sc = stripScroller();
+      if (!sc || !sc.querySelector(".rhythm-strip")) return;
+      var lo = rsScrollFor(sc, 0);
+      var hi = rsScrollFor(sc, rsNowMin());
+      if (sc.scrollLeft < lo) sc.scrollLeft = lo;
+      else if (sc.scrollLeft > hi) sc.scrollLeft = hi;
+      stripFollowNow = sc.scrollLeft >= hi - 1;
+      updateStripMarker();
     }
 
-    // The big number is the elapsed time — "how long since the last feed?" is
-    // the question this card answers; the amount is detail.
-    function renderLastFeeding(item, gapMaxMin, todayCount, todayMl) {
-      var el = document.getElementById("card-last-feeding");
-      el.classList.remove("warn");
-      var mlStr = todayMl % 1 === 0 ? String(todayMl) : todayMl.toFixed(1);
-      var foot = cardFootHtml(todayCount > 0
-        ? mlStr + " ml · " + plural(todayCount, "{n} feeding", "{n} feedings")
-        : "");
-      if (!item) {
-        el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Last feeding")) + '</div>' +
-          '<div class="card-empty">' + escapeHtml(i18n("No feedings yet")) + '</div>' + foot;
+    async function stripQuickAdd(entity, body) {
+      if (stripBusy) return;
+      stripBusy = true;
+      updateStripActions(); // render the row disabled while the save runs
+      body.when = markerInstant().toISOString();
+      try {
+        var created = await postJson(entities[entity].endpoint, body);
+        toast(i18n("Saved"), false, makeUndo(entity, created && created.id));
+        loadDashboard();
+      } catch (err) {
+        if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+      } finally {
+        stripBusy = false;
+        updateStripActions();
+      }
+    }
+
+    var stripEl = document.getElementById("today-strip");
+    // scroll doesn't bubble — capture catches the (re-created) scroller.
+    stripEl.addEventListener("scroll", stripScrollClamp, true);
+
+    // Mouse/pen drag the tape (touch pans via native scrolling).
+    stripEl.addEventListener("pointerdown", function(e) {
+      if (e.pointerType === "touch") return;
+      var sc = e.target.closest && e.target.closest(".rhythm-scroll");
+      if (!sc) return;
+      e.preventDefault();
+      stripStopMomentum(); // grabbing the tape kills an in-flight fling
+      stripDragId = e.pointerId;
+      stripDragX = e.clientX;
+      stripDragLeft = sc.scrollLeft;
+      stripDragMoved = false;
+      stripVel = 0;
+      stripLastX = e.clientX;
+      stripVelT = e.timeStamp;
+      try { sc.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    stripEl.addEventListener("pointermove", function(e) {
+      if (stripDragId !== e.pointerId) return;
+      var sc = stripScroller();
+      if (!sc) return;
+      var dx = e.clientX - stripDragX;
+      if (Math.abs(dx) > 3) stripDragMoved = true;
+      sc.scrollLeft = stripDragLeft - dx;
+      var dt = e.timeStamp - stripVelT;
+      if (dt > 0) {
+        stripVel = 0.75 * ((e.clientX - stripLastX) / dt) + 0.25 * stripVel;
+        stripLastX = e.clientX;
+        stripVelT = e.timeStamp;
+      }
+    });
+    function stripDragEnd(e) {
+      if (stripDragId !== e.pointerId) return;
+      stripDragId = null;
+      // Fling only on a live release — a pause before letting go means stop.
+      if (e.timeStamp - stripVelT < 80 && Math.abs(stripVel) > 0.25) {
+        stripStartMomentum(-stripVel);
+      }
+    }
+    stripEl.addEventListener("pointerup", stripDragEnd);
+    stripEl.addEventListener("pointercancel", stripDragEnd);
+
+    stripEl.addEventListener("click", function(e) {
+      var t = e.target;
+      var btn = t.closest ? t.closest("button[data-strip]") : null;
+      if (btn) {
+        var action = btn.getAttribute("data-strip");
+        if (action === "feed") {
+          stripChoice = null;
+          updateStripActions();
+          stripQuickAdd("feedings", { amount_ml: stripAmt });
+        } else if (action === "amt") {
+          stripAmt = Math.max(10, stripAmt + parseFloat(btn.getAttribute("data-d")));
+          updateStripActions();
+        } else if (action === "pick") {
+          stripChoice = btn.getAttribute("data-entity");
+          if (stripChoice === "feedings") {
+            var recent = (dashboardData && dashboardData.recent_feedings || [])[0];
+            stripAmt = recent ? recent.amount_ml : 120;
+          }
+          updateStripActions();
+        } else if (action === "choice") {
+          var entity = stripChoice;
+          stripChoice = null;
+          updateStripActions();
+          stripQuickAdd(entity, entity === "diapers"
+            ? { kind: btn.getAttribute("data-value") }
+            : { name: btn.getAttribute("data-value") });
+        } else if (action === "cancel") {
+          stripChoice = null;
+          updateStripActions();
+        }
         return;
       }
-      var over = gapMaxMin && (Date.now() - new Date(item.ts).getTime()) > gapMaxMin * 60000;
-      if (over) el.classList.add("warn");
-      var warnNote = over
-        ? '<div class="card-warn-note">&#9888; ' + escapeHtml(i18n("Over the {d} max gap", { d: durationLabel(gapMaxMin * 60000) })) + '</div>'
-        : "";
-      el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Last feeding")) + '</div>' +
-        '<div class="card-main">' + escapeHtml(timeAgo(item.ts)) + '</div>' +
-        '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' +
-          escapeHtml(item.amount_ml + " ml · " + formatWhenAbs(new Date(item.ts))) + '</div>' +
-        warnNote + foot;
-    }
-
-    function renderLastDiaper(item, pees, poops) {
-      var el = document.getElementById("card-last-diaper");
-      var head = '<div class="card-title">' + escapeHtml(i18n("Last diaper")) + '</div>';
-      var parts = [];
-      if (pees > 0) parts.push(plural(pees, "{n} pee", "{n} pees"));
-      if (poops > 0) parts.push(plural(poops, "{n} poop", "{n} poops"));
-      var foot = cardFootHtml(parts.join(" · "));
-      var body = item
-        ? '<div class="card-main">' + escapeHtml(fmtKind(item.kind)) + '</div>' +
-          '<div class="card-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' + escapeHtml(timeAgo(item.ts)) + '</div>'
-        : '<div class="card-empty">' + escapeHtml(i18n("No diapers yet")) + '</div>';
-      el.innerHTML = head + body + foot;
-    }
+      // A tap on the tape scrolls that spot under the marker; a drag's end
+      // click is swallowed via the moved flag. The needle's screen x is
+      // read off its overlay so the inset lives only in the CSS.
+      var sc = t.closest && t.closest(".rhythm-scroll");
+      if (!sc) return;
+      if (stripDragMoved) { stripDragMoved = false; return; }
+      var ov = document.querySelector("#today-strip .rs-marker-ov");
+      sc.scrollBy({ left: e.clientX - ov.getBoundingClientRect().left, behavior: "smooth" });
+    });
 
     // Estimate display: whole grams / one-decimal centimeters.
     function fmtEstG(v) { return typeof v === "number" ? Math.round(v) + " g" : ""; }
     function fmtEstCm(v) { return typeof v === "number" ? (Math.round(v * 10) / 10) + " cm" : ""; }
-
-    // Weight and height share one card: the projected current value ("≈ now",
-    // same estimator the milk target uses) with the last actual measurement
-    // as context.
-    function growthRowHtml(name, items, key, unit, estStr) {
-      var item = items[0];
-      var nameHtml = '<span class="stat-name">' + escapeHtml(name) + '</span>';
-      if (!item) return '<div class="stat-row">' + nameHtml + '<span class="stat-sub">&mdash;</span></div>';
-      var sub = '<span class="stat-sub" title="' + escapeHtml(absoluteTs(item.ts)) + '">' +
-        escapeHtml(item[key] + " " + unit + " · " + daysAgoLabel(item.ts)) + '</span>';
-      var val = '<span class="stat-value">' +
-        (estStr ? '&asymp; ' + escapeHtml(estStr) : escapeHtml(item[key] + " " + unit)) +
-      '</span>';
-      return '<div class="stat-row">' + nameHtml + sub + val + '</div>';
-    }
-
-    function renderGrowthCard(d) {
-      var el = document.getElementById("card-growth");
-      el.innerHTML = '<div class="card-title">' + escapeHtml(i18n("Growth")) + '</div>' +
-        growthRowHtml(i18n("Weight"), d.recent_weights || [], "weight_g", "g", fmtEstG(d.est_weight_g)) +
-        growthRowHtml(i18n("Height"), d.recent_heights || [], "height_cm", "cm", fmtEstCm(d.est_height_cm));
-    }
 
     var MORE_TABS = { weights: true, heights: true, notes: true };
 
