@@ -5,6 +5,19 @@
 const HOUR_MS = 3_600_000;
 export const DAY_MS = 86_400_000;
 
+// A single milk feeding above this (ml) is almost certainly a typo (a decimal
+// slip or a daily total keyed as one feed); reject it so one bad row can't
+// blow up daily totals, averages, and the milk indication. Shared by the MCP
+// tools, the JSON API, and the Alexa skill.
+export const MAX_FEEDING_ML = 5000;
+
+// Escape LIKE metacharacters so a user's filter/search string matches
+// literally. `%` and `_` are wildcards and `\` is our escape char, so a filter
+// like "50%" or "a_c" would otherwise over-match. Use with `LIKE ? ESCAPE '\'`.
+export function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 export type AgeParts = {
   days: number;
   weeks: number;
@@ -17,7 +30,11 @@ export function computeAgeParts(dob: string, at?: Date): AgeParts | null {
   const birth = new Date(`${dob}T00:00:00Z`);
   const ref = at ?? new Date();
   const days = Math.floor((ref.getTime() - birth.getTime()) / DAY_MS);
-  if (days < 0) return null;
+  // A regex-valid but impossible DOB ("2026-13-45") parses to Invalid Date, so
+  // `days` is NaN. `NaN < 0` is false, so guard it explicitly — otherwise the
+  // function returns NaN parts and callers show "NaNy NaNm" / silently pick the
+  // loosest growth-target tier.
+  if (!Number.isFinite(days) || days < 0) return null;
   let years = ref.getUTCFullYear() - birth.getUTCFullYear();
   let months = ref.getUTCMonth() - birth.getUTCMonth();
   if (ref.getUTCDate() < birth.getUTCDate()) months--;

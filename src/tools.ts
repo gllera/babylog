@@ -19,11 +19,13 @@ import type {
 } from "./types";
 import {
   DAY_MS,
+  MAX_FEEDING_ML,
   computeAge,
   normalizeTs,
   formatGap,
   maxGapMinutes,
   buildWindowClauses,
+  escapeLike,
   madridDateOf,
   madridMidnightUtc,
   madridDayWindow,
@@ -194,9 +196,9 @@ export function buildIndicationStatement(
       if (filter) {
         return db
           .prepare(
-            "SELECT COUNT(*) AS v FROM routines WHERE baby_id = ? AND ts >= ? AND ts < ? AND LOWER(name) LIKE ?"
+            "SELECT COUNT(*) AS v FROM routines WHERE baby_id = ? AND ts >= ? AND ts < ? AND LOWER(name) LIKE ? ESCAPE '\\'"
           )
-          .bind(babyId, start, end, `%${filter.toLowerCase()}%`);
+          .bind(babyId, start, end, `%${escapeLike(filter.toLowerCase())}%`);
       }
       return db
         .prepare(
@@ -207,9 +209,9 @@ export function buildIndicationStatement(
       if (filter) {
         return db
           .prepare(
-            "SELECT COUNT(*) AS v FROM notes WHERE baby_id = ? AND ts >= ? AND ts < ? AND LOWER(text) LIKE ?"
+            "SELECT COUNT(*) AS v FROM notes WHERE baby_id = ? AND ts >= ? AND ts < ? AND LOWER(text) LIKE ? ESCAPE '\\'"
           )
-          .bind(babyId, start, end, `%${filter.toLowerCase()}%`);
+          .bind(babyId, start, end, `%${escapeLike(filter.toLowerCase())}%`);
       }
       return db
         .prepare(
@@ -220,14 +222,24 @@ export function buildIndicationStatement(
 }
 
 // `gapBoundary` is min(window end, now): gap metrics measure the trailing gap
-// from the last feeding up to that instant.
+// from the last feeding up to that instant. `windowStart` is the window's start
+// instant, used only for the gap metric so a window with no feeding at all
+// scores as one long gap (the whole span) instead of 0 — otherwise a never-fed
+// baby would satisfy a `<=` max-gap target, the opposite of the truth.
 export function extractIndicationActual(
   metric: IndicationMetric,
   result: D1Result<unknown>,
-  gapBoundary: string
+  gapBoundary: string,
+  windowStart: string
 ): number {
   if (metric === "feeding_gap_max_min") {
     const rows = result.results as Array<{ ts: string }>;
+    if (rows.length === 0) {
+      return Math.max(
+        0,
+        Math.round((Date.parse(gapBoundary) - Date.parse(windowStart)) / 60000)
+      );
+    }
     return maxGapMinutes(
       rows.map((r) => r.ts),
       gapBoundary
@@ -633,6 +645,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           amount_ml: z
             .number()
             .positive()
+            .max(MAX_FEEDING_ML)
             .describe("Amount of milk in milliliters, e.g. 120"),
           when: whenInput(
             "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z, or with a local offset like 2026-05-14T09:30:00+02:00 — stored as UTC). OMIT this when the feeding is happening now — the server fills in the current time. Only pass this if the user explicitly gave a different time."
@@ -904,8 +917,8 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             "Filter by entry name (case-insensitive substring match, e.g. 'vitamin')"
           ),
         apply: (name, clauses, params) => {
-          clauses.push("LOWER(name) LIKE ?");
-          params.push(`%${name.toLowerCase()}%`);
+          clauses.push("LOWER(name) LIKE ? ESCAPE '\\'");
+          params.push(`%${escapeLike(name.toLowerCase())}%`);
         },
       },
     });
@@ -992,8 +1005,8 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             "Substring to search for inside the note text (case-insensitive)"
           ),
         apply: (search, clauses, params) => {
-          clauses.push("LOWER(text) LIKE ?");
-          params.push(`%${search.toLowerCase()}%`);
+          clauses.push("LOWER(text) LIKE ? ESCAPE '\\'");
+          params.push(`%${escapeLike(search.toLowerCase())}%`);
         },
       },
     });
@@ -1190,6 +1203,19 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           };
         }
 
+        // A growth formula fully determines its comparison and filter (it's a
+        // max/min target on a specific slice), so derive them from the catalog
+        // rather than trusting the caller. Otherwise e.g. a `feed_gap_max_by_age`
+        // row added without `comparison` would store the default '>=' and the
+        // evaluator (which uses the stored comparison) would silently invert the
+        // "max feed gap" safety check.
+        const effComparison = formula
+          ? GROWTH_FORMULAS[formula].comparison
+          : comparison ?? ">=";
+        const effFilter = formula
+          ? GROWTH_FORMULAS[formula].filter
+          : filter ?? null;
+
         const t = await this.tenant();
         const targetBaby = pickBaby(t.babies, baby);
 
@@ -1202,9 +1228,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           .bind(
             label,
             metric,
-            filter ?? null,
+            effFilter,
             target,
-            comparison ?? ">=",
+            effComparison,
             period_days ?? 1,
             targetBaby.id,
             formula ?? null,
@@ -1216,24 +1242,23 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         const period = period_days ?? 1;
         const periodS = period === 1 ? "/d" : `/${period}d`;
         const id = inserted?.id ?? 0;
-        const cmp = comparison ?? ">=";
         const formulaS = formula ? ` (auto: ${formula})` : "";
         return {
           content: [
             {
               type: "text",
               text: `Added indication #${id}: ${label}  [${metric}${
-                filter ? `:${filter}` : ""
-              } ${cmp} ${target}${unit ? " " + unit : ""}${periodS}]${formulaS}`,
+                effFilter ? `:${effFilter}` : ""
+              } ${effComparison} ${target}${unit ? " " + unit : ""}${periodS}]${formulaS}`,
             },
           ],
           structuredContent: {
             id,
             label,
             metric,
-            filter: filter ?? null,
+            filter: effFilter,
             target,
-            comparison: cmp,
+            comparison: effComparison,
             period_days: period,
             formula: formula ?? null,
           },
@@ -1391,11 +1416,21 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .bind(targetBaby.id),
           db
             .prepare(
-              "SELECT ts, weight_g FROM weights WHERE baby_id = ? ORDER BY ts DESC LIMIT 2"
+              // `ts < end` so evaluating a past day estimates its weight from
+              // the weigh-ins known by then, not from a later (heavier) one —
+              // which would overstate the milk-per-kg target for that day. For
+              // today, `end` is in the future so this includes every weigh-in.
+              "SELECT ts, weight_g FROM weights WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 2"
             )
-            .bind(targetBaby.id),
+            .bind(targetBaby.id, end),
         ]);
         const indications = indicationsRes.results as unknown as IndicationRow[];
+        // Age is the calendar-day count for the evaluated civil date, so anchor
+        // it at that date's UTC midnight — NOT `dayStart` (Madrid civil midnight,
+        // which is 22:00/23:00Z the previous UTC day and reads one day short for
+        // the whole civil day, e.g. "not yet born" on the birth day and target
+        // step-downs firing a day late). Weight still projects to `dayStart`.
+        const ageAt = new Date(`${day}T00:00:00Z`);
         // Growth-formula targets are computed as of the evaluated day.
         const growthCtx = {
           estWeightG: estimateWeightG(
@@ -1403,7 +1438,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             dayStart,
             targetBaby.date_of_birth
           ),
-          ageDays: ageDaysAt(targetBaby.date_of_birth, dayStart),
+          ageDays: ageDaysAt(targetBaby.date_of_birth, ageAt),
         };
 
         if (indications.length === 0) {
@@ -1425,7 +1460,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         }
 
         const ageS = targetBaby.date_of_birth
-          ? `, ${computeAge(targetBaby.date_of_birth, dayStart)}`
+          ? `, ${computeAge(targetBaby.date_of_birth, ageAt)}`
           : "";
 
         const actualResults = await db.batch(
@@ -1465,7 +1500,8 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           const actual = extractIndicationActual(
             ind.metric,
             actualResults[i],
-            gapBoundary
+            gapBoundary,
+            madridDayWindow(day, ind.period_days).start
           );
           const ok =
             ind.comparison === ">=" ? actual >= target : actual <= target;
@@ -1795,6 +1831,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
                 amount_ml: z
                   .number()
                   .positive()
+                  .max(MAX_FEEDING_ML)
                   .optional()
                   .describe("Required for `feeding`: milk in ml"),
                 kind: z
@@ -2152,21 +2189,30 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             isError: true,
           };
         }
-        const hh = await db
-          .prepare("INSERT INTO households (name) VALUES (?) RETURNING id")
-          .bind(name ?? null)
-          .first<{ id: number }>();
-        const householdId = hh?.id ?? 0;
-        await db.batch([
-          db
-            .prepare("INSERT INTO users (email, household_id) VALUES (?, ?)")
-            .bind(norm, householdId),
+        // One atomic batch: households → users → babies. D1 runs a batch in a
+        // single transaction, so if any step fails the whole thing rolls back —
+        // a failed user/baby insert can't leave an orphan household behind (the
+        // old two-step version could). `last_insert_rowid()` is the new
+        // household's id right after its insert; the baby resolves it via the
+        // just-inserted (and, per the check above, unique) caregiver email.
+        const res = await db.batch([
+          db.prepare("INSERT INTO households (name) VALUES (?)").bind(name ?? null),
           db
             .prepare(
-              "INSERT INTO babies (household_id, is_default) VALUES (?, 1)"
+              "INSERT INTO users (email, household_id) VALUES (?, last_insert_rowid())"
             )
-            .bind(householdId),
+            .bind(norm),
+          db
+            .prepare(
+              "INSERT INTO babies (household_id, is_default) VALUES ((SELECT household_id FROM users WHERE email = ?), 1)"
+            )
+            .bind(norm),
+          db
+            .prepare("SELECT household_id AS id FROM users WHERE email = ?")
+            .bind(norm),
         ]);
+        const householdId =
+          (res[3].results as Array<{ id: number }>)[0]?.id ?? 0;
         return {
           content: [
             {

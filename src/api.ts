@@ -10,7 +10,9 @@
 import { z } from "zod";
 import type { BabyRow, Env } from "./types";
 import {
+  MAX_FEEDING_ML,
   buildWindowClauses,
+  escapeLike,
   madridDateOf,
   madridDayWindow,
   normalizeTs,
@@ -138,7 +140,7 @@ const ENTITIES: Record<string, EntityConfig> = {
     table: "feedings",
     fields: ["amount_ml"],
     createSchema: z.object({
-      amount_ml: z.number().positive(),
+      amount_ml: z.number().positive().max(MAX_FEEDING_ML),
       when: whenField,
     }),
   },
@@ -167,8 +169,8 @@ const ENTITIES: Record<string, EntityConfig> = {
     listFilter: (url, clauses, params) => {
       const name = url.searchParams.get("name");
       if (name) {
-        clauses.push("LOWER(name) LIKE ?");
-        params.push(`%${name.toLowerCase()}%`);
+        clauses.push("LOWER(name) LIKE ? ESCAPE '\\'");
+        params.push(`%${escapeLike(name.toLowerCase())}%`);
       }
     },
   },
@@ -182,8 +184,8 @@ const ENTITIES: Record<string, EntityConfig> = {
     listFilter: (url, clauses, params) => {
       const search = url.searchParams.get("search");
       if (search) {
-        clauses.push("LOWER(text) LIKE ?");
-        params.push(`%${search.toLowerCase()}%`);
+        clauses.push("LOWER(text) LIKE ? ESCAPE '\\'");
+        params.push(`%${escapeLike(search.toLowerCase())}%`);
       }
     },
   },
@@ -420,7 +422,12 @@ async function handleDashboard(
       )
     );
     indicationsOut = indications.map((ind, i) => {
-      const actual = extractIndicationActual(ind.metric, actuals[i], gapBoundary);
+      const actual = extractIndicationActual(
+        ind.metric,
+        actuals[i],
+        gapBoundary,
+        madridDayWindow(day, ind.period_days).start
+      );
       const target = resolveIndicationTarget(ind, growthCtx);
       return {
         ...ind,

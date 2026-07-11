@@ -17,6 +17,7 @@
 
 import { X509Certificate, createVerify } from "node:crypto";
 import {
+  MAX_FEEDING_ML,
   insertAndLookupPrev,
   madridDateOf,
   madridMidnightUtc,
@@ -464,8 +465,19 @@ export async function handleAlexa(
   const appId =
     envelope.session?.application.applicationId ??
     envelope.context?.System.application.applicationId;
-  if (env.ALEXA_APPLICATION_ID && appId !== env.ALEXA_APPLICATION_ID) {
+  // Fail closed: the signature only proves the request came from *Amazon*, not
+  // from *this* skill — the applicationId is what binds it to us. Skip the check
+  // only in local dev, where signatures are already skipped. In production a
+  // missing/mismatched app id is rejected, so another skill's signed request
+  // can't be replayed into this household.
+  if (env.ALEXA_SKIP_SIGNATURE !== "true" && appId !== env.ALEXA_APPLICATION_ID) {
     return new Response("Unknown applicationId.", { status: 401 });
+  }
+
+  // Valid JSON without a `request` (only reachable when signatures are skipped)
+  // would otherwise throw a raw 500 below.
+  if (!envelope.request || typeof envelope.request.type !== "string") {
+    return new Response("Malformed Alexa request.", { status: 400 });
   }
 
   const ts = Date.parse(envelope.request.timestamp);
@@ -482,8 +494,9 @@ export async function handleAlexa(
   try {
     reply = await route(envelope, env, lang);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    reply = speak(VOICES[lang].errorRecording(msg));
+    // Log the detail server-side; never speak raw exception/SQL text back.
+    console.error("alexa route error:", e);
+    reply = speak(VOICES[lang].errorRecording());
   }
   return jsonResponse(reply);
 }
@@ -531,6 +544,7 @@ async function dispatchIntent(
       return speak(v.help, { endSession: false, reprompt: v.helpReprompt });
     case "AMAZON.CancelIntent":
     case "AMAZON.StopIntent":
+    case "AMAZON.NavigateHomeIntent":
       return speak(v.goodbye);
     case "AMAZON.FallbackIntent":
       return speak(v.fallback, {
@@ -551,7 +565,7 @@ async function handleRecordFeeding(
 ): Promise<AlexaResponseEnvelope> {
   const v = VOICES[lang];
   const amount = slotNumber(intent.slots?.amount);
-  if (amount === undefined || amount <= 0) {
+  if (amount === undefined || amount <= 0 || amount > MAX_FEEDING_ML) {
     return speak(v.askMl, {
       endSession: false,
       reprompt: v.askMlReprompt,

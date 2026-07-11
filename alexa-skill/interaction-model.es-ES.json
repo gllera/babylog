@@ -33,6 +33,7 @@
             { "name": "kind", "type": "DiaperKind" }
           ],
           "samples": [
+            "{kind}",
             "hizo {kind}",
             "ha hecho {kind}",
             "acaba de hacer {kind}",
@@ -47,6 +48,7 @@
             { "name": "routine", "type": "Routine" }
           ],
           "samples": [
+            "{routine}",
             "le di {routine}",
             "ya le di {routine}",
             "acabamos de hacer {routine}",

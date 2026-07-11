@@ -13,6 +13,7 @@ import {
   madridMidnightUtc,
   madridDayWindow,
   madridHHMM,
+  escapeLike,
 } from "../src/lib";
 
 describe("computeAgeParts", () => {
@@ -27,6 +28,20 @@ describe("computeAgeParts", () => {
     ).toBeNull();
   });
 
+  it("returns null (not NaN parts) for a regex-valid but impossible DOB", () => {
+    // A DOB like this passes the /^\d{4}-\d{2}-\d{2}$/ gate but is Invalid Date;
+    // it must not leak NaN into age math or the growth-target tiers.
+    expect(computeAgeParts("2026-13-45", new Date("2026-05-01T00:00:00Z"))).toBeNull();
+    expect(computeAgeParts("2026-00-00", new Date("2026-05-01T00:00:00Z"))).toBeNull();
+  });
+
+  it("counts whole calendar days at UTC midnight (civil-day age anchor)", () => {
+    // check_indications anchors age at `${day}T00:00:00Z`; verify that yields
+    // the exact calendar-day count (0 on the birth day, 42 six weeks on).
+    expect(computeAgeParts("2026-01-01", new Date("2026-01-01T00:00:00Z"))?.days).toBe(0);
+    expect(computeAgeParts("2026-01-01", new Date("2026-02-12T00:00:00Z"))?.days).toBe(42);
+  });
+
   it("handles month-end boundaries (born Jan 31 → Mar 1 is 1 month)", () => {
     const p = computeAgeParts("2025-01-31", new Date("2025-03-01T00:00:00Z"));
     expect(p).toMatchObject({ days: 29, weeks: 4, remDays: 1, months: 1, years: 0 });
@@ -35,6 +50,26 @@ describe("computeAgeParts", () => {
   it("rolls months into years", () => {
     const p = computeAgeParts("2025-04-01", new Date("2026-05-15T00:00:00Z"));
     expect(p).toMatchObject({ years: 1, months: 1 });
+  });
+});
+
+describe("computeAge (impossible DOB)", () => {
+  it("says 'not yet born' instead of 'NaNy NaNm old'", () => {
+    expect(computeAge("2026-13-45", new Date("2026-05-01T00:00:00Z"))).toBe(
+      "not yet born"
+    );
+  });
+});
+
+describe("escapeLike", () => {
+  it("escapes LIKE wildcards and the escape char", () => {
+    expect(escapeLike("50%")).toBe("50\\%");
+    expect(escapeLike("a_c")).toBe("a\\_c");
+    expect(escapeLike("a\\b")).toBe("a\\\\b");
+  });
+
+  it("leaves ordinary text untouched", () => {
+    expect(escapeLike("vitamin d")).toBe("vitamin d");
   });
 });
 

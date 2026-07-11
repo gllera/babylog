@@ -36,6 +36,7 @@
             { "name": "kind", "type": "DiaperKind" }
           ],
           "samples": [
+            "{kind}",
             "did {kind}",
             "did a {kind}",
             "she did {kind}",
@@ -53,6 +54,7 @@
             { "name": "routine", "type": "Routine" }
           ],
           "samples": [
+            "{routine}",
             "gave {routine}",
             "I gave {routine}",
             "did {routine}",

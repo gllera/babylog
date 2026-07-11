@@ -193,10 +193,15 @@ Interaction Model page, then:
 
 ### 5. Lock the endpoint to your skill
 
-Each Alexa request contains the skill's `applicationId`. Once the
-`ALEXA_APPLICATION_ID` secret is set, the Worker rejects every request
-that doesn't match it (if the secret is unset, the check is skipped —
-signature verification still applies).
+Each Alexa request contains the skill's `applicationId`. The Worker
+rejects every request whose `applicationId` doesn't match the
+`ALEXA_APPLICATION_ID` secret. This is **required in production**: the
+request signature only proves a request came from *Amazon*, not from
+*this* skill, so without the app-id check another skill's signed request
+could be replayed. The check is skipped only in local dev, where
+`ALEXA_SKIP_SIGNATURE=true` already bypasses verification; if the secret
+is unset in production every request is rejected with `Unknown
+applicationId`.
 
 1. Copy your skill ID from the Alexa console (top-left, under the skill
    name — `amzn1.ask.skill.…`).

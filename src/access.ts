@@ -41,6 +41,10 @@ export async function verifyAccessJwt(
     const { payload } = await jwtVerify(token, jwksFor.jwks, {
       issuer: env.TEAM_DOMAIN,
       audience: env.POLICY_AUD,
+      // Cloudflare Access signs its assertions with RS256; pin it so a token
+      // can't downgrade the verification (defence-in-depth on top of the
+      // asymmetric JWKS, which already rejects `alg:none`/HS confusion).
+      algorithms: ["RS256"],
     });
     return payload as AccessPayload;
   } catch {

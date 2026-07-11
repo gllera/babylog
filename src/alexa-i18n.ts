@@ -46,7 +46,7 @@ export interface Voice {
   fallback: string;
   fallbackReprompt: string;
   unknownCommand: string;
-  errorRecording(msg: string): string;
+  errorRecording(): string;
 
   // ---- feeding ----
   askMl: string;
@@ -159,8 +159,8 @@ export const voiceEs: Voice = {
     'No te he entendido. Puedes decir "tomó 120 mililitros" o "hizo caca". ¿Qué quieres registrar?',
   fallbackReprompt: "¿Qué quieres registrar?",
   unknownCommand: "No conozco esa orden todavía.",
-  errorRecording(msg) {
-    return `Lo siento, ha habido un error registrando eso: ${msg}`;
+  errorRecording() {
+    return "Lo siento, algo ha ido mal al registrar eso. Inténtalo de nuevo.";
   },
 
   askMl: "¿Cuántos mililitros tomó?",
@@ -292,8 +292,8 @@ export const voiceEn: Voice = {
     'I didn\'t catch that. You can say "took 120 milliliters" or "did a poop". What would you like to log?',
   fallbackReprompt: "What would you like to log?",
   unknownCommand: "I don't know that command yet.",
-  errorRecording(msg) {
-    return `Sorry, there was an error logging that: ${msg}`;
+  errorRecording() {
+    return "Sorry, something went wrong logging that. Please try again.";
   },
 
   askMl: "How many milliliters did the baby take?",
