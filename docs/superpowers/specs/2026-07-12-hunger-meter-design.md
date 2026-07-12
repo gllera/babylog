@@ -1,7 +1,13 @@
 # Hunger meter (digestion phase 2): readout line + tape fullness trace — design
 
 **Date:** 2026-07-12
-**Status:** approved (pending spec review)
+**Status:** implemented, with two same-day amendments — (1) the trace lifts
+its pen at an empty belly (hours at zero drew a flat below-reference line;
+the readout line already says "probably hungry now"), and (2) by user
+decision the trace moved from the tape's feed lane to the feeding readout:
+it now draws under the fg-gauge rail over the marker's 24h window (the
+gauge's time-resolved echo), y-scaled to the history's fullness peak so
+scrubbing never rescales it. Surface C's tape sections read accordingly.
 
 ## Problem
 
