@@ -186,3 +186,37 @@ every chip there is a server-evaluated *target*, this is a marker-anchored
 - Any notification/alert (this is a glanceable estimate, not an alarm).
 - Server/Alexa exposure of the model.
 - Per-feed-type half-lives (feed type isn't recorded).
+
+## Decision record (2026-07-12): feed start vs end — keep end-stamping
+
+Question raised: `ts` is stamped when the amount is committed — in practice
+when the feeding *ends* — while the belly starts filling when it starts.
+Should the model anchor on the start instead?
+
+Decision: **no change.** Three findings drove it:
+
+- The true single-point anchor is neither end nor start: milk arrives spread
+  across the feed and emptying begins on arrival, so the "instant fill"
+  equivalent is ~mid-feed. End-stamping is late by ~half a feed duration
+  (10–15 min); start-stamping would be early by the same amount.
+- The bias **cancels exactly** under a consistent logging habit, because the
+  meter is self-calibrated: `hungerCalib` samples fullness at past feed
+  instants using only inter-feed *gaps* (`ev[i].t − ev[j].t`), which are
+  invariant to any uniform time shift of all stamps. Live reading and learned
+  reference are inflated identically, so the "probably hungry" flag already
+  fires at the correct wall-clock time. Only absolute readings the UI barely
+  leans on (the mark as a literal fill fraction; the touches-zero instant)
+  read ~10–15 min late.
+- A fixed assumed-duration shift is therefore **worse than nothing**: the
+  calibration is translation-invariant but the live reading is not, so a
+  uniform "feeds take N minutes" lead makes the flag fire N minutes *early*
+  — it double-corrects a bias that already cancels.
+
+Rejected: true start/end capture (migration + two-step or duration UI +
+an Alexa story + assumed durations for all existing rows). Over end-stamping
+it buys only the *per-feed variation* in duration — single-digit minutes on
+a 5 h rail — and taxes the one-tap logging flow the app is built around.
+Reopen only if (a) the household's logging habit turns inconsistent (a
+"started feeding" tap would then impose consistency the model can't recover
+retroactively), or (b) duration becomes wanted as data in its own right
+(feed-pace trends, breastfeeding sessions with no ml).
