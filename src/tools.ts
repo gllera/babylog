@@ -208,6 +208,13 @@ export function buildIndicationStatement(
           "SELECT COUNT(*) AS v FROM routines WHERE baby_id = ? AND ts >= ? AND ts < ?"
         )
         .bind(babyId, start, end);
+    default:
+      // Unreachable for any live metric (the switch is exhaustive over
+      // IndicationMetric), but a DB that predates migration 0003 can still hold
+      // a retired `note_count` row. Return a constant-zero statement so such a
+      // row evaluates to 0 (extractIndicationActual reads v) instead of pushing
+      // `undefined` into DB.batch and 500-ing the whole dashboard.
+      return db.prepare("SELECT 0 AS v");
   }
 }
 

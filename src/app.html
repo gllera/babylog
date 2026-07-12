@@ -790,7 +790,11 @@
     }
     .strip-step {
       flex: 0 0 64px;
-      font-size: 24px;
+      /* Two steps per side (35 / 5) — smaller type + tighter sides so the
+         signed two-digit labels ("−35") fit the 64px targets. */
+      font-size: 20px;
+      padding-left: 6px;
+      padding-right: 6px;
     }
     /* Cancel wraps onto its own full-width line below the actions: the log
        buttons get the whole first row, and backing out can't be fat-fingered
@@ -1869,9 +1873,18 @@
 
     // Shift an instant so getUTC* getters read Madrid wall-clock fields.
     function toWall(d) { return new Date(d.getTime() + madridOffsetHours(d) * HOUR_MS); }
-    // Inverse: Madrid wall-clock ms (as fake UTC) back to a real instant.
+    // Inverse: Madrid wall-clock ms (as fake UTC) back to a real instant. The
+    // offset must be the one that applies at the RESULTING real instant, not at
+    // the wall instant — the two straddle opposite sides of a DST change, so
+    // near the transition reading it off the wall value is an hour wrong (which
+    // would write a marker quick-add's `when` shifted by an hour on the two
+    // change days). Take the wall-based guess, then re-check it against the real
+    // instant it yields and correct once if they disagree. Identical to the old
+    // one-liner for every non-transition time (the offsets always match there).
     function fromWall(wallMs) {
-      return new Date(wallMs - madridOffsetHours(new Date(wallMs)) * HOUR_MS);
+      var off = madridOffsetHours(new Date(wallMs));
+      var realOff = madridOffsetHours(new Date(wallMs - off * HOUR_MS));
+      return new Date(wallMs - realOff * HOUR_MS);
     }
 
     function pad2(n) { return n < 10 ? "0" + n : String(n); }
@@ -3286,6 +3299,22 @@
       return null;
     }
 
+    // Feed-amount step buttons for one side of the commit: a coarse 35 and a
+    // fine 5 (in outer→inner order), so a bottle-sized jump is one tap and any
+    // multiple of 5 is a couple more — the quick-stepper the tape redesign
+    // wants, but no longer stuck on 10-ml increments.
+    function feedStepBtns(side, dis) {
+      var steps = side === "lo"
+        ? [["-35", "&minus;35"], ["-5", "&minus;5"]]
+        : [["5", "+5"], ["35", "+35"]];
+      var s = "";
+      for (var i = 0; i < steps.length; i++) {
+        s += '<button type="button" class="strip-btn strip-step" data-strip="amt" data-d="' +
+          steps[i][0] + '"' + dis + '>' + steps[i][1] + '</button>';
+      }
+      return s;
+    }
+
     function stripActionsHtml(d) {
       var dis = stripBusy ? " disabled" : "";
       var cancel = '<button type="button" class="strip-btn strip-cancel" data-strip="cancel"' + dis + '>' +
@@ -3311,13 +3340,21 @@
         var edCls = stripEdit.entity === "feedings" ? "s-feeding"
           : stripEdit.entity === "diapers" ? "s-diaper" : "s-routine";
         if (stripEdit.entity === "feedings") {
-          out += '<button type="button" class="strip-btn strip-step" data-strip="amt" data-d="-10"' + dis + '>&minus;</button>' +
+          out += feedStepBtns("lo", dis) +
             '<button type="button" class="strip-btn strip-commit s-feeding" data-strip="save"' + dis + '>' +
               '<span class="strip-plus">&check;</span>' + stripAmt + ' ml</button>' +
-            '<button type="button" class="strip-btn strip-step" data-strip="amt" data-d="10"' + dis + '>+</button>';
+            feedStepBtns("hi", dis);
         } else {
           var cur = stripEdit.entity === "diapers" ? edItem.kind : edItem.name;
           var echs = STRIP_CHOICES[stripEdit.entity];
+          // A routine logged via Alexa/MCP can carry a name outside the curated
+          // quick-add set (e.g. "Walk", a medicine). Surface the record's own
+          // value as the selected choice so tapping it re-times the entry —
+          // otherwise the only commit is a curated label and the edit would
+          // silently rename it. (Diaper kinds are always in the set.)
+          var haveCur = false;
+          for (var hc = 0; hc < echs.length; hc++) if (echs[hc][0] === cur) { haveCur = true; break; }
+          if (!haveCur) echs = [[cur, cur]].concat(echs);
           for (var eb = 0; eb < echs.length; eb++) {
             out += '<button type="button" class="strip-btn strip-commit ' + edCls +
               (echs[eb][0] === cur ? " strip-cur" : "") + '" data-strip="choice" data-value="' +
@@ -3331,10 +3368,10 @@
         return out + '</div>';
       }
       if (stripChoice === "feedings") {
-        out += '<button type="button" class="strip-btn strip-step" data-strip="amt" data-d="-10"' + dis + '>&minus;</button>' +
+        out += feedStepBtns("lo", dis) +
           '<button type="button" class="strip-btn strip-commit s-feeding" data-strip="feed"' + dis + '>' +
             '<span class="strip-plus">+</span>' + stripAmt + ' ml</button>' +
-          '<button type="button" class="strip-btn strip-step" data-strip="amt" data-d="10"' + dis + '>+</button>' +
+          feedStepBtns("hi", dis) +
           cancel;
       } else if (stripChoice) {
         var cls = stripChoice === "diapers" ? "s-diaper" : "s-routine";
@@ -4077,7 +4114,7 @@
           updateStripList();
           stripQuickAdd("feedings", { amount_ml: stripAmt });
         } else if (action === "amt") {
-          stripAmt = Math.max(10, stripAmt + parseFloat(btn.getAttribute("data-d")));
+          stripAmt = Math.max(5, stripAmt + parseFloat(btn.getAttribute("data-d")));
           updateStripActions();
         } else if (action === "pick") {
           stripChoice = btn.getAttribute("data-entity");

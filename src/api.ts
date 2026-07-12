@@ -125,6 +125,13 @@ type EntityConfig = {
   // Value columns beyond id/ts; doubles as the insert column list.
   fields: string[];
   createSchema: z.ZodTypeAny;
+  // Schema for PUT edits, when it must differ from create. Feedings cap a *new*
+  // amount at MAX_FEEDING_ML to catch typos, but an edit has to be able to
+  // re-save a row whose stored total is already at that cap — a legacy typo row
+  // from before the cap, or a value a merge clamped up to it — since the edit
+  // form re-sends the stored amount even on a time-only change. Falls back to
+  // createSchema when absent.
+  updateSchema?: z.ZodTypeAny;
   // Replaces the generic INSERT for entities whose create has extra
   // semantics (feedings merge into a nearby entry instead of duplicating).
   create?: (
@@ -153,6 +160,12 @@ const ENTITIES: Record<string, EntityConfig> = {
     fields: ["amount_ml"],
     createSchema: z.object({
       amount_ml: z.number().positive().max(MAX_FEEDING_ML),
+      when: whenField,
+    }),
+    // Edits skip the create-time cap so an existing at-cap row stays editable
+    // (still strictly positive).
+    updateSchema: z.object({
+      amount_ml: z.number().positive(),
       when: whenField,
     }),
     // A feeding within 10 minutes of an existing one tops up that entry
@@ -304,7 +317,7 @@ async function handleEntity(
   if (method === "PUT" && idStr) {
     const id = parseIdParam(idStr);
     if (id === null) return jsonError(400, "Invalid id.");
-    const parsed = await readBody(request, cfg.createSchema);
+    const parsed = await readBody(request, cfg.updateSchema ?? cfg.createSchema);
     if (!parsed.ok) return jsonError(400, parsed.error);
     const value = parsed.value as Record<string, string | number> & {
       when?: string;
@@ -435,7 +448,12 @@ async function handleDashboard(
   const growthCtx = {
     estWeightG: estimateWeightG(
       recentWeights.results as unknown as WeightSample[],
-      now,
+      // Project weight to the civil day's start, exactly like the MCP
+      // `evaluate` path (tools.ts projects to `dayStart`), NOT the live `now`.
+      // A late-in-the-day `now` estimates a few grams more growth and nudges
+      // the ml/kg milk target a hair higher than MCP for the same day, so the
+      // two surfaces could disagree on whether milk is met.
+      new Date(dayStart),
       sel.baby.date_of_birth
     ),
     // Anchor age at the civil day's UTC midnight, exactly like the MCP
@@ -449,13 +467,19 @@ async function handleDashboard(
   const indications = indicationsRes.results as unknown as IndicationRow[];
   let indicationsOut: unknown[] = [];
   if (indications.length > 0) {
+    // Each indication's window start is computed once and reused for both the
+    // count statement and the actual extraction — the two must always span the
+    // identical window or the reported "actual" wouldn't match what was counted.
+    const windowStarts = indications.map(
+      (ind) => madridDayWindow(day, ind.period_days).start
+    );
     const actuals = await env.DB.batch(
-      indications.map((ind) =>
+      indications.map((ind, i) =>
         buildIndicationStatement(
           env.DB,
           ind.metric,
           ind.filter,
-          madridDayWindow(day, ind.period_days).start,
+          windowStarts[i],
           dayEnd,
           babyId
         )
@@ -466,7 +490,7 @@ async function handleDashboard(
         ind.metric,
         actuals[i],
         gapBoundary,
-        madridDayWindow(day, ind.period_days).start
+        windowStarts[i]
       );
       const target = resolveIndicationTarget(ind, growthCtx);
       return {
