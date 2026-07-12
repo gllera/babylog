@@ -1271,7 +1271,7 @@
     .who-lbl { font-size: 7px; fill: var(--muted); font-family: inherit; }
     /* Baby switcher (multi-baby households only; stays hidden otherwise).
        Right padding keeps the chip row clear of the corner button. */
-    #baby-switcher { display: flex; gap: 8px; padding: 12px 16px 0 90px; flex-wrap: wrap; max-width: 920px; margin: 0 auto; }
+    #baby-switcher { display: flex; gap: 8px; padding: 12px 16px 0 170px; flex-wrap: wrap; max-width: 920px; margin: 0 auto; }
     #baby-switcher[hidden] { display: none; }
     /* The app's one door: a bare glyph riding the top-left of the content
        column. On Today it shows the sliders glyph — three rails with a dot
@@ -1319,6 +1319,44 @@
       outline: 2px solid var(--primary);
       outline-offset: 2px;
     }
+    /* The belly tank (belly-tank spec): the hunger meter's face, riding
+       the corner cluster right of the door — the tape's bottle vessel
+       grown to cluster size, milk level = stomach content at the marker
+       on her own 0→peak fullness scale, a dotted usually-fed reserve
+       line across it (dotted = scaffolding, the fg-gauge axis's
+       language), and the ml in small print at its side. The left edge
+       continues the door's clamp math (door left + 64px + 4px). Hidden
+       on Settings via the sibling selector below — the door reads ←
+       there and the flyleaf carries no live status. */
+    #belly-tank {
+      position: absolute;
+      top: 10px;
+      left: max(78px, calc(50% - 376px));
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: 64px;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #belly-tank[hidden] { display: none; }
+    #belly-tank svg { display: block; }
+    .bt-back { fill: var(--bg); }
+    .bt-fill { fill: var(--primary); }
+    .bt-body { fill: none; stroke: var(--border); stroke-width: 1; }
+    .bt-ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
+    .bt-num { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .bt-num small { font-size: 10px; margin-left: 1px; }
+    /* Probably hungry (emptier than her usual pre-feed level): milk and
+       number trade feed-hue/muted for danger — the reserve line makes
+       the red self-explanatory (level under the line she usually eats
+       at). The vessel outline stays hairline. */
+    #belly-tank.hungry .bt-fill { fill: var(--danger); }
+    #belly-tank.hungry .bt-num { color: var(--danger); }
+    #settings-btn.at-settings + #belly-tank { display: none; }
     /* The flyleaf reads whose diary → the child's data → the household's
        people → app pref. Each section's management controls (ledger,
        add/invite form, partner removal) fold behind its content tap;
@@ -1378,7 +1416,7 @@
     .settings-note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
     @media (max-width: 640px) {
       :root { --stack: 14px; }
-      #baby-switcher { padding: 10px 10px 0 80px; }
+      #baby-switcher { padding: 10px 10px 0 160px; }
       main { margin: 14px auto; padding: 0 10px 24px; }
 
       .strip-btn { font-size: 16px; padding: 12px 8px; }
@@ -1418,6 +1456,13 @@
     </svg>
     <span class="door-back" aria-hidden="true">&#8592;</span>
   </button>
+  <!-- The belly tank (belly-tank spec): the corner cluster's second half —
+       the tape's bottle vessel at cluster size, milk level = what's still
+       in her belly at the marker. Filled by updateBellyTank(); stays
+       hidden while the meter is gated (young history, marker before
+       tracking). MUST stay the button's next sibling: the at-settings
+       sibling selector hides it on the flyleaf. -->
+  <div id="belly-tank" hidden></div>
   <div id="baby-switcher" hidden></div>
 
   <main>
@@ -2919,6 +2964,13 @@
       stripScrollToMin(r.followNow ? rsNowMin() : r.min);
     }
 
+    // What the last full render derived its geometry from: the tape's
+    // first-midnight anchor and the viewport width behind the scale. The
+    // 30 s tick compares the live values against these to know when an
+    // in-place nudge isn't enough (midnight re-anchors the whole axis, a
+    // resize re-derives the scale) and a full render is due.
+    var stripRenderedStart = 0, stripRenderedW = 0;
+
     function renderStrip(d) {
       if (stripDragId !== null) return; // mid-drag: don't yank the tape
       // A record armed for edit may be gone from this payload (deleted on
@@ -2945,7 +2997,10 @@
         rsSetDays(RS_BASE_DAYS);
         stripFetchDays = 0; // the next refetch drops back to the default window
       }
-      rsSetScale((prev || el).clientWidth);
+      var cw = (prev || el).clientWidth;
+      rsSetScale(cw);
+      stripRenderedStart = rsStartWallMs();
+      if (cw) stripRenderedW = cw; // hidden/unmeasurable: keep the last width
       hideTapTip(); // an open tap caption would outlive its rebuilt anchor
       el.innerHTML = rhythmStripHtml(d) + '<div class="strip-compare"></div>' + stripTargetsHtml(d) +
         stripActionsHtml(d) + '<div class="strip-list"></div>';
@@ -3205,7 +3260,7 @@
         '<stop offset="0.65" class="rs-fog-stop" stop-opacity="0.55"/>' +
         '<stop offset="1" class="rs-fog-stop" stop-opacity="0"/>' +
         '</linearGradient></defs>' +
-        '<rect class="rs-fog" x="' + x(nowMin) + '" y="14" width="' + (RS_VB - rsX(nowMin)).toFixed(1) +
+        '<rect class="rs-fog rs-fog-now" x="' + x(nowMin) + '" y="14" width="' + (RS_VB - rsX(nowMin)).toFixed(1) +
         '" height="124" fill="url(#rs-fg)"/>' +
         // -24: also blanket the first day stamp's overflow left of x=0
         '<rect class="rs-fog" x="-24" y="14" width="' + (rsX(30) + 24).toFixed(1) +
@@ -4133,15 +4188,22 @@
       return fgHungerRefs;
     }
 
+    var stripCompareLast = null; // last html handed to the gauge (no-op detector)
     function updateStripCompare() {
-      // Marks reveal their value via the shared tap caption (the document
-      // click handler by .strip-targets). Every rebuild (30 s tick, scrub)
-      // replaces the mark a caption may be anchored to — drop it rather
-      // than let it float free over stale innards.
-      hideTapTip();
       var el = document.querySelector("#today-strip .strip-compare");
       if (!el || !dashboardData) return;
-      el.innerHTML = stripCompareHtml(dashboardData);
+      // Unchanged html (a parked marker's tick) skips the rebuild outright,
+      // so an open caption on a gauge mark rides quiet ticks out.
+      var html = stripCompareHtml(dashboardData);
+      if (html === stripCompareLast && el.firstChild) return;
+      stripCompareLast = html;
+      // Marks reveal their value via the shared tap caption (the document
+      // click handler by .strip-targets). A real rebuild replaces the mark
+      // a caption may be anchored to — drop it rather than let it float
+      // free over stale innards; captions anchored outside the gauge (the
+      // target chips) are safe and stay up.
+      if (tapTipEl && el.contains(tapTipEl.tipFor)) hideTapTip();
+      el.innerHTML = html;
     }
 
     // Refresh the readout from the scroll position: relative to now on the
@@ -4486,16 +4548,72 @@
       return plural(days, "{n} day", "{n} days");
     }
 
-    setInterval(function() {
-      // Keep the dashboard's "ago" strings (and the gap warning) fresh from
-      // the cached payload — no refetch. On Settings the same tick carries
-      // the masthead's age line across midnight.
-      if (currentTab === "today" && document.visibilityState === "visible") {
+    // The tick's Today work. Everything on the tab is payload-driven except
+    // "now" itself, so instead of rebuilding the tape every 30 s (which
+    // tore down tap captions, the log's slide and native touch momentum
+    // just to move the clock) only the now-driven bits move in place: the
+    // svg's crop and fog advance to the new "now", a tape riding the clamp
+    // re-glues to it, and updateStripMarker refreshes the readout, gauge
+    // and log from the cached payload (the latter two skip unchanged html).
+    // Two cases still need the full render and fall back to it: midnight
+    // (the whole axis hangs off the tape's first midnight) and a viewport
+    // width change (the scale derives from it — the tick's render was the
+    // strip's only re-scale path, so it must stay one here).
+    function stripTick() {
+      var sc = stripScroller();
+      var svg = sc && sc.querySelector(".rhythm-strip");
+      if (!svg || !dashboardData) return;
+      if (rsStartWallMs() !== stripRenderedStart ||
+          (sc.clientWidth && sc.clientWidth !== stripRenderedW)) {
         renderDashboard();
+        return;
+      }
+      var nowMin = rsNowMin();
+      var vbw = rsX(nowMin);
+      svg.style.width = (vbw / RS_VB * stripPx).toFixed(1) + "px";
+      svg.setAttribute("viewBox", "0 14 " + vbw.toFixed(1) + " 124");
+      var fg = svg.querySelector("#rs-fg");
+      if (fg) {
+        fg.setAttribute("x1", vbw.toFixed(1));
+        fg.setAttribute("x2", rsX(nowMin + 30).toFixed(1));
+      }
+      var fog = svg.querySelector(".rs-fog-now");
+      if (fog) {
+        fog.setAttribute("x", vbw.toFixed(1));
+        fog.setAttribute("width", (RS_VB - vbw).toFixed(1));
+      }
+      // Glued to "now": ride it (the guards mirror renderStrip's — a hand
+      // on the tape wins over the clock).
+      if (stripFollowNow && stripDragId === null && stripMomentum === null) {
+        stripSetScroll(sc, rsScrollFor(sc, nowMin));
+      }
+      updateStripMarker();
+    }
+
+    setInterval(function() {
+      // Keep the dashboard's now-driven readouts fresh from the cached
+      // payload — no refetch, no tape rebuild (stripTick). On Settings the
+      // same tick carries the masthead's age line across midnight (two
+      // textContent writes, no DOM churn).
+      if (currentTab === "today" && document.visibilityState === "visible") {
+        stripTick();
       } else if (currentTab === "settings" && document.visibilityState === "visible") {
         renderMasthead(settingsBabies);
       }
     }, 30 * 1000);
+
+    // A real width change re-renders the tape directly rather than waiting
+    // out the tick: trailing-debounced (rotation fires resize in bursts)
+    // and width-gated (mobile URL-bar collapse and the on-screen keyboard
+    // resize only the height, and must not rebuild the tape mid-scroll).
+    var stripResizeT = null;
+    window.addEventListener("resize", function() {
+      clearTimeout(stripResizeT);
+      stripResizeT = setTimeout(function() {
+        var sc = stripScroller();
+        if (sc && sc.clientWidth && sc.clientWidth !== stripRenderedW) renderDashboard();
+      }, 150);
+    });
 
     // An installed PWA resumes from background rather than reloading, so the
     // data on screen can be hours old. Refetch whenever the app comes back.
