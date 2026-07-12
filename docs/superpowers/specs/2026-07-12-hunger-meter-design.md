@@ -1,13 +1,16 @@
 # Hunger meter (digestion phase 2): readout line + tape fullness trace — design
 
 **Date:** 2026-07-12
-**Status:** implemented, with two same-day amendments — (1) the trace lifts
-its pen at an empty belly (hours at zero drew a flat below-reference line;
-the readout line already says "probably hungry now"), and (2) by user
-decision the trace moved from the tape's feed lane to the feeding readout:
-it now draws under the fg-gauge rail over the marker's 24h window (the
-gauge's time-resolved echo), y-scaled to the history's fullness peak so
-scrubbing never rescales it. Surface C's tape sections read accordingly.
+**Status:** implemented, with three same-day amendments to Surface C. It
+was first relocated from the tape's feed lane to a sparkline under the
+fg-gauge rail (with a pen-lift at an empty belly — hours at zero drew a
+flat below-reference line), then, by user decision, reduced from a graph
+to **one more mark on the gauge rail**: current stomach content as a
+hollow feed-hue square riding its own 0→peak fullness scale across the
+full rail (the one mark not on the intake axis; the distinct glyph keeps
+it tellable apart), tap-revealing "belly ≈ N ml (at the marker)", gated
+with the meter. The history's fullness peak (a `hungerCalib` field) is
+the scrub-stable scale. Read Surface C's sections through that lens.
 
 ## Problem
 
