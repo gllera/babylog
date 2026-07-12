@@ -458,13 +458,6 @@
     .rs-night { fill: url(#rs-ng); }
     .rs-night-stop { stop-color: var(--night); }
     .rs-lane { stroke: var(--border); stroke-width: 1; }
-    /* Fullness trace (hunger-meter spec): the belly-content sawtooth along
-       the feed lane — hairline scaffolding like the lanes, with the
-       below-reference stretches in the feed hue (the tint IS the signal;
-       no reference line is drawn). Never interactive: the marks own the
-       taps. */
-    .rs-fullness { fill: none; stroke: var(--border); stroke-width: 1; pointer-events: none; }
-    .rs-fullness-low { fill: none; stroke: var(--primary); stroke-width: 1.5; pointer-events: none; }
     /* Marks are doors to their record's editor (the tape click handler
        arms stripEdit from the nearest one within finger reach). */
     .rs-dot { stroke: var(--bg); stroke-width: 1; cursor: pointer; }
@@ -1075,6 +1068,14 @@
        column stays as narrow as the number and the rail keeps the room. The
        stack still fits inside the rail's height. */
     .fg-gauge { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+    /* Fullness trace (hunger-meter spec): the belly-content sawtooth over
+       the marker's 24h window, under the rail — the gauge's time-resolved
+       echo. Hairline scaffolding; the below-reference stretches wear the
+       feed hue (the tint IS the signal; no reference line is drawn — the
+       readout's hunger line carries the words). Non-interactive. */
+    .fg-trace { display: block; width: 100%; height: 28px; margin-top: 6px; pointer-events: none; }
+    .fg-trace-base { fill: none; stroke: var(--border); stroke-width: 1; }
+    .fg-trace-low { fill: none; stroke: var(--primary); stroke-width: 1.5; }
     .fg-end {
       display: flex;
       flex-direction: column;
@@ -3124,89 +3125,6 @@
         }
         return out;
       }
-      // Fullness trace (hunger-meter spec): belly content sampled along the
-      // tape — up at each bottle, decaying between — drawn before the marks
-      // so their opaque backings paint over it; the edge fog fades it out
-      // like everything else. Wall-minute space end to end (the night
-      // shading's space), so a DST fold distorts one night twice a year —
-      // accepted. Same gate as the readout line.
-      var hgRefs = hungerRefs(d);
-      if (hgRefs) {
-        var hev = [], hgi, hgm;
-        for (hgi = 0; hgi < (d.strip_feedings || []).length; hgi++) {
-          hgm = evMin(d.strip_feedings[hgi].ts);
-          if (hgm <= nowMin) hev.push({ m: hgm, a: d.strip_feedings[hgi].amount_ml || 0 });
-        }
-        hev.sort(function(a, b) { return a.m - b.m; });
-        // Sample minutes: the step grid plus each feed twice (a hair before
-        // for the pre-jump value, the minute itself for the post-jump one).
-        var hgStep = RS_DAYS > 7 ? 15 : 5, hgSpan = FG_DIG_SPAN_HL * 60;
-        var hgMins = [];
-        for (hgm = 0; hgm <= nowMin; hgm += hgStep) hgMins.push(hgm);
-        for (hgi = 0; hgi < hev.length; hgi++) {
-          if (hev[hgi].m > 0) hgMins.push(hev[hgi].m - 0.001, hev[hgi].m);
-        }
-        hgMins.sort(function(a, b) { return a - b; });
-        // One ascending pass; hev[lo..up) = feeds live at the sample minute.
-        var hgPts = [], lo = 0, up = 0, hgF, hgMax = 0, hk;
-        for (hgi = 0; hgi < hgMins.length; hgi++) {
-          hgm = hgMins[hgi];
-          while (up < hev.length && hev[up].m <= hgm) up++;
-          while (lo < up && hgm - hev[lo].m >= hgSpan) lo++;
-          hgF = 0;
-          for (hk = lo; hk < up; hk++) hgF += hev[hk].a * (1 - digFrac((hgm - hev[hk].m) * 60000));
-          hgPts.push({ m: hgm, f: hgF });
-          if (hgF > hgMax) hgMax = hgF;
-        }
-        if (hgMax > 0) {
-          // 0 ml at y=52 up to the tape-window max at y=24: the feed lane's
-          // band, clear of the diaper lane.
-          var hgY = function(f) { return (52 - 28 * f / hgMax).toFixed(1); };
-          var hgRef = function(m) {
-            return nightHour(Math.floor(m / 60) % 24) ? hgRefs.night : hgRefs.day;
-          };
-          // The pen lifts at zero: an empty belly draws nothing (hours of
-          // flat baseline would be pure ink — the readout line already says
-          // "probably hungry now"). A subpath spans each fed stretch, from
-          // its rise off the axis to its decay's touch-down.
-          var hgD = "", hgLow = "", inLow = false, pen = false, hp, hq, hxr, hseg;
-          for (hgi = 0; hgi < hgPts.length; hgi++) {
-            hp = hgPts[hgi];
-            if (hp.f > 0) {
-              if (!pen) {
-                hq = hgi > 0 ? hgPts[hgi - 1] : null;
-                hgD += "M" + (hq ? x(hq.m) + " " + hgY(hq.f) + "L" : "") + x(hp.m) + " " + hgY(hp.f);
-                pen = true;
-              } else {
-                hgD += "L" + x(hp.m) + " " + hgY(hp.f);
-              }
-            } else if (pen) {
-              hgD += "L" + x(hp.m) + " " + hgY(0); // touch-down
-              pen = false;
-            }
-          }
-          // Below-reference stretches, crossings interpolated between samples
-          // (the reference of the earlier sample stands in across a step —
-          // sub-step precision is cosmetic here). Zero-to-zero pairs are
-          // pen-up: no trace, no tint.
-          for (hgi = 0; hgi + 1 < hgPts.length; hgi++) {
-            hp = hgPts[hgi]; hq = hgPts[hgi + 1];
-            if (hp.f === 0 && hq.f === 0) { inLow = false; continue; }
-            var hpb = hp.f < hgRef(hp.m), hqb = hq.f < hgRef(hp.m);
-            if (hpb && !inLow) { hgLow += "M" + x(hp.m) + " " + hgY(hp.f); inLow = true; }
-            if (hpb && hqb) { hgLow += "L" + x(hq.m) + " " + hgY(hq.f); }
-            else if (hpb !== hqb) {
-              hseg = (hgRef(hp.m) - hp.f) / (hq.f - hp.f);
-              hxr = hp.m + (hq.m - hp.m) * hseg;
-              if (hpb) { hgLow += "L" + x(hxr) + " " + hgY(hgRef(hp.m)); inLow = false; }
-              else { hgLow += "M" + x(hxr) + " " + hgY(hgRef(hp.m)) + "L" + x(hq.m) + " " + hgY(hq.f); inLow = true; }
-            }
-            else inLow = false;
-          }
-          svg += '<path class="rs-fullness" d="' + hgD + '"/>';
-          if (hgLow) svg += '<path class="rs-fullness-low" d="' + hgLow + '"/>';
-        }
-      }
       svg += gauges(d.strip_feedings || []);
       svg += diaperMarks(d.strip_diapers || []);
       svg += routineMarks(d.strip_routines || []);
@@ -3888,12 +3806,16 @@
       for (i = 0; i < feeds.length; i++)
         ev.push({ t: new Date(feeds[i].ts).getTime(), a: feeds[i].amount_ml || 0 });
       ev.sort(function(a, b) { return a.t - b.t; });
-      var all = [], day = [], night = [];
+      var all = [], day = [], night = [], peak = 0;
       for (i = 0; i < ev.length; i++) {
         f = 0;
         for (j = i - 1; j >= 0 && ev[i].t - ev[j].t < FG_DIG_SPAN_HL * FG_DIG_HALF_MS; j--)
           f += ev[j].a * (1 - digFrac(ev[i].t - ev[j].t));
         all.push(f);
+        // Fullness maxima only occur at feed instants (it decays between),
+        // so this is the history's fullness ceiling — a scrub-stable scale
+        // for the trace.
+        if (f + ev[i].a > peak) peak = f + ev[i].a;
         (nightHour(toWall(new Date(ev[i].t)).getUTCHours()) ? night : day).push(f);
       }
       if (all.length < FG_HGR_MIN_N) return null;
@@ -3906,7 +3828,8 @@
         night: night.length >= FG_HGR_MIN_CLASS ? fgQuantile(night, 0.5) : med,
         n: all.length,
         days: Math.max(1, Math.round((ev[ev.length - 1].t - ev[0].t) / DAY_MS)),
-        firstMs: ev[0].t
+        firstMs: ev[0].t,
+        peak: peak
       };
     }
 
@@ -4011,6 +3934,94 @@
         (inner || '') + '</div>';
     }
 
+    // Fullness trace (hunger-meter spec; relocated from the tape to the
+    // feeding readout): the belly-content sawtooth over the marker's 24h
+    // window — the gauge's time-resolved echo, scrubbing with it. Pen-lifts
+    // at an empty belly, below-reference stretches tint feed-hue (the tint
+    // IS the signal; no reference line is drawn — the readout's hunger line
+    // carries the words). y-scale = the history's fullness peak from
+    // hungerCalib, so scrubbing never rescales it. Returns '' when the
+    // meter is gated off or the window holds no ink.
+    function fgTraceSvg(feeds, endMs, refs) {
+      if (!refs || !refs.peak) return "";
+      var startMs = endMs - DAY_MS, spanMin = FG_DIG_SPAN_HL * 60;
+      var hev = [], i, t, m;
+      for (i = 0; i < feeds.length; i++) {
+        t = new Date(feeds[i].ts).getTime();
+        m = (t - startMs) / 60000;
+        if (m > -spanMin && m <= 1440) hev.push({ m: m, a: feeds[i].amount_ml || 0 });
+      }
+      if (!hev.length) return "";
+      hev.sort(function(a, b) { return a.m - b.m; });
+      // Sample minutes: a 5-min grid plus each feed twice (a hair before
+      // for the pre-jump value, the minute itself for the post-jump one).
+      var mins = [];
+      for (m = 0; m <= 1440; m += 5) mins.push(m);
+      for (i = 0; i < hev.length; i++) {
+        if (hev[i].m > 0) mins.push(hev[i].m - 0.001, hev[i].m);
+      }
+      mins.sort(function(a, b) { return a - b; });
+      // One ascending pass; hev[lo..up) = feeds live at the sample minute.
+      var pts = [], lo = 0, up = 0, f, k;
+      for (i = 0; i < mins.length; i++) {
+        m = mins[i];
+        while (up < hev.length && hev[up].m <= m) up++;
+        while (lo < up && m - hev[lo].m >= spanMin) lo++;
+        f = 0;
+        for (k = lo; k < up; k++) f += hev[k].a * (1 - digFrac((m - hev[k].m) * 60000));
+        pts.push({ m: m, f: f });
+      }
+      // x = window minute (viewBox 1440 wide, stretched to the row; strokes
+      // stay honest via non-scaling-stroke), y = 27 (empty) up to 1 (the
+      // history's peak).
+      var yOf = function(f2) { return (27 - 26 * f2 / refs.peak).toFixed(1); };
+      var xOf = function(m2) { return m2.toFixed(1); };
+      var refOf = function(m2) {
+        var h = toWall(new Date(startMs + m2 * 60000)).getUTCHours();
+        return nightHour(h) ? refs.night : refs.day;
+      };
+      // The pen lifts at zero: an empty belly draws nothing. A subpath
+      // spans each fed stretch, rise to touch-down.
+      var dBase = "", dLow = "", inLow = false, pen = false, p, q, xr, seg;
+      for (i = 0; i < pts.length; i++) {
+        p = pts[i];
+        if (p.f > 0) {
+          if (!pen) {
+            q = i > 0 ? pts[i - 1] : null;
+            dBase += "M" + (q ? xOf(q.m) + " " + yOf(q.f) + "L" : "") + xOf(p.m) + " " + yOf(p.f);
+            pen = true;
+          } else {
+            dBase += "L" + xOf(p.m) + " " + yOf(p.f);
+          }
+        } else if (pen) {
+          dBase += "L" + xOf(p.m) + " " + yOf(0); // touch-down
+          pen = false;
+        }
+      }
+      if (!dBase) return "";
+      // Below-reference stretches, crossings interpolated between samples
+      // (the earlier sample's reference stands in across a step). Zero-to-
+      // zero pairs are pen-up: no trace, no tint.
+      for (i = 0; i + 1 < pts.length; i++) {
+        p = pts[i]; q = pts[i + 1];
+        if (p.f === 0 && q.f === 0) { inLow = false; continue; }
+        var pb = p.f < refOf(p.m), qb = q.f < refOf(p.m);
+        if (pb && !inLow) { dLow += "M" + xOf(p.m) + " " + yOf(p.f); inLow = true; }
+        if (pb && qb) { dLow += "L" + xOf(q.m) + " " + yOf(q.f); }
+        else if (pb !== qb) {
+          seg = (refOf(p.m) - p.f) / (q.f - p.f);
+          xr = p.m + (q.m - p.m) * seg;
+          if (pb) { dLow += "L" + xOf(xr) + " " + yOf(refOf(p.m)); inLow = false; }
+          else { dLow += "M" + xOf(xr) + " " + yOf(refOf(p.m)) + "L" + xOf(q.m) + " " + yOf(q.f); inLow = true; }
+        }
+        else inLow = false;
+      }
+      return '<svg class="fg-trace" viewBox="0 0 1440 28" preserveAspectRatio="none" role="img">' +
+        '<path class="fg-trace-base" vector-effect="non-scaling-stroke" d="' + dBase + '"/>' +
+        (dLow ? '<path class="fg-trace-low" vector-effect="non-scaling-stroke" d="' + dLow + '"/>' : '') +
+      '</svg>';
+    }
+
     function stripCompareHtml(d) {
       var endMs = markerInstant().getTime();
       var born = selectedBornMs(d);
@@ -4075,6 +4086,8 @@
       var endLo = fgEnd(axMin), endHi = fgEnd(axMax);
       var needle = fgMark("fg-today", pos(today), i18n("day total {n} ml", { n: "≈ " + fgMl(today) }),
         '<span class="fg-today-cap"></span>', i18n("24h before marker"));
+      // The gauge's time-resolved echo, same 24h window as the needle.
+      var trace = fgTraceSvg(feeds, endMs, hungerRefs(d));
 
       // Too little history for an honest range yet — so this is the rail before
       // it can draw a band: the days on record are muted ticks (each tappable
@@ -4089,7 +4102,7 @@
           '<div class="fg-bullet">' +
             '<div class="fg-rail"></div>' + ticks + needle +
           '</div>' + endHi +
-        '</div>';
+        '</div>' + trace;
       }
 
       var q1 = fgQuantile(priors, 0.25), med = fgQuantile(priors, 0.5), q3 = fgQuantile(priors, 0.75);
@@ -4119,7 +4132,7 @@
         '<div class="fg-bullet">' +
           '<div class="fg-rail"></div>' + whisks + band + median + needle +
         '</div>' + endHi +
-      '</div>';
+      '</div>' + trace;
     }
 
     // Hunger references are payload-derived; memoized on the feeds array's
