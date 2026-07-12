@@ -363,14 +363,23 @@ async function handleDashboard(
   const nowIso = now.toISOString();
   const day = madridDateOf(now);
   const { start: dayStart, end: dayEnd } = madridDayWindow(day);
-  // The web app's rhythm strip shows today plus the two previous days.
-  const { start: stripStart } = madridDayWindow(day, 3);
-  // The tape's marker-anchored comparison needs feeding/diaper history well
-  // behind the marker: its widest lookback is the 14-day "usual range"
-  // distribution of the days *before* the marker's 24h window, i.e. up to 15
-  // days before the marker, and the marker can sit at the tape's first midnight
-  // (2 days ago) — so history must reach 17 days before today's midnight.
-  const { start: cmpStart } = madridDayWindow(day, 18);
+  // The strip window feeds the web app's rhythm tape. By default the tape
+  // shows today plus the two previous days, and its marker-anchored
+  // comparison needs feeding/diaper history well behind the marker: its
+  // widest lookback is the 14-day "usual range" distribution of the days
+  // *before* the marker's 24h window, i.e. up to 15 days before the marker,
+  // and the marker can sit at the tape's first midnight (2 days ago) — so
+  // history must reach 17 days before today's midnight. The readout's
+  // jump-to-a-moment panel extends the tape further into the past and asks
+  // for a deeper window via ?strip_days (tape days + that 15-day lookback).
+  const stripDays = Math.min(
+    400,
+    Math.max(18, Math.floor(Number(url.searchParams.get("strip_days"))) || 18)
+  );
+  // Newest-first with a generous per-day allowance: if the cap ever binds,
+  // only the window's oldest tail goes missing, never the recent tape.
+  const stripLimit = Math.min(5000, stripDays * 40);
+  const { start: cmpStart } = madridDayWindow(day, stripDays);
   // Gap metrics measure up to now while the day is still running.
   const gapBoundary = dayEnd < nowIso ? dayEnd : nowIso;
 
@@ -380,30 +389,27 @@ async function handleDashboard(
     lastDiaper,
     stripDiapers,
     stripRoutines,
-    todayNotes,
     lastRoutines,
     recentWeights,
     recentHeights,
     indicationsRes,
+    firstEventRes,
   ] = await env.DB.batch([
     env.DB.prepare(
       "SELECT id, ts, amount_ml FROM feedings WHERE baby_id = ? ORDER BY ts DESC LIMIT 20"
     ).bind(babyId),
     env.DB.prepare(
-      "SELECT id, ts, amount_ml FROM feedings WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(babyId, cmpStart),
+      "SELECT id, ts, amount_ml FROM feedings WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT ?"
+    ).bind(babyId, cmpStart, stripLimit),
     env.DB.prepare(
       "SELECT id, ts, kind FROM diapers WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
     ).bind(babyId),
     env.DB.prepare(
-      "SELECT id, ts, kind FROM diapers WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(babyId, cmpStart),
+      "SELECT id, ts, kind FROM diapers WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT ?"
+    ).bind(babyId, cmpStart, stripLimit),
     env.DB.prepare(
-      "SELECT id, ts, name FROM routines WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(babyId, stripStart),
-    env.DB.prepare(
-      "SELECT id, ts, text FROM notes WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 500"
-    ).bind(babyId, dayStart),
+      "SELECT id, ts, name FROM routines WHERE baby_id = ? AND ts >= ? ORDER BY ts DESC LIMIT ?"
+    ).bind(babyId, cmpStart, stripLimit),
     env.DB.prepare(
       "SELECT name, MAX(ts) AS ts FROM routines WHERE baby_id = ? GROUP BY name"
     ).bind(babyId),
@@ -415,6 +421,11 @@ async function handleDashboard(
     ).bind(babyId),
     env.DB.prepare(
       "SELECT id, label, metric, filter, target, comparison, period_days, active, formula FROM indications WHERE active = 1 AND baby_id = ? ORDER BY id"
+    ).bind(babyId),
+    // Earliest tape event ever — the web tape's jump dialog fences its date
+    // picker to it (there is nothing to see before the first record).
+    env.DB.prepare(
+      "SELECT MIN(ts) AS ts FROM (SELECT MIN(ts) AS ts FROM feedings WHERE baby_id = ?1 UNION ALL SELECT MIN(ts) FROM diapers WHERE baby_id = ?1 UNION ALL SELECT MIN(ts) FROM routines WHERE baby_id = ?1)"
     ).bind(babyId),
   ]);
 
@@ -472,7 +483,7 @@ async function handleDashboard(
     last_diaper: lastDiaper.results[0] ?? null,
     strip_diapers: stripDiapers.results,
     strip_routines: stripRoutines.results,
-    today_notes: todayNotes.results,
+    first_ts: (firstEventRes.results[0] as { ts: string | null } | undefined)?.ts ?? null,
     last_routines: lastRoutines.results,
     recent_weights: recentWeights.results,
     recent_heights: recentHeights.results,

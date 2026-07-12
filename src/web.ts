@@ -86,18 +86,7 @@ self.addEventListener("fetch", () => {});
 
 // ---- App shell ---------------------------------------------------------------
 
-const WHEN_BLOCK = `          <input type="hidden" name="when" value="">
-          <div class="when-display" data-when-display data-i18n="Now">Now</div>
-          <div class="when-quick">
-            <button type="button" data-step="-60">&minus;1h</button>
-            <button type="button" data-step="-15">&minus;15m</button>
-            <button type="button" data-step="-5">&minus;5m</button>
-            <button type="button" data-now data-i18n="Now">Now</button>
-            <button type="button" data-step="5">+5m</button>
-            <button type="button" data-step="15">+15m</button>
-          </div>`;
-
-const APP_HTML = appHtmlRaw.split("<!-- WHEN_BLOCK -->").join(WHEN_BLOCK);
+const APP_HTML = appHtmlRaw;
 
 // ETag of the app shell, computed once per isolate (the HTML is a build-time
 // constant). `no-cache` + ETag lets repeat opens revalidate with a 304 instead
