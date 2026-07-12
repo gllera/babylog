@@ -1,7 +1,13 @@
 # Hunger meter (digestion phase 2): readout line + tape fullness trace — design
 
 **Date:** 2026-07-12
-**Status:** implemented, with three same-day amendments to Surface C. It
+**Status:** implemented, then reduced by same-day user decisions to a
+single surface: **Surface A (the readout hunger line and its forecast) was
+removed** — the hungry state now lives on the belly mark itself, which
+trades its feed hue for the breach ink (`--text`, the chips' loudest-state
+language) when fullness sits below the day/night reference, with
+"· probably hungry" appended to its tap caption. The crossing scan
+(`hungerCrossMs`) went with the forecast. Surface C's history: it
 was first relocated from the tape's feed lane to a sparkline under the
 fg-gauge rail (with a pen-lift at an empty belly — hours at zero drew a
 flat below-reference line), then, by user decision, reduced from a graph
