@@ -1583,6 +1583,8 @@
         "highest day": "día más alto",
         "day total {n} ml": "total del día {n} ml",
         "24h before marker": "24 h antes del marcador",
+        "fed": "tomado",
+        "digested": "digerido",
         "{n} day before marker": "{n} día antes del marcador",
         "{n} days before marker": "{n} días antes del marcador",
         // Indication labels — bare names stored in English in the DB
@@ -3847,14 +3849,19 @@
       if (w0 == null)
         return '<div class="fg-empty">' + escapeHtml(i18n("No feeds in this window yet.")) + '</div>';
 
-      var today = w0.ml;
+      var feeds = d.strip_feedings || [];
+      var dig = fgDigested;
+      // The digested lens swaps every ml for its digested slice; captions
+      // carry ≈ because those numbers are modeled, not logged sums.
+      var apx = dig ? "≈ " : "";
+      var today = dig ? digSumMl(feeds, endMs - DAY_MS, endMs) : w0.ml;
 
       // The "usual" range = the distribution of the prior FG_WINDOW_DAYS daily
       // totals, today excluded so it can't bias its own band. Floor the sample
       // at the first feeding record: days before tracking began would read as
       // false zeros and drag the range down. (Birth is implied — you can't feed
       // before it — so this floor supersedes the born cutoff.)
-      var firstFeedMs = null, feeds = d.strip_feedings || [], fi, ft;
+      var firstFeedMs = null, fi, ft;
       for (fi = 0; fi < feeds.length; fi++) {
         ft = new Date(feeds[fi].ts).getTime();
         if (firstFeedMs == null || ft < firstFeedMs) firstFeedMs = ft;
@@ -3868,7 +3875,10 @@
       var priors = [], priorDays = [], j, ws;
       for (j = 1; j <= FG_WINDOW_DAYS; j++) {
         ws = windowStats(d, endMs - j * DAY_MS, statFloor);
-        if (ws != null) { priors.push(ws.ml); priorDays.push({ ml: ws.ml, j: j }); }
+        if (ws != null) {
+          var pml = dig ? digSumMl(feeds, endMs - (j + 1) * DAY_MS, endMs - j * DAY_MS) : ws.ml;
+          priors.push(pml); priorDays.push({ ml: pml, j: j });
+        }
       }
       priors.sort(function (a, b) { return a - b; });
       // The window behind every aggregate mark, revealed with its value.
@@ -3894,8 +3904,17 @@
         return '<span class="fg-end">' + v + '<span class="fg-end-u">ml</span></span>';
       };
       var endLo = fgEnd(axMin), endHi = fgEnd(axMax);
-      var needle = fgMark("fg-today", pos(today), i18n("day total {n} ml", { n: fgMl(today) }),
+      var needle = fgMark("fg-today", pos(today), i18n("day total {n} ml", { n: apx + fgMl(today) }),
         '<span class="fg-today-cap"></span>', i18n("24h before marker"));
+
+      // The lens caption: names the active statistics and reveals the other
+      // exists. Tapping it swaps too (see the document click handler) — the
+      // visible fallback for the horizontal swipe.
+      var modeCap = '<div class="fg-mode">' +
+        '<span class="fg-mode-opt' + (dig ? '' : ' on') + '">' + escapeHtml(i18n("fed")) + '</span>' +
+        '<span>·</span>' +
+        '<span class="fg-mode-opt' + (dig ? ' on' : '') + '">' + escapeHtml(i18n("digested")) + '</span>' +
+        '</div>';
 
       // Too little history for an honest range yet — so this is the rail before
       // it can draw a band: the days on record are muted ticks (each tappable
@@ -3904,9 +3923,9 @@
       if (priors.length < FG_MIN_DAYS) {
         var ticks = '';
         for (mi = 0; mi < priorDays.length; mi++)
-          ticks += fgMark("fg-tick", pos(priorDays[mi].ml), fgMl(priorDays[mi].ml) + " ml", '',
+          ticks += fgMark("fg-tick", pos(priorDays[mi].ml), apx + fgMl(priorDays[mi].ml) + " ml", '',
             plural(priorDays[mi].j, "{n} day before marker", "{n} days before marker"));
-        return '<div class="fg-gauge">' + endLo +
+        return modeCap + '<div class="fg-gauge">' + endLo +
           '<div class="fg-bullet">' +
             '<div class="fg-rail"></div>' + ticks + needle +
           '</div>' + endHi +
@@ -3920,23 +3939,23 @@
       // needle reads against all of it. Every mark holds its number for a tap;
       // nothing is printed but the scale's ends.
       var band = '<div class="fg-band" data-x="' + ((bl + br) / 2).toFixed(1) +
-        '" data-v="' + escapeHtml(i18n("usual") + " " + fgMl(q1) + "–" + fgMl(q3) + " ml") +
+        '" data-v="' + escapeHtml(i18n("usual") + " " + apx + fgMl(q1) + "–" + fgMl(q3) + " ml") +
         '" data-m="' + escapeHtml(winMeta) +
         '" style="left:' + bl.toFixed(1) + '%;width:' + (br - bl).toFixed(1) + '%"></div>';
-      var median = fgMark("fg-med", pos(med), i18n("median") + " " + fgMl(med) + " ml", '', winMeta);
+      var median = fgMark("fg-med", pos(med), i18n("median") + " " + apx + fgMl(med) + " ml", '', winMeta);
       var wLo = pos(priors[0]), wHi = pos(priors[priors.length - 1]);
       var whisks =
         '<div class="fg-whisk lo" data-x="' + wLo.toFixed(1) +
-          '" data-v="' + escapeHtml(i18n("lowest day") + " " + fgMl(priors[0]) + " ml") +
+          '" data-v="' + escapeHtml(i18n("lowest day") + " " + apx + fgMl(priors[0]) + " ml") +
           '" data-m="' + escapeHtml(winMeta) +
           '" style="left:' + wLo.toFixed(1) + '%;width:' + Math.max(0, bl - wLo).toFixed(1) + '%">' +
           '<span class="fg-whisk-cap"></span></div>' +
         '<div class="fg-whisk hi" data-x="' + wHi.toFixed(1) +
-          '" data-v="' + escapeHtml(i18n("highest day") + " " + fgMl(priors[priors.length - 1]) + " ml") +
+          '" data-v="' + escapeHtml(i18n("highest day") + " " + apx + fgMl(priors[priors.length - 1]) + " ml") +
           '" data-m="' + escapeHtml(winMeta) +
           '" style="left:' + br.toFixed(1) + '%;width:' + Math.max(0, wHi - br).toFixed(1) + '%">' +
           '<span class="fg-whisk-cap"></span></div>';
-      return '<div class="fg-gauge">' + endLo +
+      return modeCap + '<div class="fg-gauge">' + endLo +
         '<div class="fg-bullet">' +
           '<div class="fg-rail"></div>' + whisks + band + median + needle +
         '</div>' + endHi +
