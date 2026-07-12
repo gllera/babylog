@@ -29,12 +29,17 @@ timezone.
   each feed gradually, so window boundaries slice feeds proportionally and
   every caption carries ≈ (whiskers = lowest/highest day, box = the usual
   middle-half band, tick = median) — with the 24 h ending at the needle
-  drawn against it; scrubbing the tape re-reads that window. A hollow
-  square **belly mark** rides its own 0→peak scale: current stomach
-  content, draining linearly to empty over 5 h, turning danger-red when
-  she's emptier than she usually is when actually fed (self-calibrated
+  drawn against it; scrubbing the tape re-reads that window.
+- A corner **belly tank** beside the settings button: the tape's bottle
+  vessel at cluster size, its milk level the stomach content at the marker
+  (draining linearly to empty over 5 h) on her own 0→peak fullness scale,
+  a dotted reserve line at the level she's usually fed (self-calibrated
   medians of pre-feed fullness, split by the Settings-defined day/night
-  window; hidden until ~20 feeds of history).
+  window), and the ml in small print at its side. Level under the line
+  turns milk and number danger-red. Tapping it reveals the calibration
+  story and — with the marker riding "now" — a next-feed estimate (the
+  first crossing under the reference within 12 h). Hidden until ~20 feeds
+  of history, while the marker predates tracking, and on Settings.
 - Data comes from a single aggregated `/api/dashboard` request (which also
   evaluates indications server-side over Madrid-day windows), refetched
   whenever the app returns to the foreground.

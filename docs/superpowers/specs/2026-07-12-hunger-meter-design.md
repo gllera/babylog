@@ -29,6 +29,10 @@ a per-device Settings preference (two time pickers, `localStorage`
 `nightDurMin` / `nightAt`) now drives both the tape's night shading and
 this calibration's day/night classes, so the two still can never
 disagree.
+Final same-day move: the belly mark left the gauge rail for the corner
+**belly tank** (see the belly-tank spec of this date) — a draining
+bottle vessel beside the settings button with a dotted usually-fed
+reserve line, whose tap carries the reinstated next-feed forecast.
 
 ## Problem
 

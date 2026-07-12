@@ -1,7 +1,7 @@
 # Corner belly tank (hunger meter relocation) — design
 
 **Date:** 2026-07-12
-**Status:** approved
+**Status:** implemented
 
 ## Problem
 
