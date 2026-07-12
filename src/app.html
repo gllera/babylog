@@ -1706,6 +1706,10 @@
         "At most {n} between feeds": "Máximo {n} entre tomas",
         "150 ml per kg of body weight": "150 ml por kg de peso",
         "adjusts with age": "se ajusta con la edad",
+        // Belly tank tap captions
+        "next feed ~{t}": "próxima toma ~{t}",
+        "next feed ~ now": "próxima toma ~ ya",
+        "usually fed when ≈ {n} ml remain": "suele comer cuando quedan ≈ {n} ml",
         // Forms
         "Add": "Añadir",
         "Update": "Actualizar",
@@ -3629,13 +3633,20 @@
       var t = e.target;
       var chip = t.closest ? t.closest(".strip-chip") : null;
       var mark = !chip && t.closest ? t.closest(".fg-bullet [data-v]") : null;
-      if (!chip && !mark) { hideTapTip(); return; }
-      var was = tapTipEl && tapTipEl.tipFor === (chip || mark);
+      var tank = !chip && !mark && t.closest ? t.closest("#belly-tank") : null;
+      if (!chip && !mark && !tank) { hideTapTip(); return; }
+      var was = tapTipEl && tapTipEl.tipFor === (chip || mark || tank);
       hideTapTip();
       if (was) return;
       if (chip) {
         var r = chip.getBoundingClientRect();
         showTapTip(chip, r, r.left + r.width / 2, false, chip.getAttribute("data-tip"));
+      } else if (tank) {
+        // Caption content is computed here, not baked into data-*: the
+        // estimate must be fresh at tap time, not at rebuild time.
+        var tr = tank.getBoundingClientRect();
+        var tt = bellyTankTip();
+        showTapTip(tank, tr, tr.left + tr.width / 2, false, tt.v, tt.m || undefined);
       } else {
         // Anchored at the mark's rail position (data-x), not its own box —
         // a whisker div spans from its cap to the band, so its box center
@@ -4188,6 +4199,86 @@
       return fgHungerRefs;
     }
 
+    // ---- The corner belly tank (see the belly-tank spec in docs/) ----
+    // The hunger meter's face: the tape's bottle vessel at cluster size,
+    // milk level = fullness at the marker on her own 0→peak scale, a
+    // dotted reserve line at the usually-fed reference for the marker's
+    // day/night class, the ml in small print at the side. Hungry (level
+    // under the line) swaps feed-hue/muted for danger.
+    var BT_W = 16, BT_H = 28, BT_RX = 4.5; // vessel units in the 18x30 box
+
+    // First instant from nowMs (1-minute steps, up to +12h) where the
+    // draining fullness crosses under its own class reference — the
+    // removed readout line's forecast, reinstated for the tank's tap.
+    // Each step re-classes day/night so the night boundary is respected.
+    // Returns nowMs when already hungry, null when nothing lands in 12h.
+    function hungerCrossMs(feeds, refs, nowMs) {
+      for (var k = 0; k <= 720; k++) {
+        var t = nowMs + k * 60000;
+        if (fullnessAt(feeds, t) < (nightAt(t) ? refs.night : refs.day)) return t;
+      }
+      return null;
+    }
+
+    var bellyTankLast = null; // last html handed to the tank (no-op detector)
+    function updateBellyTank() {
+      var el = document.getElementById("belly-tank");
+      if (!el) return;
+      var refs = dashboardData && hungerRefs(dashboardData);
+      var endMs = markerInstant().getTime();
+      // Gated off (young history / marker before tracking): door alone.
+      if (!refs || endMs < refs.firstMs) {
+        el.hidden = true;
+        bellyTankLast = null;
+        if (tapTipEl && tapTipEl.tipFor === el) hideTapTip();
+        return;
+      }
+      var feeds = dashboardData.strip_feedings || [];
+      var f = fullnessAt(feeds, endMs);
+      var ref = nightAt(endMs) ? refs.night : refs.day;
+      // Level with the tape bottles' sliver floor (a non-empty belly must
+      // never read as empty); reserve line on the same 0→peak scale.
+      var fh = f <= 0 ? 0 : Math.max(1.5, Math.min(BT_H, BT_H * f / refs.peak));
+      var refY = 1 + BT_H - Math.max(0, Math.min(BT_H, BT_H * ref / refs.peak));
+      var vessel = 'x="1" y="1" width="' + BT_W + '" height="' + BT_H + '" rx="' + BT_RX + '"';
+      var html =
+        '<svg width="18" height="30" viewBox="0 0 18 30" aria-hidden="true">' +
+          '<clipPath id="bt-clip"><rect ' + vessel + '/></clipPath>' +
+          '<rect class="bt-back" ' + vessel + '/>' +
+          '<rect class="bt-fill" clip-path="url(#bt-clip)" x="1" y="' + (1 + BT_H - fh).toFixed(1) +
+            '" width="' + BT_W + '" height="' + fh.toFixed(1) + '"/>' +
+          '<rect class="bt-body" ' + vessel + '/>' +
+          '<line class="bt-ref" x1="2" y1="' + refY.toFixed(1) + '" x2="' + BT_W + '" y2="' + refY.toFixed(1) + '"/>' +
+        '</svg>' +
+        '<span class="bt-num">≈ ' + fgMl(f) + '<small>ml</small></span>';
+      el.classList.toggle("hungry", f < ref);
+      el.hidden = false;
+      // Unchanged html (a parked marker's tick) skips the rebuild; a
+      // changed one invalidates an open caption (its estimate went stale).
+      if (html === bellyTankLast && el.firstChild) return;
+      bellyTankLast = html;
+      if (tapTipEl && tapTipEl.tipFor === el) hideTapTip();
+      el.innerHTML = html;
+    }
+
+    // Tap caption, built at tap time: the calibration story, led (marker
+    // riding now) by the next-feed estimate. The past needs no forecast:
+    // a scrubbed marker gets the why-caption alone.
+    function bellyTankTip() {
+      var refs = hungerRefs(dashboardData);
+      var endMs = markerInstant().getTime();
+      var why = i18n("usually fed when ≈ {n} ml remain",
+        { n: fgMl(nightAt(endMs) ? refs.night : refs.day) });
+      if (!stripFollowNow) return { v: why, m: null };
+      var cross = hungerCrossMs(dashboardData.strip_feedings || [], refs, Date.now());
+      if (cross == null) return { v: why, m: null };
+      return {
+        v: cross <= Date.now() ? i18n("next feed ~ now")
+          : i18n("next feed ~{t}", { t: formatTimeOfDay(new Date(cross)) }),
+        m: why
+      };
+    }
+
     var stripCompareLast = null; // last html handed to the gauge (no-op detector)
     function updateStripCompare() {
       var el = document.querySelector("#today-strip .strip-compare");
@@ -4219,6 +4310,7 @@
       document.querySelector("#today-strip .rs-readout-abs").textContent = markerAbsLabel(" · ");
       updateStripCompare();
       updateStripList();
+      updateBellyTank();
     }
 
     // Keep the marker inside the loggable day: the tape stops with 00:00 or
