@@ -3165,16 +3165,33 @@
           var hgRef = function(m) {
             return nightHour(Math.floor(m / 60) % 24) ? hgRefs.night : hgRefs.day;
           };
-          var hgD = "", hgLow = "", inLow = false, hp, hq, hxr, hseg;
+          // The pen lifts at zero: an empty belly draws nothing (hours of
+          // flat baseline would be pure ink — the readout line already says
+          // "probably hungry now"). A subpath spans each fed stretch, from
+          // its rise off the axis to its decay's touch-down.
+          var hgD = "", hgLow = "", inLow = false, pen = false, hp, hq, hxr, hseg;
           for (hgi = 0; hgi < hgPts.length; hgi++) {
             hp = hgPts[hgi];
-            hgD += (hgi ? "L" : "M") + x(hp.m) + " " + hgY(hp.f);
+            if (hp.f > 0) {
+              if (!pen) {
+                hq = hgi > 0 ? hgPts[hgi - 1] : null;
+                hgD += "M" + (hq ? x(hq.m) + " " + hgY(hq.f) + "L" : "") + x(hp.m) + " " + hgY(hp.f);
+                pen = true;
+              } else {
+                hgD += "L" + x(hp.m) + " " + hgY(hp.f);
+              }
+            } else if (pen) {
+              hgD += "L" + x(hp.m) + " " + hgY(0); // touch-down
+              pen = false;
+            }
           }
           // Below-reference stretches, crossings interpolated between samples
           // (the reference of the earlier sample stands in across a step —
-          // sub-step precision is cosmetic here).
+          // sub-step precision is cosmetic here). Zero-to-zero pairs are
+          // pen-up: no trace, no tint.
           for (hgi = 0; hgi + 1 < hgPts.length; hgi++) {
             hp = hgPts[hgi]; hq = hgPts[hgi + 1];
+            if (hp.f === 0 && hq.f === 0) { inLow = false; continue; }
             var hpb = hp.f < hgRef(hp.m), hqb = hq.f < hgRef(hp.m);
             if (hpb && !inLow) { hgLow += "M" + x(hp.m) + " " + hgY(hp.f); inLow = true; }
             if (hpb && hqb) { hgLow += "L" + x(hq.m) + " " + hgY(hq.f); }
@@ -4127,9 +4144,14 @@
       var f = fullnessAt(feeds, t);
       var ref = nightHour(toWall(new Date(t)).getUTCHours()) ? refs.night : refs.day;
       var text = i18n("belly ≈ {n} ml", { n: fgMl(f) });
+      // "At now" by the marker's own position, not the follow-glue flag —
+      // at some zoom levels the scroller's real max lands a few px short
+      // of rsScrollFor(now), so the glue can stay off with the marker
+      // pinned at now regardless.
+      var atNow = rsNowMin() - stripMarkerMin() < 1;
       if (f < ref) {
-        text += " · " + i18n(stripFollowNow ? "probably hungry now" : "probably hungry");
-      } else if (stripFollowNow) {
+        text += " · " + i18n(atNow ? "probably hungry now" : "probably hungry");
+      } else if (atNow) {
         var cross = hungerCrossMs(feeds, t, refs);
         if (cross != null)
           text += " · " + i18n("probably hungry ~{t}", { t: formatTimeOfDay(new Date(cross)) });
