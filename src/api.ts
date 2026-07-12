@@ -13,6 +13,7 @@ import {
   MAX_FEEDING_ML,
   buildWindowClauses,
   escapeLike,
+  isValidIsoDate,
   madridDateOf,
   madridDayWindow,
   normalizeTs,
@@ -437,7 +438,12 @@ async function handleDashboard(
       now,
       sel.baby.date_of_birth
     ),
-    ageDays: ageDaysAt(sel.baby.date_of_birth, now),
+    // Anchor age at the civil day's UTC midnight, exactly like the MCP
+    // `evaluate` path (see tools.ts), NOT at the live `now` instant. `now`
+    // steps the day count at UTC midnight, so for ~1-2h after Madrid midnight
+    // the Today tab would read a day short and evaluate age-tier growth
+    // targets against yesterday's tier — diverging from MCP for the same day.
+    ageDays: ageDaysAt(sel.baby.date_of_birth, new Date(`${day}T00:00:00Z`)),
   };
 
   const indications = indicationsRes.results as unknown as IndicationRow[];
@@ -513,7 +519,7 @@ const createBabySchema = z.object({
   sex: z.enum(["male", "female"]).optional(),
   date_of_birth: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine(isValidIsoDate, "date_of_birth must be a real ISO date (YYYY-MM-DD).")
     .optional(),
 });
 
@@ -545,7 +551,7 @@ const updateBabySchema = z
     sex: z.enum(["male", "female"]).nullable().optional(),
     date_of_birth: z
       .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .refine(isValidIsoDate, "date_of_birth must be a real ISO date (YYYY-MM-DD).")
       .nullable()
       .optional(),
   })

@@ -1908,16 +1908,6 @@
       return fmtDayMonth(d) + "/" + toWall(d).getUTCFullYear();
     }
 
-    function timeAgo(s) {
-      if (!s) return "";
-      var t = new Date(s).getTime();
-      if (isNaN(t)) return String(s);
-      var diff = Date.now() - t;
-      if (diff < 45 * 1000) return i18n("now");
-      if (diff >= 30 * DAY_MS) return fmtFullDate(new Date(s));
-      return i18n("{d} ago", { d: durationLabel(diff) });
-    }
-
     function absoluteTs(s) {
       if (!s) return "";
       var d = new Date(s);
@@ -2272,7 +2262,7 @@
     // Day label for a Madrid date string ("YYYY-MM-DD"): Today / Yesterday
     // with the date riding along, weekday + date beyond, year once it stops
     // being this one. Today-tape dialect — the ledgers print full dates
-    // (fmtFullDate) instead.
+    // (fmtIsoDate) instead.
     function dayLabel(ds) {
       var todayS = madridDateStr(new Date());
       var yw = toWall(new Date());
@@ -2316,7 +2306,7 @@
         rows += '<div class="ledger-row">' +
           '<button type="button" class="ledger-edit" data-id="' + item.id + '">' +
             '<span class="ledger-when">' +
-              escapeHtml(isNaN(dts.getTime()) ? String(item.ts) : fmtFullDate(madridDateStr(dts))) + '</span>' +
+              escapeHtml(isNaN(dts.getTime()) ? String(item.ts) : fmtIsoDate(madridDateStr(dts))) + '</span>' +
             '<span class="ledger-val">' + escapeHtml(fmtMeasure(entity, item[entities[entity].key])) + '</span>' +
             '<span class="ledger-delta">' + escapeHtml(delta) + '</span>' +
           '</button>' +
@@ -2472,7 +2462,7 @@
     // app's Madrid-household English; a US-style locale would branch
     // here). Sliced from the wall-date string, never through a Date, so
     // no timezone can shift the day.
-    function fmtFullDate(iso) {
+    function fmtIsoDate(iso) {
       var p = String(iso).split("-");
       return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : String(iso);
     }
@@ -2486,7 +2476,7 @@
         html += '<div class="ledger-row"><button type="button" class="ledger-edit" data-id="' + b.id + '">' +
           '<span class="grow">' + escapeHtml(b.name || "Baby #" + b.id) + '</span>' +
           (sex ? '<span class="ledger-tag">' + escapeHtml(sex) + '</span>' : "") +
-          (b.date_of_birth ? '<span class="ledger-when">' + escapeHtml(fmtFullDate(b.date_of_birth)) + '</span>' : "") +
+          (b.date_of_birth ? '<span class="ledger-when">' + escapeHtml(fmtIsoDate(b.date_of_birth)) + '</span>' : "") +
           '</button>' +
           '<button type="button" class="delete-btn baby-remove" data-id="' + b.id +
             '" aria-label="' + escapeHtml(i18n("Delete")) + '" title="' + escapeHtml(i18n("Delete")) + '">&times;</button>' +
@@ -2894,6 +2884,12 @@
       function evMin(ts) {
         return Math.floor((toWall(new Date(ts)).getTime() - startWall) / 60000);
       }
+      // Mark tooltip time: deep-history marks (before the tape's last full day)
+      // carry the full date, today/yesterday marks just the time. One rule for
+      // every lane (gauges, diapers, routines) so they can't drift apart.
+      function markWhen(ts, m) {
+        return m < (RS_DAYS - 1) * 1440 ? absoluteTs(ts) : formatTimeOfDay(new Date(ts));
+      }
       var LANES = { feed: 38, diaper: 66, routine: 94 };
       var nowMin = rsNowMin();
       // viewBox starts at y=14 (the band above, the old day-stamp strip, is
@@ -2997,7 +2993,7 @@
         for (i = 0; i < items.length; i++) {
           var m = evMin(items[i].ts);
           if (m < 0 || m > RS_MIN) continue;
-          var whenS = m < (RS_DAYS - 1) * 1440 ? absoluteTs(items[i].ts) : formatTimeOfDay(new Date(items[i].ts));
+          var whenS = markWhen(items[i].ts, m);
           var gx = (x(m) - GA_W / 2).toFixed(1);
           var gy = LANES.feed - GA_H / 2;
           var fh = Math.max(1.5, Math.min(GA_H, GA_H * (items[i].amount_ml || 0) / GA_FULL));
@@ -3048,7 +3044,7 @@
           }
         }
         function meta(it, m) {
-          var whenS = m < (RS_DAYS - 1) * 1440 ? absoluteTs(it.ts) : formatTimeOfDay(new Date(it.ts));
+          var whenS = markWhen(it.ts, m);
           return 'data-entity="diapers" data-id="' + escapeHtml(String(it.id)) + '">' +
             '<title>' + escapeHtml(whenS + " · " + fmtKind(it.kind)) + '</title>';
         }
@@ -3092,7 +3088,7 @@
         for (i = 0; i < items.length; i++) {
           var m = evMin(items[i].ts);
           if (m < 0 || m > RS_MIN) continue;
-          var whenS = m < (RS_DAYS - 1) * 1440 ? absoluteTs(items[i].ts) : formatTimeOfDay(new Date(items[i].ts));
+          var whenS = markWhen(items[i].ts, m);
           var meta = 'data-entity="routines" data-id="' + escapeHtml(String(items[i].id)) + '">' +
             '<title>' + escapeHtml(whenS + " · " + fmtRoutine(items[i].name)) + '</title>';
           var glyph = RTN_GLYPHS.hasOwnProperty(items[i].name) ? RTN_GLYPHS[items[i].name] : null;

@@ -13,6 +13,12 @@
 -- through the rename.
 UPDATE diapers SET kind = 'poop' WHERE kind = 'both';
 
+-- Mirror that fold for any diaper_count target still filtering on the retired
+-- 'both' kind (the old MCP/API accepted filter='both'). buildIndicationStatement
+-- no longer has a 'both' branch, so such a row would add no kind clause and
+-- silently count ALL diapers — fold it to 'poop' like the rows above.
+UPDATE indications SET filter = 'poop' WHERE metric = 'diaper_count' AND filter = 'both';
+
 CREATE TABLE diapers_new (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   ts          TEXT    NOT NULL,

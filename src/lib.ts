@@ -18,6 +18,18 @@ export function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+// A real calendar date in ISO `YYYY-MM-DD` form. The shape regex alone lets
+// impossible dates through ("2026-13-45", "2026-02-30", "2026-00-00"), which
+// parse to an Invalid Date and then silently null out every age/WHO/growth
+// feature (see computeAgeParts). Reject them at the input boundary so the user
+// gets a clear error instead of a birthday that "saves" but does nothing.
+// Shared by the JSON API and the MCP add/edit-baby tools.
+export function isValidIsoDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 export type AgeParts = {
   days: number;
   weeks: number;
@@ -247,6 +259,41 @@ export type FeedingWrite = {
   prevTs: string | null;
 };
 
+// The two write statements that merge-or-insert one feeding, in the order a
+// single D1 transaction must run them: the UPDATE tops up an existing in-window
+// row (clamping the total at MAX_FEEDING_ML, the same cap the per-call guard
+// enforces); the guarded INSERT adds a fresh row only when the UPDATE matched
+// nothing. Shared by recordFeeding and the batch record_many tool so every path
+// merges identically — including two feedings in one batch that fall in one
+// window (the earlier INSERT leaves the window non-empty, so the later UPDATE
+// merges into it and its INSERT no-ops). Both statements RETURNING the row.
+export function feedingMergeWrites(
+  db: D1Database,
+  babyId: number,
+  createdBy: string,
+  ts: string,
+  amountMl: number
+): [D1PreparedStatement, D1PreparedStatement] {
+  const { start, end } = feedingMergeWindow(ts);
+  return [
+    db
+      .prepare(
+        `UPDATE feedings SET amount_ml = MIN(amount_ml + ?, ?)
+         WHERE id = (SELECT id FROM feedings WHERE baby_id = ? AND ts >= ? AND ts <= ? ORDER BY ts LIMIT 1)
+         RETURNING id, ts, amount_ml`
+      )
+      .bind(amountMl, MAX_FEEDING_ML, babyId, start, end),
+    db
+      .prepare(
+        `INSERT INTO feedings (ts, amount_ml, baby_id, created_by)
+         SELECT ?, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM feedings WHERE baby_id = ? AND ts >= ? AND ts <= ?)
+         RETURNING id, ts, amount_ml`
+      )
+      .bind(ts, amountMl, babyId, createdBy, babyId, start, end),
+  ];
+}
+
 // Insert a feeding — unless one already exists within the merge window, in
 // which case the amount is added to the oldest such row (which keeps its own
 // timestamp and creator). One batch = one transaction, and the statements
@@ -259,28 +306,13 @@ export async function recordFeeding(
   ts: string,
   amountMl: number
 ): Promise<FeedingWrite> {
-  const { start, end } = feedingMergeWindow(ts);
   const [prevRes, updRes, insRes] = await db.batch([
     db
       .prepare(
         "SELECT ts FROM feedings WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
       )
       .bind(babyId, ts),
-    db
-      .prepare(
-        `UPDATE feedings SET amount_ml = amount_ml + ?
-         WHERE id = (SELECT id FROM feedings WHERE baby_id = ? AND ts >= ? AND ts <= ? ORDER BY ts LIMIT 1)
-         RETURNING id, ts, amount_ml`
-      )
-      .bind(amountMl, babyId, start, end),
-    db
-      .prepare(
-        `INSERT INTO feedings (ts, amount_ml, baby_id, created_by)
-         SELECT ?, ?, ?, ?
-         WHERE NOT EXISTS (SELECT 1 FROM feedings WHERE baby_id = ? AND ts >= ? AND ts <= ?)
-         RETURNING id, ts, amount_ml`
-      )
-      .bind(ts, amountMl, babyId, createdBy, babyId, start, end),
+    ...feedingMergeWrites(db, babyId, createdBy, ts, amountMl),
   ]);
   type Row = { id: number; ts: string; amount_ml: number };
   const mergedRow = (updRes.results as Row[])[0];

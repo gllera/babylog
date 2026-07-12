@@ -14,7 +14,10 @@ import {
   madridDayWindow,
   madridHHMM,
   escapeLike,
+  isValidIsoDate,
   feedingMergeWindow,
+  feedingMergeWrites,
+  MAX_FEEDING_ML,
   FEEDING_MERGE_WINDOW_MIN,
 } from "../src/lib";
 
@@ -60,6 +63,28 @@ describe("computeAge (impossible DOB)", () => {
     expect(computeAge("2026-13-45", new Date("2026-05-01T00:00:00Z"))).toBe(
       "not yet born"
     );
+  });
+});
+
+describe("isValidIsoDate", () => {
+  it("accepts real calendar dates", () => {
+    expect(isValidIsoDate("2026-04-01")).toBe(true);
+    expect(isValidIsoDate("2024-02-29")).toBe(true); // leap day
+    expect(isValidIsoDate("2026-12-31")).toBe(true);
+  });
+
+  it("rejects shape-valid but impossible dates", () => {
+    expect(isValidIsoDate("2026-13-45")).toBe(false);
+    expect(isValidIsoDate("2026-00-00")).toBe(false);
+    expect(isValidIsoDate("2026-02-30")).toBe(false);
+    expect(isValidIsoDate("2025-02-29")).toBe(false); // not a leap year
+  });
+
+  it("rejects wrong shapes", () => {
+    expect(isValidIsoDate("2026-4-1")).toBe(false);
+    expect(isValidIsoDate("04/01/2026")).toBe(false);
+    expect(isValidIsoDate("2026-04-01T00:00:00Z")).toBe(false);
+    expect(isValidIsoDate("")).toBe(false);
   });
 });
 
@@ -324,5 +349,36 @@ describe("feedingMergeWindow", () => {
     expect(Date.parse(end) - Date.parse(start)).toBe(
       2 * FEEDING_MERGE_WINDOW_MIN * 60_000
     );
+  });
+});
+
+// The two write statements are the shared merge contract used by both
+// recordFeeding and the batch record_many tool. A SQL-shape stub — no engine —
+// is enough to pin the clamp and the guarded-insert bind order.
+describe("feedingMergeWrites", () => {
+  function stubDb() {
+    const db = {
+      prepare(sql: string) {
+        return { bind: (...binds: unknown[]) => ({ sql, binds }) };
+      },
+    };
+    return db as unknown as D1Database;
+  }
+
+  it("emits the clamped UPDATE then the guarded INSERT, in that order", () => {
+    const ts = "2026-06-10T12:00:00.000Z";
+    const { start, end } = feedingMergeWindow(ts);
+    const [upd, ins] = feedingMergeWrites(stubDb(), 3, "a@b.co", ts, 120) as [
+      { sql: string; binds: unknown[] },
+      { sql: string; binds: unknown[] }
+    ];
+
+    // UPDATE clamps the merged total at MAX_FEEDING_ML (not a bare `+`).
+    expect(upd.sql).toContain("MIN(amount_ml + ?, ?)");
+    expect(upd.binds).toEqual([120, MAX_FEEDING_ML, 3, start, end]);
+
+    // INSERT only fires when nothing already sits in the window.
+    expect(ins.sql).toContain("NOT EXISTS");
+    expect(ins.binds).toEqual([ts, 120, 3, "a@b.co", 3, start, end]);
   });
 });

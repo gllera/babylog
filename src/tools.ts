@@ -25,11 +25,13 @@ import {
   maxGapMinutes,
   buildWindowClauses,
   escapeLike,
+  isValidIsoDate,
   madridDateOf,
   madridMidnightUtc,
   madridDayWindow,
   insertAndLookupPrev,
   recordFeeding,
+  feedingMergeWrites,
   FEEDING_MERGE_WINDOW_MIN,
 } from "./lib";
 import { SERVER_ORIGIN } from "./web";
@@ -508,7 +510,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             ),
           date_of_birth: z
             .string()
-            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .refine(isValidIsoDate, "must be a real ISO date (YYYY-MM-DD)")
             .optional()
             .describe(
               "Date of birth in ISO date format YYYY-MM-DD, e.g. '2026-04-01'"
@@ -1748,7 +1750,15 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         const defaultTs = normalizeTs(defaultWhen);
         type EvType = "feeding" | "diaper" | "routine";
         const stmts: D1PreparedStatement[] = [];
-        const stmtMeta: Array<{ type: EvType; ts: string }> = [];
+        // Each event maps to a slice of `stmts`: a diaper/routine takes one
+        // INSERT; a feeding takes the two merge writes (UPDATE then guarded
+        // INSERT), and we read whichever RETURNING'd a row. Tracking each
+        // event's result indices keeps the mapping right despite the variable
+        // width.
+        const plan: Array<
+          | { type: "feeding"; ts: string; upd: number; ins: number }
+          | { type: "diaper" | "routine"; ts: string; idx: number }
+        > = [];
         const errors: string[] = [];
 
         for (let i = 0; i < events.length; i++) {
@@ -1759,40 +1769,49 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
               errors.push(`event #${i}: feeding requires amount_ml`);
               continue;
             }
-            stmts.push(
-              db
-                .prepare(
-                  "INSERT INTO feedings (ts, amount_ml, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-                )
-                .bind(ts, ev.amount_ml, targetBaby.id, t.email)
+            // Route through the shared merge writes so a batch-logged feeding
+            // within the merge window of an existing one tops it up instead of
+            // adding a near-duplicate — matching record_feeding, the JSON API
+            // and Alexa. In one batch these run in order, so two feedings that
+            // land in the same window merge together too.
+            const [upd, ins] = feedingMergeWrites(
+              db,
+              targetBaby.id,
+              t.email,
+              ts,
+              ev.amount_ml
             );
-            stmtMeta.push({ type: "feeding", ts });
+            const updIdx = stmts.push(upd) - 1;
+            const insIdx = stmts.push(ins) - 1;
+            plan.push({ type: "feeding", ts, upd: updIdx, ins: insIdx });
           } else if (ev.type === "diaper") {
             if (!ev.kind) {
               errors.push(`event #${i}: diaper requires kind`);
               continue;
             }
-            stmts.push(
-              db
-                .prepare(
-                  "INSERT INTO diapers (ts, kind, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-                )
-                .bind(ts, ev.kind, targetBaby.id, t.email)
-            );
-            stmtMeta.push({ type: "diaper", ts });
+            const idx =
+              stmts.push(
+                db
+                  .prepare(
+                    "INSERT INTO diapers (ts, kind, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
+                  )
+                  .bind(ts, ev.kind, targetBaby.id, t.email)
+              ) - 1;
+            plan.push({ type: "diaper", ts, idx });
           } else if (ev.type === "routine") {
             if (!ev.name) {
               errors.push(`event #${i}: routine requires name`);
               continue;
             }
-            stmts.push(
-              db
-                .prepare(
-                  "INSERT INTO routines (ts, name, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-                )
-                .bind(ts, ev.name, targetBaby.id, t.email)
-            );
-            stmtMeta.push({ type: "routine", ts });
+            const idx =
+              stmts.push(
+                db
+                  .prepare(
+                    "INSERT INTO routines (ts, name, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
+                  )
+                  .bind(ts, ev.name, targetBaby.id, t.email)
+              ) - 1;
+            plan.push({ type: "routine", ts, idx });
           }
         }
 
@@ -1810,11 +1829,26 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
 
         const recorded: Array<{ type: EvType; id: number; ts: string }> = [];
         try {
-          const batchResults = await db.batch<{ id: number }>(stmts);
-          for (let i = 0; i < batchResults.length; i++) {
-            const m = stmtMeta[i];
-            const id = batchResults[i].results[0]?.id ?? 0;
-            recorded.push({ type: m.type, id, ts: m.ts });
+          const batchResults = await db.batch<{ id: number; ts: string }>(
+            stmts
+          );
+          for (const p of plan) {
+            if (p.type === "feeding") {
+              // Merge fired → the UPDATE returned the topped-up row; else the
+              // guarded INSERT returned the fresh one. Report the stored row's
+              // own ts (the existing feed's, when merged), like recordFeeding.
+              const row =
+                batchResults[p.upd].results[0] ??
+                batchResults[p.ins].results[0];
+              recorded.push({
+                type: "feeding",
+                id: row?.id ?? 0,
+                ts: row?.ts ?? p.ts,
+              });
+            } else {
+              const id = batchResults[p.idx].results[0]?.id ?? 0;
+              recorded.push({ type: p.type, id, ts: p.ts });
+            }
           }
         } catch (e) {
           errors.push(
@@ -1857,7 +1891,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .describe("Biological sex, if known"),
           date_of_birth: z
             .string()
-            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .refine(isValidIsoDate, "must be a real ISO date (YYYY-MM-DD)")
             .optional()
             .describe("ISO date YYYY-MM-DD"),
         },
