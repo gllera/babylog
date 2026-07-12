@@ -3511,6 +3511,8 @@
     }
     document.addEventListener("click", function(e) {
       var t = e.target;
+      var mode = t.closest ? t.closest(".fg-mode") : null;
+      if (mode) { hideTapTip(); fgSwapMode(0); return; }
       var chip = t.closest ? t.closest(".strip-chip") : null;
       var mark = !chip && t.closest ? t.closest(".fg-bullet [data-v]") : null;
       if (!chip && !mark) { hideTapTip(); return; }
@@ -3987,6 +3989,15 @@
       '</div>';
     }
 
+    // Swap the stats lens. dir flavors the entry slide with the swipe's
+    // direction; 0 = no slide (the caption tap).
+    var fgSlideDir = 0;
+    function fgSwapMode(dir) {
+      fgDigested = !fgDigested;
+      fgSlideDir = dir;
+      updateStripCompare();
+    }
+
     function updateStripCompare() {
       // Marks reveal their value via the shared tap caption (the document
       // click handler by .strip-targets). Every rebuild (30 s tick, scrub)
@@ -3996,6 +4007,11 @@
       var el = document.querySelector("#today-strip .strip-compare");
       if (!el || !dashboardData) return;
       el.innerHTML = stripCompareHtml(dashboardData);
+      if (fgSlideDir) {
+        var g = el.querySelector(".fg-gauge");
+        if (g) g.classList.add(fgSlideDir < 0 ? "fg-slide-l" : "fg-slide-r");
+        fgSlideDir = 0;
+      }
     }
 
     // Refresh the readout from the scroll position: relative to now on the
@@ -4147,6 +4163,42 @@
     }
     stripEl.addEventListener("pointerup", stripDragEnd);
     stripEl.addEventListener("pointercancel", stripDragEnd);
+
+    // Horizontal swipe on the feeding readout swaps the stats lens (fed ⇄
+    // digested). Delegated on the strip root so it survives every rebuild;
+    // armed only over a readout that actually shows a gauge (.fg-empty is
+    // inert). Crossing the horizontal-intent threshold swaps once and eats
+    // the gesture's click in capture phase so no tap caption pops from the
+    // same finger. pointerup disarms a plain tap so hover moves can never
+    // measure against a stale origin; a swipe's done-flag survives just
+    // long enough for its click, and the next pointerdown rewrites it.
+    // (.strip-compare sits outside .rhythm-scroll, so this can't fight the
+    // tape drag above — the two arms are disjoint by their closest() gates.)
+    var fgSwipe = null;
+    stripEl.addEventListener("pointerdown", function(e) {
+      var sc = e.target.closest && e.target.closest(".strip-compare");
+      fgSwipe = sc && sc.querySelector(".fg-gauge")
+        ? { x: e.clientX, y: e.clientY, done: false } : null;
+    });
+    stripEl.addEventListener("pointermove", function(e) {
+      if (!fgSwipe || fgSwipe.done) return;
+      var dx = e.clientX - fgSwipe.x, dy = e.clientY - fgSwipe.y;
+      if (Math.abs(dx) >= 32 && Math.abs(dx) > 2 * Math.abs(dy)) {
+        fgSwipe.done = true;
+        fgSwapMode(dx < 0 ? -1 : 1);
+      }
+    });
+    stripEl.addEventListener("pointerup", function() {
+      if (fgSwipe && !fgSwipe.done) fgSwipe = null; // plain tap: let its click through
+    });
+    stripEl.addEventListener("pointercancel", function() { fgSwipe = null; });
+    document.addEventListener("click", function(e) {
+      if (fgSwipe && fgSwipe.done) {
+        fgSwipe = null;
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    }, true);
 
     // Jump dialog wiring (the element is static; its innerHTML is rebuilt
     // per open, so everything is delegated). Commits on submit — the Go
