@@ -967,7 +967,7 @@
        loudest state on the page without inventing an alarm color. Glyphs
        (✓ met, ⚠ breached) double the encoding for colorblind eyes. Chips
        carry only name + score; tapping one summons the spelled-out rule
-       (see .tgt-tip). Their size keeps them apart from the 64px buttons
+       (see .tap-tip). Their size keeps them apart from the 64px buttons
        below. */
     .strip-targets {
       margin-top: 16px;
@@ -1009,11 +1009,15 @@
     .strip-chip-n { font-variant-numeric: tabular-nums; }
     .strip-chip.met { border-color: var(--scope, var(--border)); color: var(--scope, var(--text)); }
     .strip-chip.over { border-color: var(--text); color: var(--text); }
-    /* The rule behind a tapped chip, spelled out ("At least 620 ml a day —
-       150 ml per kg of body weight"). One shared caption in the chip's own
-       dialect, fixed-positioned under the chip because the ribbon's
-       scroller + mask would clip anything floated inside it. */
-    .tgt-tip {
+    /* The ONE tap-caption dialect for the whole page: the rule behind a
+       tapped target chip ("At least 620 ml a day — 150 ml per kg of body
+       weight") and the number behind a tapped gauge mark ("median 620 ml")
+       share this box, so every reveal reads the same. Fixed on <body>
+       because the ribbon's scroller + mask (and the gauge row) would clip
+       anything floated inside them — and JS clamps it to the viewport on
+       both axes, so no anchor near an edge can push part of it off
+       screen. */
+    .tap-tip {
       position: fixed;
       z-index: 30;
       max-width: min(300px, calc(100vw - 32px));
@@ -1023,6 +1027,15 @@
       color: var(--text);
       font-size: 14px;
       line-height: 1.4;
+    }
+    /* A caption's aside (the gauge marks' time window): its own line under
+       the value, quieter voice — smaller, muted — so the value stays the
+       headline. */
+    .tap-tip-meta {
+      display: block;
+      margin-top: 2px;
+      font-size: 12px;
+      color: var(--muted);
     }
     /* Feeding readout inside the tape block — where the last 24h of milk sits
        in the baby's recent range. The tape above plots feed *events*; this
@@ -1051,38 +1064,9 @@
       font-variant-numeric: tabular-nums;
     }
     .fg-end-u { font-size: 9px; }
-    /* The tap popover reveals a mark's exact value just above the rail — the
-       spacing gap up to the tape's readout is the only reserved empty space
-       left, so the reveal borrows it instead of adding height. Two stacked
-       lines are taller than that gap, so the popover paints on an opaque
-       plate (the page background — invisible as a shape) that slides over
-       the tape's readout for the moment it's open. */
-    .fg-pop {
-      position: absolute;
-      bottom: 100%;
-      margin-bottom: 2px;
-      transform: translateX(-50%);
-      white-space: nowrap;
-      text-align: center;
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--text);
-      font-variant-numeric: tabular-nums;
-      background: var(--bg);
-      padding: 2px 6px;
-      z-index: 1;
-    }
-    .fg-pop[hidden] { display: none; }
-    /* The value's time window: its own line under the number, quieter voice —
-       small, unbolded, muted — so the number stays the headline and the
-       popover stays no wider than its widest line. */
-    .fg-pop-meta {
-      display: block;
-      margin-top: 1px;
-      font-size: 11px;
-      font-weight: 400;
-      color: var(--muted);
-    }
+    /* Tapping a mark reveals its exact value in the page's shared tap
+       caption (.tap-tip) — same box as the target chips', hung over the
+       rail from the bullet's top edge. */
     /* The box plot: a dotted baseline = the axis. Dotted reads as scaffolding
        by shape alone — no fading needed, so it survives dim screens — and can't
        be confused with the solid whisker lines that sit on the same centerline.
@@ -2875,7 +2859,7 @@
         stripFetchDays = 0; // the next refetch drops back to the default window
       }
       rsSetScale((prev || el).clientWidth);
-      hideTgtTip(); // an open chip caption would outlive its rebuilt chip
+      hideTapTip(); // an open tap caption would outlive its rebuilt anchor
       el.innerHTML = rhythmStripHtml(d) + '<div class="strip-compare"></div>' + stripTargetsHtml(d) +
         stripActionsHtml(d) + '<div class="strip-list"></div>';
       var sc = el.querySelector(".rhythm-scroll");
@@ -3460,32 +3444,67 @@
       return txt;
     }
 
-    // One shared caption serves every chip. It lives on <body> as a fixed
-    // box (the ribbon's scroller + mask would clip anything inside), so any
-    // scroll — page or ribbon — dismisses it rather than letting it drift
-    // from its chip; so does tapping anywhere else, or the chip again.
-    var tgtTipEl = null;
-    function hideTgtTip() {
-      if (tgtTipEl) { tgtTipEl.remove(); tgtTipEl = null; }
+    // One shared caption serves every tap-to-reveal — target chips AND the
+    // feeding gauge's marks — so they can't drift into two dialects. It
+    // lives on <body> as a fixed box (the ribbon's scroller + mask and the
+    // gauge row would clip anything inside), so any scroll — page, ribbon
+    // or tape — dismisses it rather than letting it drift from its anchor;
+    // so does tapping anywhere else, or the anchor again. Placement clamps
+    // to the viewport on both axes: the box slides along its anchor's edge
+    // horizontally and flips over the anchor when its preferred side runs
+    // out of screen, so no part of it can ever land off screen.
+    var tapTipEl = null;
+    function hideTapTip() {
+      if (tapTipEl) { tapTipEl.remove(); tapTipEl = null; }
+    }
+    function showTapTip(forEl, rect, cx, above, val, meta) {
+      hideTapTip(); // only ever one caption on the page
+      var tip = document.createElement("div");
+      tip.className = "tap-tip";
+      tip.textContent = val;
+      if (meta) {
+        // The mark's time window rides along on a quieter second line, so
+        // every tap also answers "over which days?". Parenthesized: the
+        // brackets mark it as an aside even where the muted color barely
+        // reads.
+        var ms = document.createElement("span");
+        ms.className = "tap-tip-meta";
+        ms.textContent = "(" + meta + ")";
+        tip.appendChild(ms);
+      }
+      document.body.appendChild(tip);
+      var top = above ? rect.top - 6 - tip.offsetHeight : rect.bottom + 6;
+      if (above ? top < 8 : top + tip.offsetHeight > window.innerHeight - 8)
+        top = above ? rect.bottom + 6 : rect.top - 6 - tip.offsetHeight;
+      tip.style.top = top + "px";
+      tip.style.left = Math.max(16, Math.min(cx - tip.offsetWidth / 2,
+        window.innerWidth - 16 - tip.offsetWidth)) + "px";
+      tip.tipFor = forEl;
+      tapTipEl = tip;
     }
     document.addEventListener("click", function(e) {
-      var chip = e.target.closest ? e.target.closest(".strip-chip") : null;
-      if (!chip) { hideTgtTip(); return; }
-      var was = tgtTipEl && tgtTipEl.chipFor === chip;
-      hideTgtTip();
+      var t = e.target;
+      var chip = t.closest ? t.closest(".strip-chip") : null;
+      var mark = !chip && t.closest ? t.closest(".fg-bullet [data-v]") : null;
+      if (!chip && !mark) { hideTapTip(); return; }
+      var was = tapTipEl && tapTipEl.tipFor === (chip || mark);
+      hideTapTip();
       if (was) return;
-      var tip = document.createElement("div");
-      tip.className = "tgt-tip";
-      tip.textContent = chip.getAttribute("data-tip");
-      document.body.appendChild(tip);
-      var r = chip.getBoundingClientRect();
-      tip.style.top = (r.bottom + 6) + "px";
-      tip.style.left = Math.max(16, Math.min(r.left + (r.width - tip.offsetWidth) / 2,
-        window.innerWidth - 16 - tip.offsetWidth)) + "px";
-      tip.chipFor = chip;
-      tgtTipEl = tip;
+      if (chip) {
+        var r = chip.getBoundingClientRect();
+        showTapTip(chip, r, r.left + r.width / 2, false, chip.getAttribute("data-tip"));
+      } else {
+        // Anchored at the mark's rail position (data-x), not its own box —
+        // a whisker div spans from its cap to the band, so its box center
+        // sits mid-line — and hung above the whole bullet so the caption
+        // clears the rail.
+        var br = mark.closest(".fg-bullet").getBoundingClientRect();
+        showTapTip(mark, br,
+          br.left + Math.max(0, Math.min(100, parseFloat(mark.getAttribute("data-x")))) / 100 * br.width,
+          true, mark.getAttribute("data-v"), mark.getAttribute("data-m"));
+      }
     });
-    window.addEventListener("scroll", hideTgtTip, true);
+    window.addEventListener("scroll", hideTapTip, true);
 
     // The last stripListRows events at or before the marker across all three
     // domains, newest first — scrubbing back rewinds the log; anything after
@@ -3776,9 +3795,10 @@
     }
 
     // One tappable mark: carries its own value (data-v, shown on tap), its
-    // rail position (data-x, where the tap popover sits), and optionally the
-    // time window behind the number (data-m, the popover's quieter suffix —
-    // worded relative to the marker, since scrubbing moves the whole window).
+    // rail position (data-x, where the tap caption anchors), and optionally
+    // the time window behind the number (data-m, the caption's quieter
+    // suffix — worded relative to the marker, since scrubbing moves the
+    // whole window).
     function fgMark(cls, xPct, val, inner, meta) {
       return '<div class="' + cls + '" data-x="' + xPct.toFixed(1) +
         '" data-v="' + escapeHtml(val) +
@@ -3858,7 +3878,6 @@
         return '<div class="fg-gauge">' + endLo +
           '<div class="fg-bullet">' +
             '<div class="fg-rail"></div>' + ticks + needle +
-            '<div class="fg-pop" hidden></div>' +
           '</div>' + endHi +
         '</div>';
       }
@@ -3889,40 +3908,19 @@
       return '<div class="fg-gauge">' + endLo +
         '<div class="fg-bullet">' +
           '<div class="fg-rail"></div>' + whisks + band + median + needle +
-          '<div class="fg-pop" hidden></div>' +
         '</div>' + endHi +
       '</div>';
     }
 
     function updateStripCompare() {
+      // Marks reveal their value via the shared tap caption (the document
+      // click handler by .strip-targets). Every rebuild (30 s tick, scrub)
+      // replaces the mark a caption may be anchored to — drop it rather
+      // than let it float free over stale innards.
+      hideTapTip();
       var el = document.querySelector("#today-strip .strip-compare");
       if (!el || !dashboardData) return;
       el.innerHTML = stripCompareHtml(dashboardData);
-      // Tap a mark to reveal its value in a popover under it; tap anywhere else
-      // to dismiss. Bound once (the container outlives the re-rendered innards);
-      // each re-render ships a fresh hidden popover, so nothing goes stale.
-      if (!el.dataset.popBound) {
-        el.dataset.popBound = "1";
-        el.addEventListener("click", function (e) {
-          var pop = el.querySelector(".fg-pop");
-          if (!pop) return;
-          var m = e.target.closest("[data-v]");
-          if (!m) { pop.hidden = true; return; }
-          pop.textContent = m.getAttribute("data-v");
-          // The mark's time window rides along on a second line, so every
-          // tap also answers "over which days?". Parenthesized: the brackets
-          // mark it as an aside even where the muted color barely reads.
-          var meta = m.getAttribute("data-m");
-          if (meta) {
-            var ms = document.createElement("span");
-            ms.className = "fg-pop-meta";
-            ms.textContent = "(" + meta + ")";
-            pop.appendChild(ms);
-          }
-          pop.style.left = Math.max(8, Math.min(92, parseFloat(m.getAttribute("data-x")))) + "%";
-          pop.hidden = false;
-        });
-      }
     }
 
     // Refresh the readout from the scroll position: relative to now on the
