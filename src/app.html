@@ -701,21 +701,6 @@
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
-    /* The hunger line (hunger-meter spec): belly content at the marker,
-       hunger forecast when the marker rides "now". A sibling of the jump
-       button on purpose — tapping it explains itself (shared tap-tip)
-       instead of opening the dialog. Same quiet dialect as the abs line;
-       right edge aligned with the button's 48px text pad. */
-    .rs-hunger {
-      display: block;
-      padding: 0 48px 4px 0;
-      font-size: 13px;
-      color: var(--muted);
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-      cursor: pointer;
-    }
-    .rs-hunger[hidden] { display: none; }
     /* The needle: pinned 48px in from the viewport's right edge (the
        future side is empty, so the past gets the width), pointer-events
        none — the tape scrolls through underneath. Same span as the night
@@ -1082,6 +1067,9 @@
       background: var(--bg);
       border: 1.5px solid var(--primary);
     }
+    /* Probably hungry (emptier than her usual pre-feed level): the mark
+       wears the breach ink, the chips' loudest-state language. */
+    .fg-belly.hungry { border-color: var(--text); }
     .fg-end {
       display: flex;
       flex-direction: column;
@@ -1614,11 +1602,7 @@
         "24h before marker": "24 h antes del marcador",
         "belly ≈ {n} ml": "barriga ≈ {n} ml",
         "at the marker": "en el marcador",
-        "probably hungry now": "probablemente con hambre ya",
         "probably hungry": "probablemente con hambre",
-        "probably hungry ~{t}": "probablemente con hambre ~{t}",
-        "usually fed when ≈ {n} ml remain ({k} feeds, {d} days)":
-          "suele comer cuando quedan ≈ {n} ml ({k} tomas, {d} días)",
         "{n} day before marker": "{n} día antes del marcador",
         "{n} days before marker": "{n} días antes del marcador",
         // Indication labels — bare names stored in English in the DB
@@ -3168,7 +3152,6 @@
             '<span class="rs-readout-rel"></span>' +
             '<span class="rs-readout-abs"></span>' +
           '</button>' +
-          '<span class="rs-hunger" hidden></span>' +
         '</div>' +
         '<div class="rs-tape">' +
           '<div class="rhythm-scroll">' + svg + '</svg></div>' +
@@ -3521,7 +3504,7 @@
     }
     document.addEventListener("click", function(e) {
       var t = e.target;
-      var chip = t.closest ? t.closest(".strip-chip, .rs-hunger") : null;
+      var chip = t.closest ? t.closest(".strip-chip") : null;
       var mark = !chip && t.closest ? t.closest(".fg-bullet [data-v]") : null;
       if (!chip && !mark) { hideTapTip(); return; }
       var was = tapTipEl && tapTipEl.tipFor === (chip || mark);
@@ -3834,24 +3817,11 @@
         day: day.length >= FG_HGR_MIN_CLASS ? fgQuantile(day, 0.5) : med,
         night: night.length >= FG_HGR_MIN_CLASS ? fgQuantile(night, 0.5) : med,
         n: all.length,
-        days: Math.max(1, Math.round((ev[ev.length - 1].t - ev[0].t) / DAY_MS)),
         firstMs: ev[0].t,
         peak: peak
       };
     }
 
-    // First instant at/after fromMs where the hungry test holds (fullness
-    // below the instant's day/night reference). 1-minute scan, 12 h
-    // horizon; null = no crossing on the horizon.
-    function hungerCrossMs(feeds, fromMs, refs) {
-      var m, t, ref;
-      for (m = 0; m <= 720; m++) {
-        t = fromMs + m * 60000;
-        ref = nightHour(toWall(new Date(t)).getUTCHours()) ? refs.night : refs.day;
-        if (fullnessAt(feeds, t) < ref) return t;
-      }
-      return null;
-    }
 
     // Selected baby's birth instant (ms), or null when unknown — lets a window
     // that lies entirely before the baby existed blank out instead of reading a
@@ -4015,8 +3985,16 @@
       var hgRefs = hungerRefs(d);
       if (hgRefs && endMs >= hgRefs.firstMs) {
         var fNow = fullnessAt(feeds, endMs);
-        belly = fgMark("fg-belly", Math.max(0, Math.min(100, 100 * fNow / hgRefs.peak)),
-          i18n("belly ≈ {n} ml", { n: fgMl(fNow) }), '', i18n("at the marker"));
+        // Emptier than she usually is when she actually gets fed → the mark
+        // trades its feed hue for the page's breach ink (the chips'
+        // language: loudest state without inventing an alarm color).
+        var hungry = fNow <
+          (nightHour(toWall(new Date(endMs)).getUTCHours()) ? hgRefs.night : hgRefs.day);
+        belly = fgMark("fg-belly" + (hungry ? " hungry" : ""),
+          Math.max(0, Math.min(100, 100 * fNow / hgRefs.peak)),
+          i18n("belly ≈ {n} ml", { n: fgMl(fNow) }) +
+            (hungry ? " · " + i18n("probably hungry") : ""),
+          '', i18n("at the marker"));
       }
 
       // Too little history for an honest range yet — so this is the rail before
@@ -4074,38 +4052,6 @@
       return fgHungerRefs;
     }
 
-    // The readout's hunger line. Null hides it: too little history for an
-    // honest calibration, or the marker predates tracking (the gauge's
-    // blanking philosophy). Prediction only with the marker at "now" — the
-    // past needs no forecast.
-    function fgHungerLabel(d) {
-      var refs = hungerRefs(d);
-      if (!refs) return null;
-      var t = markerInstant().getTime();
-      if (t < refs.firstMs) return null;
-      var feeds = d.strip_feedings || [];
-      var f = fullnessAt(feeds, t);
-      var ref = nightHour(toWall(new Date(t)).getUTCHours()) ? refs.night : refs.day;
-      var text = i18n("belly ≈ {n} ml", { n: fgMl(f) });
-      // "At now" by the marker's own position, not the follow-glue flag —
-      // at some zoom levels the scroller's real max lands a few px short
-      // of rsScrollFor(now), so the glue can stay off with the marker
-      // pinned at now regardless.
-      var atNow = rsNowMin() - stripMarkerMin() < 1;
-      if (f < ref) {
-        text += " · " + i18n(atNow ? "probably hungry now" : "probably hungry");
-      } else if (atNow) {
-        var cross = hungerCrossMs(feeds, t, refs);
-        if (cross != null)
-          text += " · " + i18n("probably hungry ~{t}", { t: formatTimeOfDay(new Date(cross)) });
-      }
-      return {
-        text: text,
-        tip: i18n("usually fed when ≈ {n} ml remain ({k} feeds, {d} days)",
-          { n: fgMl(ref), k: refs.n, d: refs.days })
-      };
-    }
-
     function updateStripCompare() {
       // Marks reveal their value via the shared tap caption (the document
       // click handler by .strip-targets). Every rebuild (30 s tick, scrub)
@@ -4128,13 +4074,6 @@
       // and the label must not read "1h 27.55m".
       rel.textContent = stripAgoLabel(Math.round(rsNowMin() - m));
       document.querySelector("#today-strip .rs-readout-abs").textContent = markerAbsLabel(" · ");
-      var hg = document.querySelector("#today-strip .rs-hunger");
-      if (hg && dashboardData) {
-        var hl = fgHungerLabel(dashboardData);
-        hg.hidden = !hl;
-        hg.textContent = hl ? hl.text : "";
-        if (hl) hg.setAttribute("data-tip", hl.tip);
-      }
       updateStripCompare();
       updateStripList();
     }
