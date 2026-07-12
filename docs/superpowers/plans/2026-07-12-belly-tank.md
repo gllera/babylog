@@ -27,7 +27,7 @@ Inert on its own: the element ships `hidden` and nothing unhides it yet.
 **Files:**
 - Modify: `src/app.html` (markup after `#settings-btn` ~line 1420; CSS after the `#settings-btn:focus-visible` block ~line 1321; `#baby-switcher` paddings at ~1274 and ~1381)
 
-- [ ] **Step 1: Add the element after the settings button**
+- [x] **Step 1: Add the element after the settings button**
 
 Find:
 
@@ -52,7 +52,7 @@ Replace with:
   <div id="baby-switcher" hidden></div>
 ```
 
-- [ ] **Step 2: Add the tank CSS**
+- [x] **Step 2: Add the tank CSS**
 
 Insert immediately after the `#settings-btn:focus-visible { ... }` rule (line ~1321), before the flyleaf comment block:
 
@@ -97,7 +97,7 @@ Insert immediately after the `#settings-btn:focus-visible { ... }` rule (line ~1
     #settings-btn.at-settings + #belly-tank { display: none; }
 ```
 
-- [ ] **Step 3: Widen the baby-switcher clearance**
+- [x] **Step 3: Widen the baby-switcher clearance**
 
 The chip row's left padding cleared the 64px door; the cluster is now ~150px wide. Two edits:
 
@@ -113,7 +113,7 @@ Line ~1381 (inside `@media (max-width: 640px)`), change `padding: 10px 10px 0 80
       #baby-switcher { padding: 10px 10px 0 160px; }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/app.html
@@ -127,7 +127,7 @@ git commit -m "feat(web): belly-tank chrome — corner vessel element and styles
 **Files:**
 - Modify: `src/app.html` (JS after `hungerRefs` ~line 4144; `updateStripMarker` ~4167; document click handler ~3583; STRINGS es block ~1663)
 
-- [ ] **Step 1: Add i18n keys**
+- [x] **Step 1: Add i18n keys**
 
 In the `STRINGS` es block, right after the line `"adjusts with age": "se ajusta con la edad",` (~line 1663), insert:
 
@@ -138,7 +138,7 @@ In the `STRINGS` es block, right after the line `"adjusts with age": "se ajusta 
         "usually fed when ≈ {n} ml remain": "suele comer cuando quedan ≈ {n} ml",
 ```
 
-- [ ] **Step 2: Add the scan + updater + tap caption builder**
+- [x] **Step 2: Add the scan + updater + tap caption builder**
 
 Insert immediately after the `hungerRefs` function (after its closing `}` at ~line 4144), before `var stripCompareLast = null;`:
 
@@ -224,7 +224,7 @@ Insert immediately after the `hungerRefs` function (after its closing `}` at ~li
     }
 ```
 
-- [ ] **Step 3: Call the updater from the marker path**
+- [x] **Step 3: Call the updater from the marker path**
 
 In `updateStripMarker()` (~line 4167), after `updateStripList();` add the call:
 
@@ -236,7 +236,7 @@ In `updateStripMarker()` (~line 4167), after `updateStripList();` add the call:
 
 (This covers scrub ticks, the 30s `stripTick`, refetch/`renderDashboard`, baby switch, and returning from Settings — all funnel through `updateStripMarker`.)
 
-- [ ] **Step 4: Add the tank branch to the shared tap handler**
+- [x] **Step 4: Add the tank branch to the shared tap handler**
 
 The document click handler (~line 3583) currently reads:
 
@@ -281,7 +281,7 @@ Change to:
 
 (The `mark` branch stays as-is under the final `else`.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app.html
@@ -297,7 +297,7 @@ Not committed — the inline script has no vitest harness; this is the repo's ex
 **Files:**
 - Create: `/tmp/claude-1000/-home-gllera-ws-babylog/f94a8ed3-2092-41b0-af50-73804a91ea27/scratchpad/tank-check.js`
 
-- [ ] **Step 1: Write the check**
+- [x] **Step 1: Write the check**
 
 ```js
 // Extract-and-eval check for hungerCrossMs (belly-tank spec).
@@ -350,7 +350,7 @@ console.assert(c4 === t0 + 60 * MIN, "class re-checked per step, got " + (c4 - t
 console.log("tank-check: all assertions passed");
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `cd /home/gllera/ws/babylog && node /tmp/claude-1000/-home-gllera-ws-babylog/f94a8ed3-2092-41b0-af50-73804a91ea27/scratchpad/tank-check.js`
 Expected: `tank-check: all assertions passed` and no `Assertion failed` lines.
@@ -362,7 +362,7 @@ Expected: `tank-check: all assertions passed` and no `Assertion failed` lines.
 **Files:**
 - Modify: `src/app.html` (CSS ~1058–1074; `stripCompareHtml` ~4070–4089 and the two rail concatenations; STRINGS es ~1641–1643)
 
-- [ ] **Step 1: Remove the `.fg-belly` CSS and its comment**
+- [x] **Step 1: Remove the `.fg-belly` CSS and its comment**
 
 Delete this block (lines ~1058–1074), including the two comments:
 
@@ -386,7 +386,7 @@ Delete this block (lines ~1058–1074), including the two comments:
     .fg-belly.hungry { border-color: var(--danger); }
 ```
 
-- [ ] **Step 2: Remove the belly branch from `stripCompareHtml`**
+- [x] **Step 2: Remove the belly branch from `stripCompareHtml`**
 
 Delete this block (~lines 4070–4089):
 
@@ -419,7 +419,7 @@ Then drop `belly` from both rail concatenations:
 
 `'<div class="fg-rail"></div>' + whisks + band + median + belly + needle +` → `'<div class="fg-rail"></div>' + whisks + band + median + needle +`
 
-- [ ] **Step 3: Remove the orphaned i18n keys**
+- [x] **Step 3: Remove the orphaned i18n keys**
 
 The mark was the only consumer of these three es entries (~lines 1641–1643) — delete them:
 
@@ -431,7 +431,7 @@ The mark was the only consumer of these three es entries (~lines 1641–1643) �
 
 Verify nothing else references them: `grep -n 'belly ≈\|at the marker\|probably hungry' src/app.html` → only comments (if any) remain, no `i18n(` call sites.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/app.html
@@ -447,7 +447,7 @@ git commit -m "refactor(web): drop the rail belly mark — the hunger meter live
 - Modify: `docs/superpowers/specs/2026-07-12-hunger-meter-design.md` (status paragraph)
 - Modify: `docs/superpowers/specs/2026-07-12-belly-tank-design.md` (status line)
 
-- [ ] **Step 1: Rewrite the gauge bullet in `docs/web-ui.md`**
+- [x] **Step 1: Rewrite the gauge bullet in `docs/web-ui.md`**
 
 Replace the sentence starting `A hollow square **belly mark** rides its own 0→peak scale:` through `hidden until ~20 feeds of history).` (end of that bullet) so the bullet ends at `scrubbing the tape re-reads that window.`, and append a new bullet after it:
 
@@ -464,7 +464,7 @@ Replace the sentence starting `A hollow square **belly mark** rides its own 0→
   of history, while the marker predates tracking, and on Settings.
 ```
 
-- [ ] **Step 2: Amend the hunger-meter spec status**
+- [x] **Step 2: Amend the hunger-meter spec status**
 
 In `docs/superpowers/specs/2026-07-12-hunger-meter-design.md`, append one sentence to the end of the **Status** paragraph:
 
@@ -475,11 +475,11 @@ bottle vessel beside the settings button with a dotted usually-fed
 reserve line, whose tap carries the reinstated next-feed forecast.
 ```
 
-- [ ] **Step 3: Flip the belly-tank spec status**
+- [x] **Step 3: Flip the belly-tank spec status**
 
 In `docs/superpowers/specs/2026-07-12-belly-tank-design.md`: `**Status:** approved` → `**Status:** implemented`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/web-ui.md docs/superpowers/specs/2026-07-12-hunger-meter-design.md docs/superpowers/specs/2026-07-12-belly-tank-design.md
@@ -492,12 +492,12 @@ git commit -m "docs: corner belly tank — web-ui section and spec statuses"
 
 **Files:** none (behavioral)
 
-- [ ] **Step 1: Existing test suite**
+- [x] **Step 1: Existing test suite**
 
 Run: `cd /home/gllera/ws/babylog && npm test`
 Expected: all vitest suites pass (they cover TS modules; this change must not break the build or tests).
 
-- [ ] **Step 2: Behavioral pass in the running app**
+- [x] **Step 2: Behavioral pass in the running app**
 
 Run `npx wrangler dev` (uses `.dev.vars` + local D1 with seeded data) and open the printed localhost URL:
 
@@ -512,7 +512,7 @@ Run `npx wrangler dev` (uses `.dev.vars` + local D1 with seeded data) and open t
 9. Gauge rail: no square left; band/median/needle/whiskers/tap captions intact.
 10. Multi-baby household (if seeded): switcher chips clear the cluster.
 
-- [ ] **Step 3: Console check**
+- [x] **Step 3: Console check**
 
 In the browser devtools console, confirm no errors during scrub/tap/tab-switch.
 
