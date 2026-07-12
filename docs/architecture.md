@@ -5,7 +5,7 @@ database, that exposes three interfaces over the same data:
 
 - **MCP** at `/mcp` — the Model Context Protocol server ([tool reference](./mcp-tools.md))
 - **Web app** at `/app` — a browser UI ([details](./web-ui.md))
-- **Alexa** at `/alexa` — a Spanish voice skill ([setup](../alexa-skill/README.md))
+- **Alexa** at `/alexa` — a bilingual (Spanish + English) voice skill ([setup](../alexa-skill/README.md))
 
 All three read and write the same per-household data, so an event logged by
 voice shows up in the web app and is queryable over MCP.
@@ -65,17 +65,22 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 │   ├── app.html                    # Browser app shell (served at /app)
 │   ├── icons.ts                    # PNG app icons (base64) for iOS/Android
 │   ├── alexa.ts                    # /alexa endpoint for the Alexa skill
+│   ├── alexa-i18n.ts               # Alexa localization (es-ES / en voices)
 │   ├── lib.ts                      # Pure helpers (timezone, gaps, ages)
+│   ├── growth.ts                   # Growth-based targets (weight/age → target); pure, tested
 │   ├── types.ts                    # Env + DB row types
 │   └── html.d.ts                   # Type shim: import *.html as string
 ├── test/
 │   ├── lib.test.ts                 # Unit tests for the pure helpers
-│   └── users.test.ts               # Unit tests for baby selection (pickBaby)
+│   ├── users.test.ts               # Unit tests for baby selection (pickBaby)
+│   ├── growth.test.ts              # Unit tests for growth-based targets
+│   └── alexa.test.ts               # Unit tests for the Alexa voices
 ├── alexa-skill/
-│   ├── interaction-model.es-ES.json  # Voice model to upload to Alexa
-│   └── README.md                   # Step-by-step skill setup
+│   ├── interaction-model.es-ES.json  # Spanish voice model to upload to Alexa
+│   ├── interaction-model.en.json     # English voice model (en-US + en-GB)
+│   └── README.md                     # Step-by-step skill setup
 ├── migrations/                     # 0001..NNNN sequential D1 schema migrations
-├── wrangler.jsonc                  # Worker + Durable Object + D1 + KV bindings
+├── wrangler.jsonc                  # Worker + Durable Object + D1 bindings
 ├── tsconfig.json
 └── package.json
 ```
