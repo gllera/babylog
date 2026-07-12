@@ -14,6 +14,8 @@ import {
   madridDayWindow,
   madridHHMM,
   escapeLike,
+  feedingMergeWindow,
+  FEEDING_MERGE_WINDOW_MIN,
 } from "../src/lib";
 
 describe("computeAgeParts", () => {
@@ -300,5 +302,27 @@ describe("madridHHMM", () => {
   it("formats UTC instants in Madrid local time", () => {
     expect(madridHHMM("2026-06-10T07:05:00Z")).toBe("9:05");
     expect(madridHHMM("2026-01-10T07:05:00Z")).toBe("8:05");
+  });
+});
+
+describe("feedingMergeWindow", () => {
+  it("spans the merge window on both sides of ts", () => {
+    expect(feedingMergeWindow("2026-06-10T12:00:00.000Z")).toEqual({
+      start: "2026-06-10T11:50:00.000Z",
+      end: "2026-06-10T12:10:00.000Z",
+    });
+  });
+
+  it("stays canonical-ISO so it compares lexicographically with stored ts", () => {
+    const { start, end } = feedingMergeWindow(new Date().toISOString());
+    expect(start).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(end).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  });
+
+  it("width follows FEEDING_MERGE_WINDOW_MIN", () => {
+    const { start, end } = feedingMergeWindow("2026-06-10T12:00:00.000Z");
+    expect(Date.parse(end) - Date.parse(start)).toBe(
+      2 * FEEDING_MERGE_WINDOW_MIN * 60_000
+    );
   });
 });

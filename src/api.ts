@@ -16,6 +16,7 @@ import {
   madridDateOf,
   madridDayWindow,
   normalizeTs,
+  recordFeeding,
 } from "./lib";
 import {
   buildIndicationStatement,
@@ -121,6 +122,14 @@ type EntityConfig = {
   // Value columns beyond id/ts; doubles as the insert column list.
   fields: string[];
   createSchema: z.ZodTypeAny;
+  // Replaces the generic INSERT for entities whose create has extra
+  // semantics (feedings merge into a nearby entry instead of duplicating).
+  create?: (
+    env: Env,
+    tenant: Tenant,
+    baby: BabyRow,
+    value: { when?: string } & Record<string, unknown>
+  ) => Promise<Response>;
   // Adds entity-specific WHERE clauses from query params (kind/name/search).
   listFilter?: (
     url: URL,
@@ -143,6 +152,24 @@ const ENTITIES: Record<string, EntityConfig> = {
       amount_ml: z.number().positive().max(MAX_FEEDING_ML),
       when: whenField,
     }),
+    // A feeding within 10 minutes of an existing one tops up that entry
+    // (the oldest match) instead of inserting — same rule as the MCP and
+    // Alexa paths. 200 + merged:true (vs 201) tells the web client to toast
+    // the new total and make undo *subtract* the amount; its usual
+    // delete-undo would eat the pre-existing row.
+    create: async (env, tenant, baby, value) => {
+      const row = await recordFeeding(
+        env.DB,
+        baby.id,
+        tenant.email,
+        normalizeTs(value.when),
+        value.amount_ml as number
+      );
+      return jsonOk(
+        { id: row.id, ts: row.ts, amount_ml: row.amount_ml, merged: row.merged },
+        row.merged ? 200 : 201
+      );
+    },
   },
   diapers: {
     table: "diapers",
@@ -275,6 +302,7 @@ async function handleEntity(
     const value = parsed.value as Record<string, string | number> & {
       when?: string;
     };
+    if (cfg.create) return cfg.create(env, tenant, sel.baby, value);
     const ts = normalizeTs(value.when);
     const placeholders = cfg.fields.map(() => "?").join(", ");
     const row = await env.DB.prepare(

@@ -78,6 +78,12 @@ describe("voiceEn fragments", () => {
     );
   });
 
+  it("feedingMerged speaks the top-up and the new total", () => {
+    expect(v.feedingMerged(30, 150)).toBe(
+      "Added 30 milliliters to the previous feeding: 150 in total."
+    );
+  });
+
   it("feedingSummary pluralizes and marks the total", () => {
     expect(v.feedingSummary(1, 100)).toBe("1 feeding, 100 milliliters.");
     expect(v.feedingSummary(3, 450)).toBe("3 feedings, 450 milliliters in total.");
@@ -152,6 +158,12 @@ describe("voiceEs", () => {
     );
     expect(v.routineRecorded("Vitamin D", v.gapTail(prev, now, "routine"))).toBe(
       "Apuntado: vitamina D, 10 minutos desde la última vez."
+    );
+  });
+
+  it("feedingMerged speaks the top-up and the new total", () => {
+    expect(v.feedingMerged(30, 150)).toBe(
+      "Añadidos 30 mililitros a la toma anterior: 150 en total."
     );
   });
 

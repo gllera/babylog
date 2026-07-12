@@ -147,6 +147,11 @@ guarda.
 - `record_feeding({ amount_ml, when? })`. Devuelve `id` y **tiempo desde
   la toma anterior** (p. ej. `gap_since_previous: "3h 18m"`); reprodúcelo
   al usuario.
+- Si la hora cae a **menos de 10 minutos** de una toma ya registrada, el
+  servidor **suma los ml a esa toma** (la más antigua que coincida) en vez
+  de crear otra: la respuesta trae `merged: true` y `amount_ml` pasa a ser
+  el **total** de la toma. Díselo al usuario ("añadidos X ml a la toma de
+  las HH:MM, total Y ml") en vez de anunciar una toma nueva.
 - `list_feedings({ since?, until?, limit? })`.
 - `delete_feeding({ id })`.
 

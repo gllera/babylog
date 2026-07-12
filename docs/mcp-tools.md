@@ -16,7 +16,7 @@ All record / list / stats / indication tools accept an optional `baby`
 | `add_caregiver`     | Register another email into the caller's household                      |
 | `remove_caregiver`  | Remove a caregiver's email from the caller's household (not yourself)   |
 | `create_household`  | Create a new isolated household with its first caregiver + default baby |
-| `record_feeding`    | Log a feeding: `amount_ml` (required), `when` (ISO ts). Returns the gap since the previous feeding |
+| `record_feeding`    | Log a feeding: `amount_ml` (required), `when` (ISO ts). Returns the gap since the previous feeding. Within 10 min of an existing feeding it adds to that entry (oldest match) instead — `merged: true`, `amount_ml` = the entry's new total |
 | `list_feedings`     | List feedings, newest first. Optional `since` / `until` / `limit`       |
 | `delete_feeding`    | Remove a feeding by `id`                                                |
 | `record_diaper`     | Log a diaper: `kind` ('pee' / 'poop' / 'both'), `when`. Returns the gap since the previous diaper |

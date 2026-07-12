@@ -217,3 +217,79 @@ export async function insertAndLookupPrev<P>(
     id: (insRes.results as Array<{ id: number }>)[0]?.id ?? 0,
   };
 }
+
+// A feeding recorded within this many minutes of an existing one is the same
+// feed continued (a top-up after a burp break, a second half of the bottle),
+// not a separate event — its amount is added to the existing row instead of
+// inserting a near-duplicate. Shared by the MCP tools, the JSON API, and the
+// Alexa skill.
+export const FEEDING_MERGE_WINDOW_MIN = 10;
+
+// Inclusive [start, end] canonical-ISO window around `ts` that an existing
+// feeding must fall in to absorb the new amount.
+export function feedingMergeWindow(ts: string): { start: string; end: string } {
+  const ms = FEEDING_MERGE_WINDOW_MIN * 60_000;
+  const t = Date.parse(ts);
+  return {
+    start: new Date(t - ms).toISOString(),
+    end: new Date(t + ms).toISOString(),
+  };
+}
+
+export type FeedingWrite = {
+  id: number;
+  // The stored row's timestamp — the *existing* feeding's when merged.
+  ts: string;
+  // The row's total after the write (old amount + new amount when merged).
+  amount_ml: number;
+  merged: boolean;
+  // Last feeding strictly before `ts`, for gap reporting on fresh inserts.
+  prevTs: string | null;
+};
+
+// Insert a feeding — unless one already exists within the merge window, in
+// which case the amount is added to the oldest such row (which keeps its own
+// timestamp and creator). One batch = one transaction, and the statements
+// exploit its ordering: the UPDATE leaves the window non-empty, so the
+// guarded INSERT after it is a no-op exactly when the merge fired.
+export async function recordFeeding(
+  db: D1Database,
+  babyId: number,
+  createdBy: string,
+  ts: string,
+  amountMl: number
+): Promise<FeedingWrite> {
+  const { start, end } = feedingMergeWindow(ts);
+  const [prevRes, updRes, insRes] = await db.batch([
+    db
+      .prepare(
+        "SELECT ts FROM feedings WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
+      )
+      .bind(babyId, ts),
+    db
+      .prepare(
+        `UPDATE feedings SET amount_ml = amount_ml + ?
+         WHERE id = (SELECT id FROM feedings WHERE baby_id = ? AND ts >= ? AND ts <= ? ORDER BY ts LIMIT 1)
+         RETURNING id, ts, amount_ml`
+      )
+      .bind(amountMl, babyId, start, end),
+    db
+      .prepare(
+        `INSERT INTO feedings (ts, amount_ml, baby_id, created_by)
+         SELECT ?, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM feedings WHERE baby_id = ? AND ts >= ? AND ts <= ?)
+         RETURNING id, ts, amount_ml`
+      )
+      .bind(ts, amountMl, babyId, createdBy, babyId, start, end),
+  ]);
+  type Row = { id: number; ts: string; amount_ml: number };
+  const mergedRow = (updRes.results as Row[])[0];
+  const row = mergedRow ?? (insRes.results as Row[])[0];
+  return {
+    id: row.id,
+    ts: row.ts,
+    amount_ml: row.amount_ml,
+    merged: mergedRow !== undefined,
+    prevTs: (prevRes.results as Array<{ ts: string }>)[0]?.ts ?? null,
+  };
+}

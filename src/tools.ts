@@ -30,6 +30,8 @@ import {
   madridMidnightUtc,
   madridDayWindow,
   insertAndLookupPrev,
+  recordFeeding,
+  FEEDING_MERGE_WINDOW_MIN,
 } from "./lib";
 import { SERVER_ORIGIN } from "./web";
 import {
@@ -640,7 +642,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       "record_feeding",
       {
         description:
-          "Record a milk feeding for the baby. If the user does not specify a time, OMIT the `when` parameter — the server records the feeding at the current time. Only pass `when` if the user gave an explicit past/future time. The response includes the gap since the previous feeding so the agent can mention it.",
+          `Record a milk feeding for the baby. If the user does not specify a time, OMIT the \`when\` parameter — the server records the feeding at the current time. Only pass \`when\` if the user gave an explicit past/future time. The response includes the gap since the previous feeding so the agent can mention it. If the time falls within ${FEEDING_MERGE_WINDOW_MIN} minutes of an existing feeding, the amount is added to that feeding (the oldest match) instead of creating a new entry — the response then has merged=true, keeps the existing entry's id/ts, and amount_ml is that entry's new total.`,
         inputSchema: {
           amount_ml: z
             .number()
@@ -656,6 +658,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           id: z.number().int(),
           ts: z.string(),
           amount_ml: z.number(),
+          merged: z.boolean(),
           gap_since_previous: z.string().nullable(),
           gap_since_previous_min: z.number().int().nullable(),
           previous_ts: z.string().nullable(),
@@ -665,35 +668,45 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         const t = await this.tenant();
         const target = pickBaby(t.babies, baby);
         const ts = normalizeTs(when);
-        const { id, prev } = await insertAndLookupPrev<{ ts: string }>(
-          db,
-          db
-            .prepare(
-              "SELECT ts FROM feedings WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
-            )
-            .bind(target.id, ts),
-          db
-            .prepare(
-              "INSERT INTO feedings (ts, amount_ml, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-            )
-            .bind(ts, amount_ml, target.id, t.email)
-        );
-        const { gapStr, gapMin, gapNote } = formatGap(ts, prev?.ts ?? null);
+        const row = await recordFeeding(db, target.id, t.email, ts, amount_ml);
+        if (row.merged) {
+          // The feed didn't create a new event, so "gap since previous"
+          // doesn't apply — the merge target IS the previous feeding.
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Added ${amount_ml} ml to feeding #${row.id}${forBabyNote(t, target)} at ${row.ts} (within ${FEEDING_MERGE_WINDOW_MIN} min): now ${row.amount_ml} ml.`,
+              },
+            ],
+            structuredContent: {
+              id: row.id,
+              ts: row.ts,
+              amount_ml: row.amount_ml,
+              merged: true,
+              gap_since_previous: null,
+              gap_since_previous_min: null,
+              previous_ts: null,
+            },
+          };
+        }
+        const { gapStr, gapMin, gapNote } = formatGap(ts, row.prevTs);
 
         return {
           content: [
             {
               type: "text",
-              text: `Recorded feeding #${id}${forBabyNote(t, target)}: ${amount_ml} ml at ${ts}${gapNote}.`,
+              text: `Recorded feeding #${row.id}${forBabyNote(t, target)}: ${amount_ml} ml at ${ts}${gapNote}.`,
             },
           ],
           structuredContent: {
-            id,
+            id: row.id,
             ts,
             amount_ml,
+            merged: false,
             gap_since_previous: gapStr,
             gap_since_previous_min: gapMin,
-            previous_ts: prev?.ts ?? null,
+            previous_ts: row.prevTs,
           },
         };
       }

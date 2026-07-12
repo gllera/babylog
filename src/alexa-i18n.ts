@@ -52,6 +52,9 @@ export interface Voice {
   askMl: string;
   askMlReprompt: string;
   feedingRecorded(amountMl: number, tail: string): string;
+  // Spoken when the amount was folded into a feeding logged minutes ago
+  // instead of creating a new entry.
+  feedingMerged(addedMl: number, totalMl: number): string;
   feedingCard: string;
 
   // ---- diaper ----
@@ -167,6 +170,9 @@ export const voiceEs: Voice = {
   askMlReprompt: 'Dime los mililitros, por ejemplo "ciento veinte".',
   feedingRecorded(amountMl, tail) {
     return `Apuntado: ${amountMl} mililitros${tail}.`;
+  },
+  feedingMerged(addedMl, totalMl) {
+    return `Añadidos ${addedMl} mililitros a la toma anterior: ${totalMl} en total.`;
   },
   feedingCard: "Toma registrada",
 
@@ -300,6 +306,9 @@ export const voiceEn: Voice = {
   askMlReprompt: 'Tell me the milliliters, for example "one hundred twenty".',
   feedingRecorded(amountMl, tail) {
     return `Logged: ${amountMl} milliliters${tail}.`;
+  },
+  feedingMerged(addedMl, totalMl) {
+    return `Added ${addedMl} milliliters to the previous feeding: ${totalMl} in total.`;
   },
   feedingCard: "Feeding logged",
 

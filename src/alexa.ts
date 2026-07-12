@@ -22,6 +22,7 @@ import {
   madridDateOf,
   madridMidnightUtc,
   madridHHMM,
+  recordFeeding,
 } from "./lib";
 import type { DiaperKind } from "./types";
 import { getBabies, pickBaby } from "./users";
@@ -575,17 +576,20 @@ async function handleRecordFeeding(
   const babyId = await alexaBabyId(env);
   const now = Date.now();
   const ts = new Date(now).toISOString();
-  const { prev } = await insertAndLookupPrev<{ ts: string }>(
-    env.DB,
-    env.DB.prepare(
-      "SELECT ts FROM feedings WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
-    ).bind(babyId, ts),
-    env.DB.prepare(
-      "INSERT INTO feedings (ts, amount_ml, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-    ).bind(ts, amountMl, babyId, ALEXA_USER)
+  const row = await recordFeeding(env.DB, babyId, ALEXA_USER, ts, amountMl);
+  // Alexa always records "now", so a merge target is a feeding from the last
+  // few minutes — speak the top-up, not a gap since "the previous feeding"
+  // (which would be the very entry that absorbed the amount).
+  if (row.merged) {
+    return speak(v.feedingMerged(amountMl, row.amount_ml), {
+      cardTitle: v.feedingCard,
+    });
+  }
+  const tail = v.gapTail(
+    row.prevTs ? { ts: row.prevTs } : undefined,
+    now,
+    "feeding"
   );
-
-  const tail = v.gapTail(prev, now, "feeding");
   return speak(v.feedingRecorded(amountMl, tail), {
     cardTitle: v.feedingCard,
   });
