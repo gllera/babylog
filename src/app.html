@@ -1052,32 +1052,7 @@
        under it — both ends carry "ml" without paying its width, so the label
        column stays as narrow as the number and the rail keeps the room. The
        stack still fits inside the rail's height. */
-    /* The lens caption above the rail: both stats named, the active one in
-       ink. Tap it — or swipe the readout horizontally — to swap lenses. It
-       owns the readout's top gap; the rail hangs 6px under it. (.fg-empty
-       keeps its own margin: no caption when there is nothing to swap.) */
-    .fg-mode {
-      display: flex;
-      gap: 6px;
-      margin-top: 14px;
-      font-size: 11px;
-      line-height: 1;
-      color: var(--muted);
-    }
-    .fg-mode-opt.on { color: var(--text); font-weight: 600; }
-    .fg-gauge { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-    /* The readout is a swipe surface (lens swap): keep vertical panning
-       native, keep the drag from selecting the printed labels. */
-    .strip-compare {
-      touch-action: pan-y;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-    /* Lens-swap entry: the rebuilt gauge slides in from the swipe's side. */
-    @keyframes fg-slide-l { from { transform: translateX(14px); opacity: 0.4; } }
-    @keyframes fg-slide-r { from { transform: translateX(-14px); opacity: 0.4; } }
-    .fg-slide-l { animation: fg-slide-l 0.18s ease-out; }
-    .fg-slide-r { animation: fg-slide-r 0.18s ease-out; }
+    .fg-gauge { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
     .fg-end {
       display: flex;
       flex-direction: column;
@@ -1608,8 +1583,6 @@
         "highest day": "día más alto",
         "day total {n} ml": "total del día {n} ml",
         "24h before marker": "24 h antes del marcador",
-        "fed": "tomado",
-        "digested": "digerido",
         "{n} day before marker": "{n} día antes del marcador",
         "{n} days before marker": "{n} días antes del marcador",
         // Indication labels — bare names stored in English in the DB
@@ -3511,8 +3484,6 @@
     }
     document.addEventListener("click", function(e) {
       var t = e.target;
-      var mode = t.closest ? t.closest(".fg-mode") : null;
-      if (mode) { hideTapTip(); fgSwapMode(0); return; }
       var chip = t.closest ? t.closest(".strip-chip") : null;
       var mark = !chip && t.closest ? t.closest(".fg-bullet [data-v]") : null;
       if (!chip && !mark) { hideTapTip(); return; }
@@ -3748,17 +3719,16 @@
       return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
     }
 
-    // Digestion lens: the same stats computed on *digested* ml. Each feed's
-    // amount is released along an exponential gastric-emptying curve, so a
-    // window boundary slices a feed proportionally instead of all-or-nothing
-    // — a 10-minute nudge can no longer teleport a whole bottle across a day
-    // edge (docs/superpowers/specs/2026-07-12-digested-gauge-design.md).
+    // Digestion model: the gauge's stats are computed on *digested* ml. Each
+    // feed's amount is released along an exponential gastric-emptying curve,
+    // so a window boundary slices a feed proportionally instead of
+    // all-or-nothing — a 10-minute nudge can no longer teleport a whole
+    // bottle across a day edge (see the digested-gauge spec in docs/).
     var FG_DIG_HALF_MS = 60 * 60 * 1000; // digestion half-life
     var FG_DIG_SPAN_HL = 5;              // truncation, in half-lives
     // Renormalizing by the truncation point credits every feed's full amount
     // eventually — conservation stays exact despite the cutoff.
     var FG_DIG_NORM = 1 - Math.pow(2, -FG_DIG_SPAN_HL);
-    var fgDigested = false; // the lens: false = fed (raw sums, default), true = digested
 
     // Fraction of a feed digested ageMs after it was taken (0 before it).
     function digFrac(ageMs) {
@@ -3877,11 +3847,9 @@
         return '<div class="fg-empty">' + escapeHtml(i18n("No feeds in this window yet.")) + '</div>';
 
       var feeds = d.strip_feedings || [];
-      var dig = fgDigested;
-      // The digested lens swaps every ml for its digested slice; captions
-      // carry ≈ because those numbers are modeled, not logged sums.
-      var apx = dig ? "≈ " : "";
-      var today = dig ? digSumMl(feeds, endMs - DAY_MS, endMs) : w0.ml;
+      // Digested ml, not raw sums; captions carry ≈ because the numbers are
+      // modeled, not logged totals.
+      var today = digSumMl(feeds, endMs - DAY_MS, endMs);
 
       // The "usual" range = the distribution of the prior FG_WINDOW_DAYS daily
       // totals, today excluded so it can't bias its own band. Floor the sample
@@ -3903,7 +3871,7 @@
       for (j = 1; j <= FG_WINDOW_DAYS; j++) {
         ws = windowStats(d, endMs - j * DAY_MS, statFloor);
         if (ws != null) {
-          var pml = dig ? digSumMl(feeds, endMs - (j + 1) * DAY_MS, endMs - j * DAY_MS) : ws.ml;
+          var pml = digSumMl(feeds, endMs - (j + 1) * DAY_MS, endMs - j * DAY_MS);
           priors.push(pml); priorDays.push({ ml: pml, j: j });
         }
       }
@@ -3931,17 +3899,8 @@
         return '<span class="fg-end">' + v + '<span class="fg-end-u">ml</span></span>';
       };
       var endLo = fgEnd(axMin), endHi = fgEnd(axMax);
-      var needle = fgMark("fg-today", pos(today), i18n("day total {n} ml", { n: apx + fgMl(today) }),
+      var needle = fgMark("fg-today", pos(today), i18n("day total {n} ml", { n: "≈ " + fgMl(today) }),
         '<span class="fg-today-cap"></span>', i18n("24h before marker"));
-
-      // The lens caption: names the active statistics and reveals the other
-      // exists. Tapping it swaps too (see the document click handler) — the
-      // visible fallback for the horizontal swipe.
-      var modeCap = '<div class="fg-mode">' +
-        '<span class="fg-mode-opt' + (dig ? '' : ' on') + '">' + escapeHtml(i18n("fed")) + '</span>' +
-        '<span>·</span>' +
-        '<span class="fg-mode-opt' + (dig ? ' on' : '') + '">' + escapeHtml(i18n("digested")) + '</span>' +
-        '</div>';
 
       // Too little history for an honest range yet — so this is the rail before
       // it can draw a band: the days on record are muted ticks (each tappable
@@ -3950,9 +3909,9 @@
       if (priors.length < FG_MIN_DAYS) {
         var ticks = '';
         for (mi = 0; mi < priorDays.length; mi++)
-          ticks += fgMark("fg-tick", pos(priorDays[mi].ml), apx + fgMl(priorDays[mi].ml) + " ml", '',
+          ticks += fgMark("fg-tick", pos(priorDays[mi].ml), "≈ " + fgMl(priorDays[mi].ml) + " ml", '',
             plural(priorDays[mi].j, "{n} day before marker", "{n} days before marker"));
-        return modeCap + '<div class="fg-gauge">' + endLo +
+        return '<div class="fg-gauge">' + endLo +
           '<div class="fg-bullet">' +
             '<div class="fg-rail"></div>' + ticks + needle +
           '</div>' + endHi +
@@ -3966,36 +3925,27 @@
       // needle reads against all of it. Every mark holds its number for a tap;
       // nothing is printed but the scale's ends.
       var band = '<div class="fg-band" data-x="' + ((bl + br) / 2).toFixed(1) +
-        '" data-v="' + escapeHtml(i18n("usual") + " " + apx + fgMl(q1) + "–" + fgMl(q3) + " ml") +
+        '" data-v="' + escapeHtml(i18n("usual") + " ≈ " + fgMl(q1) + "–" + fgMl(q3) + " ml") +
         '" data-m="' + escapeHtml(winMeta) +
         '" style="left:' + bl.toFixed(1) + '%;width:' + (br - bl).toFixed(1) + '%"></div>';
-      var median = fgMark("fg-med", pos(med), i18n("median") + " " + apx + fgMl(med) + " ml", '', winMeta);
+      var median = fgMark("fg-med", pos(med), i18n("median") + " ≈ " + fgMl(med) + " ml", '', winMeta);
       var wLo = pos(priors[0]), wHi = pos(priors[priors.length - 1]);
       var whisks =
         '<div class="fg-whisk lo" data-x="' + wLo.toFixed(1) +
-          '" data-v="' + escapeHtml(i18n("lowest day") + " " + apx + fgMl(priors[0]) + " ml") +
+          '" data-v="' + escapeHtml(i18n("lowest day") + " ≈ " + fgMl(priors[0]) + " ml") +
           '" data-m="' + escapeHtml(winMeta) +
           '" style="left:' + wLo.toFixed(1) + '%;width:' + Math.max(0, bl - wLo).toFixed(1) + '%">' +
           '<span class="fg-whisk-cap"></span></div>' +
         '<div class="fg-whisk hi" data-x="' + wHi.toFixed(1) +
-          '" data-v="' + escapeHtml(i18n("highest day") + " " + apx + fgMl(priors[priors.length - 1]) + " ml") +
+          '" data-v="' + escapeHtml(i18n("highest day") + " ≈ " + fgMl(priors[priors.length - 1]) + " ml") +
           '" data-m="' + escapeHtml(winMeta) +
           '" style="left:' + br.toFixed(1) + '%;width:' + Math.max(0, wHi - br).toFixed(1) + '%">' +
           '<span class="fg-whisk-cap"></span></div>';
-      return modeCap + '<div class="fg-gauge">' + endLo +
+      return '<div class="fg-gauge">' + endLo +
         '<div class="fg-bullet">' +
           '<div class="fg-rail"></div>' + whisks + band + median + needle +
         '</div>' + endHi +
       '</div>';
-    }
-
-    // Swap the stats lens. dir flavors the entry slide with the swipe's
-    // direction; 0 = no slide (the caption tap).
-    var fgSlideDir = 0;
-    function fgSwapMode(dir) {
-      fgDigested = !fgDigested;
-      fgSlideDir = dir;
-      updateStripCompare();
     }
 
     function updateStripCompare() {
@@ -4007,11 +3957,6 @@
       var el = document.querySelector("#today-strip .strip-compare");
       if (!el || !dashboardData) return;
       el.innerHTML = stripCompareHtml(dashboardData);
-      if (fgSlideDir) {
-        var g = el.querySelector(".fg-gauge");
-        if (g) g.classList.add(fgSlideDir < 0 ? "fg-slide-l" : "fg-slide-r");
-        fgSlideDir = 0;
-      }
     }
 
     // Refresh the readout from the scroll position: relative to now on the
@@ -4163,42 +4108,6 @@
     }
     stripEl.addEventListener("pointerup", stripDragEnd);
     stripEl.addEventListener("pointercancel", stripDragEnd);
-
-    // Horizontal swipe on the feeding readout swaps the stats lens (fed ⇄
-    // digested). Delegated on the strip root so it survives every rebuild;
-    // armed only over a readout that actually shows a gauge (.fg-empty is
-    // inert). Crossing the horizontal-intent threshold swaps once and eats
-    // the gesture's click in capture phase so no tap caption pops from the
-    // same finger. pointerup disarms a plain tap so hover moves can never
-    // measure against a stale origin; a swipe's done-flag survives just
-    // long enough for its click, and the next pointerdown rewrites it.
-    // (.strip-compare sits outside .rhythm-scroll, so this can't fight the
-    // tape drag above — the two arms are disjoint by their closest() gates.)
-    var fgSwipe = null;
-    stripEl.addEventListener("pointerdown", function(e) {
-      var sc = e.target.closest && e.target.closest(".strip-compare");
-      fgSwipe = sc && sc.querySelector(".fg-gauge")
-        ? { x: e.clientX, y: e.clientY, done: false } : null;
-    });
-    stripEl.addEventListener("pointermove", function(e) {
-      if (!fgSwipe || fgSwipe.done) return;
-      var dx = e.clientX - fgSwipe.x, dy = e.clientY - fgSwipe.y;
-      if (Math.abs(dx) >= 32 && Math.abs(dx) > 2 * Math.abs(dy)) {
-        fgSwipe.done = true;
-        fgSwapMode(dx < 0 ? -1 : 1);
-      }
-    });
-    stripEl.addEventListener("pointerup", function() {
-      if (fgSwipe && !fgSwipe.done) fgSwipe = null; // plain tap: let its click through
-    });
-    stripEl.addEventListener("pointercancel", function() { fgSwipe = null; });
-    document.addEventListener("click", function(e) {
-      if (fgSwipe && fgSwipe.done) {
-        fgSwipe = null;
-        e.stopPropagation();
-        e.preventDefault();
-      }
-    }, true);
 
     // Jump dialog wiring (the element is static; its innerHTML is rebuilt
     // per open, so everything is delegated). Commits on submit — the Go
