@@ -1,7 +1,10 @@
 # Digested-milk gauge mode (swipe-swappable fg rail) — design
 
 **Date:** 2026-07-12
-**Status:** approved (pending spec review)
+**Status:** implemented, then simplified same day — the fed lens, mode
+caption, and swipe swap were removed by user decision; the gauge now shows
+the digested statistics only (kernel, ≈ captions, and the raw-max axis
+remain as specified)
 
 ## Problem
 
