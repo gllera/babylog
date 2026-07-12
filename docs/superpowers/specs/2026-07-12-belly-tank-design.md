@@ -70,7 +70,10 @@ Chosen over (visual-companion session, user picks):
   drain over the 5h span).
 - **Tap → next-feed estimate** (the removed readout line's forecast,
   reinstated in the tap): tapping the tank cluster opens the shared tap-tip:
-  - **Marker at now** (`stripFollowNow`): value line `next feed ~17:40`
+  - **Marker at now** (the readout's own reads-Now test,
+    `stripMarkerMin() >= rsNowMin()` — not `stripFollowNow`, whose
+    strict pixel glue drifts false on idle tapes while the dial still
+    reads "Now"): value line `next feed ~17:40`
     (es `próxima toma ~17:40`) — the first instant the draining fullness
     crosses under the reference, found by a 1-minute forward scan up to
     **+12 h**, each scanned instant tested against its own day/night class.

@@ -527,13 +527,14 @@
        opens the jump-to-a-moment dialog (.rs-jump-dlg), so it renders as
        a full-width ghost button — borderless (it reads as a dial first),
        with only hover/press feedback and a focus ring giving it away.
-       "Full-width" stops at the door's column: the ⚙ sits over this band
-       (page top-left), so the wrapper insets the ghost past its 64px
-       (+10px gap, the baby switcher's clearance) or the wash and hit
-       area would run underneath the gear. */
+       "Full-width" stops at the corner cluster's column: the ⚙ and the
+       belly tank sit over this band (page top-left), so the wrapper
+       insets the ghost past both boxes (64px door + 48px tank band +
+       10px gap) or the wash and hit area would run underneath them — a
+       near-miss on the tank must not open the jump dialog. */
     .rs-readout {
       text-align: right;
-      padding-left: 74px;
+      padding-left: 122px;
     }
     .rs-readout-btn {
       display: block;
@@ -1254,7 +1255,7 @@
     .who-lbl { font-size: 7px; fill: var(--muted); font-family: inherit; }
     /* Baby switcher (multi-baby households only; stays hidden otherwise).
        Right padding keeps the chip row clear of the corner button. */
-    #baby-switcher { display: flex; gap: 8px; padding: 12px 16px 0 110px; flex-wrap: wrap; max-width: 920px; margin: 0 auto; }
+    #baby-switcher { display: flex; gap: 8px; padding: 12px 16px 0 136px; flex-wrap: wrap; max-width: 920px; margin: 0 auto; }
     #baby-switcher[hidden] { display: none; }
     /* The app's one door: a bare glyph riding the top-left of the content
        column. On Today it shows the sliders glyph — three rails with a dot
@@ -1312,15 +1313,21 @@
        number leads the tap caption instead. The left edge continues the
        door's clamp math (door left + 64px + 4px). Hidden on Settings via
        the sibling selector below — the door reads ← there and the
-       flyleaf carries no live status. */
+       flyleaf carries no live status. The paddings grow the 18px icon
+       into a 48px touch band (the door's dialect: hit area bigger than
+       the glyph), asymmetric on purpose: the left edge stops exactly at
+       the door's box (left pad 4 = the icon's old 4px gap), the right
+       carries the rest — the band must never shave the door's own hit
+       area. */
     #belly-tank {
       position: absolute;
       top: 10px;
-      left: max(78px, calc(50% - 376px));
+      left: max(74px, calc(50% - 380px));
       z-index: 40;
       display: flex;
       align-items: center;
       height: 64px;
+      padding: 0 26px 0 4px;
       cursor: pointer;
       touch-action: manipulation;
       -webkit-user-select: none;
@@ -1397,7 +1404,7 @@
     .settings-note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
     @media (max-width: 640px) {
       :root { --stack: 14px; }
-      #baby-switcher { padding: 10px 10px 0 100px; }
+      #baby-switcher { padding: 10px 10px 0 136px; }
       main { margin: 14px auto; padding: 0 10px 24px; }
 
       .strip-btn { font-size: 16px; padding: 12px 8px; }
@@ -4221,13 +4228,17 @@
 
     // Tap caption, built at tap time: the belly ml leads, the next-feed
     // estimate rides along when the marker sits at now (the past needs
-    // no forecast), and the calibration story is the meta line.
+    // no forecast), and the calibration story is the meta line. "At now"
+    // is the readout's own test (markerMin == nowMin, 5-min slack) — NOT
+    // stripFollowNow: the strict glue flag drifts false on idle float
+    // dust while the dial still reads "Now", and a tap that shows no
+    // forecast under a "Now" readout reads as broken.
     function bellyTankTip() {
       var refs = hungerRefs(dashboardData);
       var endMs = markerInstant().getTime();
       var feeds = dashboardData.strip_feedings || [];
       var v = i18n("belly ≈ {n} ml", { n: fgMl(fullnessAt(feeds, endMs)) });
-      if (stripFollowNow) {
+      if (stripMarkerMin() >= rsNowMin()) {
         var cross = hungerCrossMs(feeds, refs, Date.now());
         if (cross != null)
           v += " · " + (cross <= Date.now() ? i18n("next feed ~ now")
