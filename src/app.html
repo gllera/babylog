@@ -1666,13 +1666,13 @@
         // Feeding readout under the Today tape
         "No feeds in this window yet.": "Aún no hay tomas en esta ventana.",
         "usual": "habitual",
-        "median": "mediana",
+        "typical day": "día típico",
         "lowest day": "día más bajo",
         "highest day": "día más alto",
         "day total {n} ml": "total del día {n} ml",
-        "24h before marker": "24 h antes del marcador",
-        "{n} day before marker": "{n} día antes del marcador",
-        "{n} days before marker": "{n} días antes del marcador",
+        "24h before this moment": "24 h antes de este momento",
+        "{n} day before this moment": "{n} día antes de este momento",
+        "{n} days before this moment": "{n} días antes de este momento",
         // Indication labels — bare names stored in English in the DB
         // (growth.ts catalog + seeded rows); known ones translate here,
         // custom labels pass through. 'Bath' and 'Tummy' ride the
@@ -3563,7 +3563,9 @@
       var n = ind.target + (ind.unit ? " " + ind.unit : "");
       var txt;
       if (ind.metric === "feeding_gap_max_min") {
-        txt = i18n("At most {n} between feeds", { n: n });
+        // The gap target is minutes in the DB; a multi-hour cap reads as
+        // "5h", not "300 min" (the chip face keeps the raw minute score).
+        txt = i18n("At most {n} between feeds", { n: durationLabel(ind.target * 60000) });
       } else if (ind.period_days > 1) {
         txt = i18n(ind.comparison === "<=" ? "At most {n} every {d} days" : "At least {n} every {d} days",
           { n: n, d: ind.period_days });
@@ -4085,7 +4087,7 @@
       }
       priors.sort(function (a, b) { return a - b; });
       // The window behind every aggregate mark, revealed with its value.
-      var winMeta = plural(priors.length, "{n} day before marker", "{n} days before marker");
+      var winMeta = plural(priors.length, "{n} day before this moment", "{n} days before this moment");
 
       // Absolute scale — the rail is a daily-intake gauge. Its two ends are the
       // only printed numbers; every mark's exact value is a tap away. The top is
@@ -4108,7 +4110,7 @@
       };
       var endLo = fgEnd(axMin), endHi = fgEnd(axMax);
       var needle = fgMark("fg-today", pos(today), i18n("day total {n} ml", { n: "≈ " + fgMl(today) }),
-        '<span class="fg-today-cap"></span>', i18n("24h before marker"));
+        '<span class="fg-today-cap"></span>', i18n("24h before this moment"));
       // Too little history for an honest range yet — so this is the rail before
       // it can draw a band: the days on record are muted ticks (each tappable
       // for its total and which day it was), today the feed-hue needle. The
@@ -4117,7 +4119,7 @@
         var ticks = '';
         for (mi = 0; mi < priorDays.length; mi++)
           ticks += fgMark("fg-tick", pos(priorDays[mi].ml), "≈ " + fgMl(priorDays[mi].ml) + " ml", '',
-            plural(priorDays[mi].j, "{n} day before marker", "{n} days before marker"));
+            plural(priorDays[mi].j, "{n} day before this moment", "{n} days before this moment"));
         return '<div class="fg-gauge">' + endLo +
           '<div class="fg-bullet">' +
             '<div class="fg-rail"></div>' + ticks + needle +
@@ -4135,7 +4137,9 @@
         '" data-v="' + escapeHtml(i18n("usual") + " ≈ " + fgMl(q1) + "–" + fgMl(q3) + " ml") +
         '" data-m="' + escapeHtml(winMeta) +
         '" style="left:' + bl.toFixed(1) + '%;width:' + (br - bl).toFixed(1) + '%"></div>';
-      var median = fgMark("fg-med", pos(med), i18n("median") + " ≈ " + fgMl(med) + " ml", '', winMeta);
+      // Statistically the median, but the caption says "typical day" — the
+      // one stats word on the page didn't survive the elder-audience test.
+      var median = fgMark("fg-med", pos(med), i18n("typical day") + " ≈ " + fgMl(med) + " ml", '', winMeta);
       var wLo = pos(priors[0]), wHi = pos(priors[priors.length - 1]);
       var whisks =
         '<div class="fg-whisk lo" data-x="' + wLo.toFixed(1) +
