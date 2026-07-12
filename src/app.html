@@ -3719,6 +3719,37 @@
       return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
     }
 
+    // Digestion lens: the same stats computed on *digested* ml. Each feed's
+    // amount is released along an exponential gastric-emptying curve, so a
+    // window boundary slices a feed proportionally instead of all-or-nothing
+    // — a 10-minute nudge can no longer teleport a whole bottle across a day
+    // edge (docs/superpowers/specs/2026-07-12-digested-gauge-design.md).
+    var FG_DIG_HALF_MS = 60 * 60 * 1000; // digestion half-life
+    var FG_DIG_SPAN_HL = 5;              // truncation, in half-lives
+    // Renormalizing by the truncation point credits every feed's full amount
+    // eventually — conservation stays exact despite the cutoff.
+    var FG_DIG_NORM = 1 - Math.pow(2, -FG_DIG_SPAN_HL);
+    var fgDigested = false; // the lens: false = fed (raw sums, default), true = digested
+
+    // Fraction of a feed digested ageMs after it was taken (0 before it).
+    function digFrac(ageMs) {
+      var hl = ageMs / FG_DIG_HALF_MS;
+      if (hl <= 0) return 0;
+      if (hl >= FG_DIG_SPAN_HL) return 1;
+      return (1 - Math.pow(2, -hl)) / FG_DIG_NORM;
+    }
+
+    // Digested ml over (startMs, endMs]: each feed contributes the slice of
+    // its release curve that falls inside the window.
+    function digSumMl(feeds, startMs, endMs) {
+      var s = 0, i, t;
+      for (i = 0; i < feeds.length; i++) {
+        t = new Date(feeds[i].ts).getTime();
+        s += (feeds[i].amount_ml || 0) * (digFrac(endMs - t) - digFrac(startMs - t));
+      }
+      return s;
+    }
+
     // Selected baby's birth instant (ms), or null when unknown — lets a window
     // that lies entirely before the baby existed blank out instead of reading a
     // misleading zero.
