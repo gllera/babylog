@@ -1254,7 +1254,7 @@
     .who-lbl { font-size: 7px; fill: var(--muted); font-family: inherit; }
     /* Baby switcher (multi-baby households only; stays hidden otherwise).
        Right padding keeps the chip row clear of the corner button. */
-    #baby-switcher { display: flex; gap: 8px; padding: 12px 16px 0 170px; flex-wrap: wrap; max-width: 920px; margin: 0 auto; }
+    #baby-switcher { display: flex; gap: 8px; padding: 12px 16px 0 110px; flex-wrap: wrap; max-width: 920px; margin: 0 auto; }
     #baby-switcher[hidden] { display: none; }
     /* The app's one door: a bare glyph riding the top-left of the content
        column. On Today it shows the sliders glyph — three rails with a dot
@@ -1307,10 +1307,12 @@
        grown to cluster size, milk level = stomach content at the marker
        on her own 0→peak fullness scale, a dotted usually-fed reserve
        line across it (dotted = scaffolding, the fg-gauge axis's
-       language), and the ml in small print at its side. The left edge
-       continues the door's clamp math (door left + 64px + 4px). Hidden
-       on Settings via the sibling selector below — the door reads ←
-       there and the flyleaf carries no live status. */
+       language). The icon rides alone — a printed ml label crowded the
+       tape's relative readout on narrow viewports (user's ask), so the
+       number leads the tap caption instead. The left edge continues the
+       door's clamp math (door left + 64px + 4px). Hidden on Settings via
+       the sibling selector below — the door reads ← there and the
+       flyleaf carries no live status. */
     #belly-tank {
       position: absolute;
       top: 10px;
@@ -1318,7 +1320,6 @@
       z-index: 40;
       display: flex;
       align-items: center;
-      gap: 7px;
       height: 64px;
       cursor: pointer;
       touch-action: manipulation;
@@ -1331,14 +1332,11 @@
     .bt-fill { fill: var(--primary); }
     .bt-body { fill: none; stroke: var(--border); stroke-width: 1; }
     .bt-ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
-    .bt-num { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
-    .bt-num small { font-size: 10px; margin-left: 1px; }
-    /* Probably hungry (emptier than her usual pre-feed level): milk and
-       number trade feed-hue/muted for danger — the reserve line makes
-       the red self-explanatory (level under the line she usually eats
-       at). The vessel outline stays hairline. */
+    /* Probably hungry (emptier than her usual pre-feed level): the milk
+       trades its feed hue for danger — the reserve line makes the red
+       self-explanatory (level under the line she usually eats at). The
+       vessel outline stays hairline. */
     #belly-tank.hungry .bt-fill { fill: var(--danger); }
-    #belly-tank.hungry .bt-num { color: var(--danger); }
     #settings-btn.at-settings + #belly-tank { display: none; }
     /* The flyleaf reads whose diary → the child's data → the household's
        people → app pref. Each section's management controls (ledger,
@@ -1399,7 +1397,7 @@
     .settings-note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
     @media (max-width: 640px) {
       :root { --stack: 14px; }
-      #baby-switcher { padding: 10px 10px 0 160px; }
+      #baby-switcher { padding: 10px 10px 0 100px; }
       main { margin: 14px auto; padding: 0 10px 24px; }
 
       .strip-btn { font-size: 16px; padding: 12px 8px; }
@@ -1687,6 +1685,7 @@
         "150 ml per kg of body weight": "150 ml por kg de peso",
         "adjusts with age": "se ajusta con la edad",
         // Belly tank tap captions
+        "belly ≈ {n} ml": "barriga ≈ {n} ml",
         "next feed ~{t}": "próxima toma ~{t}",
         "next feed ~ now": "próxima toma ~ ya",
         "usually fed when ≈ {n} ml remain": "suele comer cuando quedan ≈ {n} ml",
@@ -3626,7 +3625,7 @@
         // estimate must be fresh at tap time, not at rebuild time.
         var tr = tank.getBoundingClientRect();
         var tt = bellyTankTip();
-        showTapTip(tank, tr, tr.left + tr.width / 2, false, tt.v, tt.m || undefined);
+        showTapTip(tank, tr, tr.left + tr.width / 2, false, tt.v, tt.m);
       } else {
         // Anchored at the mark's rail position (data-x), not its own box —
         // a whisker div spans from its cap to the band, so its box center
@@ -4162,8 +4161,9 @@
     // The hunger meter's face: the tape's bottle vessel at cluster size,
     // milk level = fullness at the marker on her own 0→peak scale, a
     // dotted reserve line at the usually-fed reference for the marker's
-    // day/night class, the ml in small print at the side. Hungry (level
-    // under the line) swaps feed-hue/muted for danger.
+    // day/night class. The ml lives in the tap caption, not beside the
+    // icon (a printed label crowded the tape's relative readout). Hungry
+    // (level under the line) swaps the milk's feed hue for danger.
     var BT_W = 16, BT_H = 28, BT_RX = 4.5; // vessel units in the 18x30 box
 
     // First instant from nowMs (1-minute steps, up to +12h) where the
@@ -4208,8 +4208,7 @@
             '" width="' + BT_W + '" height="' + fh.toFixed(1) + '"/>' +
           '<rect class="bt-body" ' + vessel + '/>' +
           '<line class="bt-ref" x1="2" y1="' + refY.toFixed(1) + '" x2="' + BT_W + '" y2="' + refY.toFixed(1) + '"/>' +
-        '</svg>' +
-        '<span class="bt-num">≈ ' + fgMl(f) + '<small>ml</small></span>';
+        '</svg>';
       el.classList.toggle("hungry", f < ref);
       el.hidden = false;
       // Unchanged html (a parked marker's tick) skips the rebuild; a
@@ -4220,21 +4219,24 @@
       el.innerHTML = html;
     }
 
-    // Tap caption, built at tap time: the calibration story, led (marker
-    // riding now) by the next-feed estimate. The past needs no forecast:
-    // a scrubbed marker gets the why-caption alone.
+    // Tap caption, built at tap time: the belly ml leads, the next-feed
+    // estimate rides along when the marker sits at now (the past needs
+    // no forecast), and the calibration story is the meta line.
     function bellyTankTip() {
       var refs = hungerRefs(dashboardData);
       var endMs = markerInstant().getTime();
-      var why = i18n("usually fed when ≈ {n} ml remain",
-        { n: fgMl(nightAt(endMs) ? refs.night : refs.day) });
-      if (!stripFollowNow) return { v: why, m: null };
-      var cross = hungerCrossMs(dashboardData.strip_feedings || [], refs, Date.now());
-      if (cross == null) return { v: why, m: null };
+      var feeds = dashboardData.strip_feedings || [];
+      var v = i18n("belly ≈ {n} ml", { n: fgMl(fullnessAt(feeds, endMs)) });
+      if (stripFollowNow) {
+        var cross = hungerCrossMs(feeds, refs, Date.now());
+        if (cross != null)
+          v += " · " + (cross <= Date.now() ? i18n("next feed ~ now")
+            : i18n("next feed ~{t}", { t: formatTimeOfDay(new Date(cross)) }));
+      }
       return {
-        v: cross <= Date.now() ? i18n("next feed ~ now")
-          : i18n("next feed ~{t}", { t: formatTimeOfDay(new Date(cross)) }),
-        m: why
+        v: v,
+        m: i18n("usually fed when ≈ {n} ml remain",
+          { n: fgMl(nightAt(endMs) ? refs.night : refs.day) })
       };
     }
 

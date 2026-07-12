@@ -35,10 +35,10 @@ timezone.
   (draining linearly to empty over 5 h) on her own 0→peak fullness scale,
   a dotted reserve line at the level she's usually fed (self-calibrated
   medians of pre-feed fullness, split by the Settings-defined day/night
-  window), and the ml in small print at its side. Level under the line
-  turns milk and number danger-red. Tapping it reveals the calibration
-  story and — with the marker riding "now" — a next-feed estimate (the
-  first crossing under the reference within 12 h). Hidden until ~20 feeds
+  window). Level under the line turns the milk danger-red. Tapping it
+  reveals the belly ml, the calibration story and — with the marker
+  riding "now" — a next-feed estimate (the first crossing under the
+  reference within 12 h). Hidden until ~20 feeds
   of history, while the marker predates tracking, and on Settings.
 - Data comes from a single aggregated `/api/dashboard` request (which also
   evaluates indications server-side over Madrid-day windows), refetched

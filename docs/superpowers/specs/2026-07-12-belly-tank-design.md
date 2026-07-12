@@ -1,7 +1,11 @@
 # Corner belly tank (hunger meter relocation) — design
 
 **Date:** 2026-07-12
-**Status:** implemented
+**Status:** implemented; same-day amendment — the `≈ N ml` side label
+was dropped (it crowded the tape's relative readout on narrow
+viewports, user's ask): the icon rides the corner alone and the value
+now **leads the tap caption** (`belly ≈ N ml · next feed ~…`, why-line
+beneath). Read the Number/Tap sections through that lens.
 
 ## Problem
 
