@@ -3770,14 +3770,24 @@
     }
 
     // ---- Hunger meter (see the hunger-meter spec in docs/) ----
-    // Fullness at instant tMs: every recent feed's still-undigested
-    // remainder — digSumMl's complement, so fullness + digested = fed. A
-    // feed at exactly tMs counts in full (the belly fills at t⁺).
+    // Belly remainder of one feed at age ageMs: the belly drains LINEARLY
+    // to empty over the kernel's 5 h span — the mark moves at constant
+    // speed, so its pace reads at a glance (user decision; the gauge's
+    // window sums keep the exponential kernel for smoothing). Calibration
+    // below uses the same model, so "hungry" stays self-consistent.
+    function bellyLeft(ageMs) {
+      if (ageMs <= 0) return 1;
+      var span = FG_DIG_SPAN_HL * FG_DIG_HALF_MS;
+      return ageMs >= span ? 0 : 1 - ageMs / span;
+    }
+    // Fullness at instant tMs: every recent feed's still-undrained
+    // remainder. A feed at exactly tMs counts in full (the belly fills
+    // at t⁺).
     function fullnessAt(feeds, tMs) {
       var s = 0, i, t;
       for (i = 0; i < feeds.length; i++) {
         t = new Date(feeds[i].ts).getTime();
-        if (t <= tMs) s += (feeds[i].amount_ml || 0) * (1 - digFrac(tMs - t));
+        if (t <= tMs) s += (feeds[i].amount_ml || 0) * bellyLeft(tMs - t);
       }
       return s;
     }
@@ -3800,7 +3810,7 @@
       for (i = 0; i < ev.length; i++) {
         f = 0;
         for (j = i - 1; j >= 0 && ev[i].t - ev[j].t < FG_DIG_SPAN_HL * FG_DIG_HALF_MS; j--)
-          f += ev[j].a * (1 - digFrac(ev[i].t - ev[j].t));
+          f += ev[j].a * bellyLeft(ev[i].t - ev[j].t);
         all.push(f);
         // Fullness maxima only occur at feed instants (it decays between),
         // so this is the history's fullness ceiling — a scrub-stable scale

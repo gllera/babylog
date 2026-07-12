@@ -17,6 +17,13 @@ full rail (the one mark not on the intake axis; the distinct glyph keeps
 it tellable apart), tap-revealing "belly ≈ N ml (at the marker)", gated
 with the meter. The history's fullness peak (a `hungerCalib` field) is
 the scrub-stable scale. Read Surface C's sections through that lens.
+Later same-day amendment: the fullness model changed from the kernel's
+exponential complement to a **linear drain** over the same 5 h span
+(`bellyLeft`) — the mark moves at constant speed so its pace reads at a
+glance (user decision). The gauge's window sums keep the exponential
+kernel; the `fullness + digested = fed` complement identity was dropped
+on purpose. Calibration uses the same linear model, so the hungry test
+stays self-consistent.
 
 ## Problem
 
