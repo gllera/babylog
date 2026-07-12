@@ -1052,7 +1052,32 @@
        under it — both ends carry "ml" without paying its width, so the label
        column stays as narrow as the number and the rail keeps the room. The
        stack still fits inside the rail's height. */
-    .fg-gauge { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+    /* The lens caption above the rail: both stats named, the active one in
+       ink. Tap it — or swipe the readout horizontally — to swap lenses. It
+       owns the readout's top gap; the rail hangs 6px under it. (.fg-empty
+       keeps its own margin: no caption when there is nothing to swap.) */
+    .fg-mode {
+      display: flex;
+      gap: 6px;
+      margin-top: 14px;
+      font-size: 11px;
+      line-height: 1;
+      color: var(--muted);
+    }
+    .fg-mode-opt.on { color: var(--text); font-weight: 600; }
+    .fg-gauge { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+    /* The readout is a swipe surface (lens swap): keep vertical panning
+       native, keep the drag from selecting the printed labels. */
+    .strip-compare {
+      touch-action: pan-y;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    /* Lens-swap entry: the rebuilt gauge slides in from the swipe's side. */
+    @keyframes fg-slide-l { from { transform: translateX(14px); opacity: 0.4; } }
+    @keyframes fg-slide-r { from { transform: translateX(-14px); opacity: 0.4; } }
+    .fg-slide-l { animation: fg-slide-l 0.18s ease-out; }
+    .fg-slide-r { animation: fg-slide-r 0.18s ease-out; }
     .fg-end {
       display: flex;
       flex-direction: column;
