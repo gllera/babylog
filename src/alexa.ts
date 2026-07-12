@@ -299,26 +299,9 @@ function canonicalRoutineName(raw: string): string {
 
 // ---- Request verification --------------------------------------------------
 
-const SIG_HEADER_KEYS = ["signature", "Signature"] as const;
-const CERT_HEADER_KEYS = [
-  "signaturecertchainurl",
-  "SignatureCertChainUrl",
-] as const;
-
 // Cache parsed X509 by source URL. Survives within an isolate so warm requests
 // skip the PEM fetch and ASN.1 parse. Amazon rotates these only every few days.
 const certCache = new Map<string, X509Certificate>();
-
-function headerCaseInsensitive(
-  request: Request,
-  candidates: readonly string[]
-): string | null {
-  for (const k of candidates) {
-    const v = request.headers.get(k);
-    if (v) return v;
-  }
-  return null;
-}
 
 async function loadCert(certChainUrl: string): Promise<X509Certificate> {
   const cached = certCache.get(certChainUrl);
@@ -351,8 +334,10 @@ async function verifySignature(
 ): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
   if (env.ALEXA_SKIP_SIGNATURE === "true") return { ok: true };
 
-  const certChainUrl = headerCaseInsensitive(request, CERT_HEADER_KEYS);
-  const signature = headerCaseInsensitive(request, SIG_HEADER_KEYS);
+  // Headers.get is case-insensitive per the Fetch spec, so one lookup covers
+  // whatever casing Alexa sends.
+  const certChainUrl = request.headers.get("SignatureCertChainUrl");
+  const signature = request.headers.get("Signature");
 
   if (!certChainUrl || !signature) {
     return {

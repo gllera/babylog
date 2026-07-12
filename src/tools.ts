@@ -38,10 +38,11 @@ import { SERVER_ORIGIN } from "./web";
 import {
   GROWTH_FORMULAS,
   GROWTH_FORMULA_KEYS,
-  isGrowthFormula,
+  INDICATION_METRICS,
   resolveIndicationTarget,
   estimateWeightG,
   ageDaysAt,
+  type IndicationMetric,
   type WeightSample,
 } from "./growth";
 import {
@@ -70,14 +71,6 @@ function formatBaby(b: BabyRow): string {
   return lines.join("\n");
 }
 
-const INDICATION_METRICS = [
-  "feeding_total_ml",
-  "feeding_count",
-  "feeding_gap_max_min",
-  "diaper_count",
-  "routine_count",
-] as const;
-type IndicationMetric = (typeof INDICATION_METRICS)[number];
 const indicationMetricSchema = z.enum(INDICATION_METRICS);
 const comparisonSchema = z.enum([">=", "<="] as const);
 const formulaSchema = z.enum(GROWTH_FORMULA_KEYS);
@@ -594,8 +587,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           let ageDays: number | null = null;
           if (b.date_of_birth) {
             age = computeAge(b.date_of_birth);
-            const birth = new Date(`${b.date_of_birth}T00:00:00Z`);
-            ageDays = Math.floor((Date.now() - birth.getTime()) / DAY_MS);
+            ageDays = ageDaysAt(b.date_of_birth, new Date());
           }
           return {
             id: b.id,

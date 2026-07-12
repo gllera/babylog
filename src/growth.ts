@@ -100,12 +100,18 @@ export function estimateHeightCm(
   );
 }
 
-export type IndicationMetricName =
-  | "feeding_total_ml"
-  | "feeding_count"
-  | "feeding_gap_max_min"
-  | "diaper_count"
-  | "routine_count";
+// The metric vocabulary indications aggregate over, as a tuple so callers can
+// build a zod enum from it (like GROWTH_FORMULA_KEYS below). Single source of
+// truth for the union — tools.ts and the formula catalog both derive from it.
+export const INDICATION_METRICS = [
+  "feeding_total_ml",
+  "feeding_count",
+  "feeding_gap_max_min",
+  "diaper_count",
+  "routine_count",
+] as const;
+
+export type IndicationMetric = (typeof INDICATION_METRICS)[number];
 
 // Inputs a formula draws on. Either can be null (no weigh-in yet / no DOB set),
 // in which case a formula that needs it returns null and the caller falls back.
@@ -115,7 +121,7 @@ export type GrowthContext = {
 };
 
 export type GrowthFormula = {
-  metric: IndicationMetricName;
+  metric: IndicationMetric;
   comparison: ">=" | "<=";
   filter: string | null;
   label: string;

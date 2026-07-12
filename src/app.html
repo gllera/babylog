@@ -1850,8 +1850,7 @@
       var s = document.getElementById("night-start"), e = document.getElementById("night-end");
       if (!s || !e) return;
       function fmt(min) {
-        var h = Math.floor(min / 60), m = min % 60;
-        return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+        return pad2(Math.floor(min / 60)) + ":" + pad2(min % 60);
       }
       s.value = fmt(nightStartMin);
       e.value = fmt(nightEndMin);
@@ -2020,7 +2019,7 @@
       if (diff === 0) return i18n("Today");
       if (diff === 1) return i18n("Yesterday");
       var w = toWall(d);
-      return WEEK_DAY_LABELS[(w.getUTCDay() + 6) % 7] + " " + fmtDayMonth(d);
+      return weekdayLabel(w) + " " + fmtDayMonth(d);
     }
 
     function fmtFullDate(d) {
@@ -2071,6 +2070,12 @@
       }, undoFn ? 6000 : 2400);
     }
 
+    // Standard error toast. Unauthorized stays silent on purpose — the 401
+    // path already reloads into the Access login (see gotoLogin).
+    function toastErr(err, key) {
+      if (err.message !== "Unauthorized") toast(i18n(key || "Error: {e}", { e: err.message }), true);
+    }
+
     // A 401 means the Cloudflare Access session expired (the app itself has no
     // login). A full reload triggers a top-level navigation, which Access
     // intercepts to re-run its login flow and then returns us here.
@@ -2109,19 +2114,20 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
     }
 
-    // Undo handler for a just-created entry: delete it and refresh whatever
-    // view the user is looking at now.
+    // Shared tail of every undo: confirm, then refresh whatever view the
+    // user is looking at now.
+    function afterUndo(entity, promise) {
+      promise.then(function() {
+        toast(i18n("Undone"));
+        if (currentTab === "today") loadDashboard();
+        else if (entities[entity].key) loadList(entity);
+      }).catch(function(err) { toastErr(err, "Undo failed: {e}"); });
+    }
+
+    // Undo handler for a just-created entry: delete it again.
     function makeUndo(entity, id) {
       if (!id) return null;
-      return function() {
-        deleteEntry(entity, id).then(function() {
-          toast(i18n("Undone"));
-          if (currentTab === "today") loadDashboard();
-          else if (entities[entity].key) loadList(entity);
-        }).catch(function(err) {
-          if (err.message !== "Unauthorized") toast(i18n("Undo failed: {e}", { e: err.message }), true);
-        });
-      };
+      return function() { afterUndo(entity, deleteEntry(entity, id)); };
     }
 
     // A feedings POST within 10 minutes of an existing entry comes back with
@@ -2134,13 +2140,7 @@
         return;
       }
       toast(i18n("Added to previous feeding — {n} ml total", { n: created.amount_ml }), false, function() {
-        putJson(entities[entity].endpoint + "/" + created.id, { amount_ml: created.amount_ml - body.amount_ml }).then(function() {
-          toast(i18n("Undone"));
-          if (currentTab === "today") loadDashboard();
-          else if (entities[entity].key) loadList(entity);
-        }).catch(function(err) {
-          if (err.message !== "Unauthorized") toast(i18n("Undo failed: {e}", { e: err.message }), true);
-        });
+        afterUndo(entity, putJson(entities[entity].endpoint + "/" + created.id, { amount_ml: created.amount_ml - body.amount_ml }));
       });
     }
 
@@ -2378,21 +2378,8 @@
       ? ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
       : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-    // Day label for a Madrid date string ("YYYY-MM-DD"): Today / Yesterday
-    // with the date riding along, weekday + date beyond, year once it stops
-    // being this one. Today-tape dialect — the ledgers print full dates
-    // (fmtIsoDate) instead.
-    function dayLabel(ds) {
-      var todayS = madridDateStr(new Date());
-      var yw = toWall(new Date());
-      yw.setUTCDate(yw.getUTCDate() - 1);
-      var ddmm = ds.slice(8, 10) + "/" + ds.slice(5, 7);
-      if (ds === todayS) return i18n("Today") + " · " + ddmm;
-      if (ds === yw.toISOString().slice(0, 10)) return i18n("Yesterday") + " · " + ddmm;
-      var dow = WEEK_DAY_LABELS[(new Date(ds + "T00:00:00Z").getUTCDay() + 6) % 7];
-      var label = dow + " " + ddmm;
-      if (ds.slice(0, 4) !== todayS.slice(0, 4)) label += "/" + ds.slice(0, 4);
-      return label;
+    function weekdayLabel(d) {
+      return WEEK_DAY_LABELS[(d.getUTCDay() + 6) % 7];
     }
 
     // The ledger: one ruled line per record, day-grained (these are
@@ -2510,7 +2497,7 @@
           setFold(document.querySelector(".masthead-btn"), true);
         }
       } catch (err) {
-        if (err.message !== "Unauthorized") toast(i18n("Error loading: {e}", { e: err.message }), true);
+        toastErr(err, "Error loading: {e}");
       }
     }
 
@@ -2708,7 +2695,7 @@
         // (and re-labels after a rename).
         loadDashboard();
       } catch (err) {
-        if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+        toastErr(err);
       } finally {
         btn.disabled = false;
       }
@@ -2728,7 +2715,7 @@
         toast(i18n("Invited {e}", { e: email.toLowerCase() }));
         loadSettings();
       } catch (err) {
-        if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+        toastErr(err);
       } finally {
         btn.disabled = false;
       }
@@ -2749,7 +2736,7 @@
         renderDashboard();
         return true;
       } catch (err) {
-        if (err.message !== "Unauthorized") toast(i18n("Error loading dashboard: {e}", { e: err.message }), true);
+        toastErr(err, "Error loading dashboard: {e}");
         return false;
       }
     }
@@ -3079,7 +3066,7 @@
         var dt = new Date(startWall + dayI * DAY_MS);
         var dayLbl = dayI === RS_DAYS - 1 ? i18n("Today")
           : dayI === RS_DAYS - 2 ? i18n("Yesterday")
-          : WEEK_DAY_LABELS[(dt.getUTCDay() + 6) % 7] +
+          : weekdayLabel(dt) +
             (RS_DAYS - 1 - dayI > 6
               ? " " + pad2(dt.getUTCDate()) + "/" + pad2(dt.getUTCMonth() + 1) : "");
         svg += '<text class="rs-day" x="' + x(dayI * 1440) + '" y="131">' +
@@ -3682,7 +3669,7 @@
       // Same rule as the tape stamps: bare weekday within a week, the date
       // rides along beyond it (rows reach there once the tape is
       // jump-extended, or when the marker parks at the base tape's start).
-      var wd = WEEK_DAY_LABELS[(new Date(ds + "T00:00:00Z").getUTCDay() + 6) % 7];
+      var wd = weekdayLabel(new Date(ds + "T00:00:00Z"));
       if (Date.parse(madridDateStr(now)) - Date.parse(ds) > 6 * DAY_MS) {
         wd += " " + fmtDayMonth(dt);
       }
@@ -4323,7 +4310,7 @@
         savedToast(entity, body, created);
         loadDashboard();
       } catch (err) {
-        if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+        toastErr(err);
       } finally {
         stripBusy = false;
         updateStripActions();
@@ -4347,7 +4334,7 @@
         toast(i18n(doneMsg));
         loadDashboard();
       } catch (err) {
-        if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+        toastErr(err);
       } finally {
         stripBusy = false;
         updateStripActions();
@@ -4435,19 +4422,22 @@
       e.preventDefault();
       stripJumpGo(e.target);
     });
+    // Backdrop tap: the dialog element is the click target there too, but so
+    // is its own padding — only a click outside the box's rect counts.
+    function closeOnBackdrop(dlg, e) {
+      if (e.target !== dlg) return;
+      var r = dlg.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+        dlg.close();
+      }
+    }
+
     jumpDlg.addEventListener("click", function(e) {
       if (e.target.closest && e.target.closest('[data-jump="cancel"]')) {
         jumpDlg.close();
         return;
       }
-      // Backdrop tap: the dialog element is the target there too, but so is
-      // its own padding — only a click outside the box's rect counts.
-      if (e.target === jumpDlg) {
-        var r = jumpDlg.getBoundingClientRect();
-        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
-          jumpDlg.close();
-        }
-      }
+      closeOnBackdrop(jumpDlg, e);
     });
 
     stripEl.addEventListener("click", function(e) {
@@ -4846,7 +4836,7 @@
           }
           loadList(entity);
         } catch (err) {
-          if (err.message !== "Unauthorized") toast(i18n("Error: {e}", { e: err.message }), true);
+          toastErr(err);
         } finally {
           submitBtn.disabled = false;
         }
@@ -4906,7 +4896,7 @@
           loadList(entity);
         }
       } catch (err) {
-        if (err.message !== "Unauthorized") toast(i18n("Delete error: {e}", { e: err.message }), true);
+        toastErr(err, "Delete error: {e}");
       } finally {
         t.disabled = false;
       }
@@ -4940,13 +4930,7 @@
       babyDlg.close();
     });
     babyDlg.addEventListener("click", function(e) {
-      // Backdrop tap: same outside-the-rect test as the jump dialog.
-      if (e.target === babyDlg) {
-        var r = babyDlg.getBoundingClientRect();
-        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
-          babyDlg.close();
-        }
-      }
+      closeOnBackdrop(babyDlg, e);
     });
 
     document.getElementById("baby-del-confirm").addEventListener("click", async function() {
@@ -4973,7 +4957,7 @@
           loadDashboard();
         }
       } catch (err) {
-        if (err.message !== "Unauthorized") toast(i18n("Delete error: {e}", { e: err.message }), true);
+        toastErr(err, "Delete error: {e}");
       } finally {
         btn.disabled = false;
       }
