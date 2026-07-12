@@ -3749,6 +3749,68 @@
       return s;
     }
 
+    // ---- Hunger meter (see the hunger-meter spec in docs/) ----
+    // Fullness at instant tMs: every recent feed's still-undigested
+    // remainder — digSumMl's complement, so fullness + digested = fed. A
+    // feed at exactly tMs counts in full (the belly fills at t⁺).
+    function fullnessAt(feeds, tMs) {
+      var s = 0, i, t;
+      for (i = 0; i < feeds.length; i++) {
+        t = new Date(feeds[i].ts).getTime();
+        if (t <= tMs) s += (feeds[i].amount_ml || 0) * (1 - digFrac(tMs - t));
+      }
+      return s;
+    }
+
+    var FG_HGR_MIN_N = 20;     // pre-feed samples before the meter shows at all
+    var FG_HGR_MIN_CLASS = 12; // per day/night class, else combined fallback
+    // The tape's night band (21:00–07:00 Madrid wall) classifies feeds and
+    // instants — babies run longer gaps at night, so night gets its own bar.
+    function nightHour(h) { return h >= 21 || h < 7; }
+
+    // Self-calibrated hunger references: the median fullness at the moments
+    // just before her own past feeds — "hungry" means emptier than she
+    // usually is when she actually gets fed. Null until enough history.
+    function hungerCalib(feeds) {
+      var ev = [], i, j, f;
+      for (i = 0; i < feeds.length; i++)
+        ev.push({ t: new Date(feeds[i].ts).getTime(), a: feeds[i].amount_ml || 0 });
+      ev.sort(function(a, b) { return a.t - b.t; });
+      var all = [], day = [], night = [];
+      for (i = 0; i < ev.length; i++) {
+        f = 0;
+        for (j = i - 1; j >= 0 && ev[i].t - ev[j].t < FG_DIG_SPAN_HL * FG_DIG_HALF_MS; j--)
+          f += ev[j].a * (1 - digFrac(ev[i].t - ev[j].t));
+        all.push(f);
+        (nightHour(toWall(new Date(ev[i].t)).getUTCHours()) ? night : day).push(f);
+      }
+      if (all.length < FG_HGR_MIN_N) return null;
+      all.sort(function(a, b) { return a - b; });
+      day.sort(function(a, b) { return a - b; });
+      night.sort(function(a, b) { return a - b; });
+      var med = fgQuantile(all, 0.5);
+      return {
+        day: day.length >= FG_HGR_MIN_CLASS ? fgQuantile(day, 0.5) : med,
+        night: night.length >= FG_HGR_MIN_CLASS ? fgQuantile(night, 0.5) : med,
+        n: all.length,
+        days: Math.max(1, Math.round((ev[ev.length - 1].t - ev[0].t) / DAY_MS)),
+        firstMs: ev[0].t
+      };
+    }
+
+    // First instant at/after fromMs where the hungry test holds (fullness
+    // below the instant's day/night reference). 1-minute scan, 12 h
+    // horizon; null = no crossing on the horizon.
+    function hungerCrossMs(feeds, fromMs, refs) {
+      var m, t, ref;
+      for (m = 0; m <= 720; m++) {
+        t = fromMs + m * 60000;
+        ref = nightHour(toWall(new Date(t)).getUTCHours()) ? refs.night : refs.day;
+        if (fullnessAt(feeds, t) < ref) return t;
+      }
+      return null;
+    }
+
     // Selected baby's birth instant (ms), or null when unknown — lets a window
     // that lies entirely before the baby existed blank out instead of reading a
     // misleading zero.
