@@ -1055,23 +1055,6 @@
        column stays as narrow as the number and the rail keeps the room. The
        stack still fits inside the rail's height. */
     .fg-gauge { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-    /* The belly mark (hunger-meter spec): current stomach content as a
-       hollow feed-hue square on its own 0→peak fullness scale across the
-       full rail — the one mark not on the intake axis; the glyph keeps it
-       tellable apart. Opaque backing (bottle treatment) so the rail never
-       threads through it. */
-    .fg-belly {
-      position: absolute;
-      top: 50%;
-      width: 7px;
-      height: 7px;
-      transform: translate(-50%, -50%);
-      background: var(--bg);
-      border: 1.5px solid var(--primary);
-    }
-    /* Probably hungry (emptier than her usual pre-feed level): the mark
-       goes danger-red. */
-    .fg-belly.hungry { border-color: var(--danger); }
     .fg-end {
       display: flex;
       flex-direction: column;
@@ -1683,9 +1666,6 @@
         "highest day": "día más alto",
         "day total {n} ml": "total del día {n} ml",
         "24h before marker": "24 h antes del marcador",
-        "belly ≈ {n} ml": "barriga ≈ {n} ml",
-        "at the marker": "en el marcador",
-        "probably hungry": "probablemente con hambre",
         "{n} day before marker": "{n} día antes del marcador",
         "{n} days before marker": "{n} días antes del marcador",
         // Indication labels — bare names stored in English in the DB
@@ -4123,27 +4103,6 @@
       var endLo = fgEnd(axMin), endHi = fgEnd(axMax);
       var needle = fgMark("fg-today", pos(today), i18n("day total {n} ml", { n: "≈ " + fgMl(today) }),
         '<span class="fg-today-cap"></span>', i18n("24h before marker"));
-      // The belly mark (hunger-meter spec): current stomach content as one
-      // more tappable mark. The one mark NOT on the intake axis — it rides
-      // its own 0→peak fullness scale across the full rail, a fuel needle
-      // that fills at a feed and drains as she digests; the hollow square
-      // glyph keeps it tellable apart from the axis marks. Gated with the
-      // hunger meter (enough history, marker after tracking began).
-      var belly = "";
-      var hgRefs = hungerRefs(d);
-      if (hgRefs && endMs >= hgRefs.firstMs) {
-        var fNow = fullnessAt(feeds, endMs);
-        // Emptier than she usually is when she actually gets fed → the mark
-        // trades its feed hue for the page's breach ink (the chips'
-        // language: loudest state without inventing an alarm color).
-        var hungry = fNow < (nightAt(endMs) ? hgRefs.night : hgRefs.day);
-        belly = fgMark("fg-belly" + (hungry ? " hungry" : ""),
-          Math.max(0, Math.min(100, 100 * fNow / hgRefs.peak)),
-          i18n("belly ≈ {n} ml", { n: fgMl(fNow) }) +
-            (hungry ? " · " + i18n("probably hungry") : ""),
-          '', i18n("at the marker"));
-      }
-
       // Too little history for an honest range yet — so this is the rail before
       // it can draw a band: the days on record are muted ticks (each tappable
       // for its total and which day it was), today the feed-hue needle. The
@@ -4155,7 +4114,7 @@
             plural(priorDays[mi].j, "{n} day before marker", "{n} days before marker"));
         return '<div class="fg-gauge">' + endLo +
           '<div class="fg-bullet">' +
-            '<div class="fg-rail"></div>' + ticks + belly + needle +
+            '<div class="fg-rail"></div>' + ticks + needle +
           '</div>' + endHi +
         '</div>';
       }
@@ -4185,7 +4144,7 @@
           '<span class="fg-whisk-cap"></span></div>';
       return '<div class="fg-gauge">' + endLo +
         '<div class="fg-bullet">' +
-          '<div class="fg-rail"></div>' + whisks + band + median + belly + needle +
+          '<div class="fg-rail"></div>' + whisks + band + median + needle +
         '</div>' + endHi +
       '</div>';
     }
