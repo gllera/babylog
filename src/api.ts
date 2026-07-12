@@ -39,8 +39,10 @@ import {
   listCaregivers,
   pickBaby,
   removeCaregiver,
+  removeBaby,
   resolveTenant,
   notRegisteredMessage,
+  updateBaby,
   type Tenant,
 } from "./users";
 
@@ -538,6 +540,53 @@ async function handleBabies(
   return jsonOk({ ...parsed.value, ...created }, 201);
 }
 
+// PUT /api/babies/<id> edits a baby's identity facts — sex and birth date
+// gate the age line and every WHO feature, so a baby added without them
+// isn't stuck. `null` clears an optional field; omitted fields keep theirs.
+const updateBabySchema = z
+  .object({
+    name: z.string().min(1).max(100).optional(),
+    sex: z.enum(["male", "female"]).nullable().optional(),
+    date_of_birth: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update." });
+
+// DELETE /api/babies/<id> permanently removes a baby AND its whole diary
+// (no FKs — see removeBaby). The web fronts it with an explicit confirm
+// dialog; there is no undo.
+async function handleBabyId(
+  request: Request,
+  env: Env,
+  tenant: Tenant,
+  idStr: string
+): Promise<Response> {
+  const method = request.method.toUpperCase();
+  const id = parseIdParam(idStr);
+  if (!id) return jsonError(400, "Invalid id.");
+  if (method === "PUT") {
+    const parsed = await readBody(request, updateBabySchema);
+    if (!parsed.ok) return jsonError(400, parsed.error);
+    const updated = await updateBaby(
+      env.DB,
+      tenant.householdId,
+      id,
+      parsed.value
+    );
+    if (!updated) return jsonError(404, `No baby #${id} in your household.`);
+    return jsonOk({ ok: true, id });
+  }
+  if (method === "DELETE") {
+    const removed = await removeBaby(env.DB, tenant.householdId, id);
+    if (!removed.ok) return jsonError(404, `No baby #${id} in your household.`);
+    return jsonOk({ ok: true, id, records: removed.records });
+  }
+  return jsonError(405, "Method not allowed.");
+}
+
 // POST /api/caregivers invites a partner; DELETE /api/caregivers/<id> removes
 // one. The DB row only grants tenancy — the email must also be allowed by the
 // Cloudflare Access policy (managed in Cloudflare) to reach the app at all.
@@ -618,8 +667,12 @@ export async function handleApi(
     }
     return handleHousehold(env, tenant);
   }
-  if (parts[1] === "babies" && parts.length === 2) {
-    return handleBabies(request, env, tenant);
+  if (parts[1] === "babies") {
+    if (parts.length === 2) return handleBabies(request, env, tenant);
+    if (parts.length === 3) {
+      return handleBabyId(request, env, tenant, parts[2]);
+    }
+    return jsonError(404, "Unknown entity.");
   }
   if (parts[1] === "caregivers") {
     return handleCaregivers(request, env, tenant, parts[2]);

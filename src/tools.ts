@@ -47,9 +47,11 @@ import {
   addBaby,
   addCaregiver,
   pickBaby,
+  removeBaby,
   removeCaregiver,
   resolveTenant,
   notRegisteredMessage,
+  updateBaby,
   type Tenant,
 } from "./users";
 
@@ -548,27 +550,12 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         }
         const t = await this.tenant();
         const target = pickBaby(t.babies, baby);
-
-        const updates: string[] = [];
-        const params: (string | null)[] = [];
-        if (name !== undefined) {
-          updates.push("name = ?");
-          params.push(name);
-        }
-        if (sex !== undefined) {
-          updates.push("sex = ?");
-          params.push(sex);
-        }
-        if (date_of_birth !== undefined) {
-          updates.push("date_of_birth = ?");
-          params.push(date_of_birth);
-        }
-        updates.push("updated_at = datetime('now')");
-
-        await db
-          .prepare(`UPDATE babies SET ${updates.join(", ")} WHERE id = ?`)
-          .bind(...params, target.id)
-          .run();
+        // Same helper as PUT /api/babies/<id> — one SQL path for edits.
+        await updateBaby(db, t.householdId, target.id, {
+          name,
+          sex,
+          date_of_birth,
+        });
 
         const row = await db
           .prepare(
@@ -2079,6 +2066,50 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             {
               type: "text",
               text: `${target.name ?? `Baby #${target.id}`} is now the default baby.`,
+            },
+          ],
+        };
+      }
+    );
+
+    this.server.registerTool(
+      "remove_baby",
+      {
+        description:
+          "PERMANENTLY delete a baby and their entire diary — every feeding, diaper, routine, note, weight, height and indication. There is no undo. Only call this after the user has explicitly confirmed, in this conversation, that this specific baby should be deleted; set confirm=true to assert that. If the default baby is removed, the oldest remaining baby becomes the default.",
+        inputSchema: {
+          baby: z
+            .string()
+            .min(1)
+            .max(100)
+            .describe("Baby name or numeric id (see get_profile)"),
+          confirm: z
+            .literal(true)
+            .describe(
+              "Must be true — asserts the user explicitly confirmed this permanent deletion"
+            ),
+        },
+      },
+      async ({ baby }) => {
+        const t = await this.tenant();
+        const target = pickBaby(t.babies, baby);
+        const removed = await removeBaby(db, t.householdId, target.id);
+        if (!removed.ok) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `No baby #${target.id} in your household.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Permanently deleted ${target.name ?? `Baby #${target.id}`} (#${target.id}) and ${removed.records} diary record${removed.records === 1 ? "" : "s"}.`,
             },
           ],
         };

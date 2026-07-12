@@ -159,6 +159,93 @@ export async function addBaby(
   return { id: inserted?.id ?? 0, is_default: isDefault === 1 };
 }
 
+// Update a baby's identity facts. `undefined` leaves a column alone; `null`
+// clears it (sex / date_of_birth only — a baby always keeps a name). Rows
+// outside the household simply don't match — same "not found" as a bad id,
+// no cross-tenant existence oracle.
+export async function updateBaby(
+  db: D1Database,
+  householdId: number,
+  babyId: number,
+  fields: {
+    name?: string;
+    sex?: "male" | "female" | null;
+    date_of_birth?: string | null;
+  }
+): Promise<boolean> {
+  const sets: string[] = [];
+  const binds: (string | number | null)[] = [];
+  if (fields.name !== undefined) {
+    sets.push("name = ?");
+    binds.push(fields.name);
+  }
+  if (fields.sex !== undefined) {
+    sets.push("sex = ?");
+    binds.push(fields.sex);
+  }
+  if (fields.date_of_birth !== undefined) {
+    sets.push("date_of_birth = ?");
+    binds.push(fields.date_of_birth);
+  }
+  if (!sets.length) return false;
+  sets.push("updated_at = datetime('now')");
+  const res = await db
+    .prepare(
+      `UPDATE babies SET ${sets.join(", ")} WHERE id = ? AND household_id = ?`
+    )
+    .bind(...binds, babyId, householdId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+// Tables that hold a baby's records. The schema has no foreign keys, so a
+// baby's diary must be deleted alongside the baby or it lingers as
+// invisible orphans.
+const BABY_RECORD_TABLES = [
+  "feedings",
+  "diapers",
+  "routines",
+  "weights",
+  "heights",
+  "indications",
+] as const;
+
+// Permanently delete a baby and its entire diary. Membership is verified
+// first so the record deletes can never touch another household's rows.
+// If the default baby goes and siblings remain, the oldest inherits the
+// flag (mirroring pickBaby's no-flag fallback, but stored). Returns the
+// number of diary records that went with the baby.
+export async function removeBaby(
+  db: D1Database,
+  householdId: number,
+  babyId: number
+): Promise<{ ok: true; records: number } | { ok: false }> {
+  const row = await db
+    .prepare("SELECT is_default FROM babies WHERE id = ? AND household_id = ?")
+    .bind(babyId, householdId)
+    .first<{ is_default: number }>();
+  if (!row) return { ok: false };
+  const stmts = BABY_RECORD_TABLES.map((t) =>
+    db.prepare(`DELETE FROM ${t} WHERE baby_id = ?`).bind(babyId)
+  );
+  stmts.push(db.prepare("DELETE FROM babies WHERE id = ?").bind(babyId));
+  if (row.is_default === 1) {
+    stmts.push(
+      db
+        .prepare(
+          "UPDATE babies SET is_default = 1 WHERE id = (SELECT id FROM babies WHERE household_id = ? ORDER BY id LIMIT 1)"
+        )
+        .bind(householdId)
+    );
+  }
+  const results = await db.batch(stmts);
+  let records = 0;
+  for (let i = 0; i < BABY_RECORD_TABLES.length; i++) {
+    records += results[i]?.meta?.changes ?? 0;
+  }
+  return { ok: true, records };
+}
+
 // null = authenticated but unregistered (callers turn this into a 403 with
 // notRegisteredMessage). There is deliberately NO auto-provisioning: silent
 // provisioning would split one family into two tenants the first time a

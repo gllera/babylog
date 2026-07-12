@@ -13,6 +13,7 @@ All record / list / stats / indication tools accept an optional `baby`
 | `get_profile`       | List the household's babies with computed ages and the default marker   |
 | `add_baby`          | Add a baby to the household (`name`, optional `sex` / `date_of_birth`)  |
 | `set_default_baby`  | Change which baby tools target when `baby` is omitted                   |
+| `remove_baby`       | PERMANENTLY delete a baby + their entire diary (requires `confirm: true` after the user explicitly confirms; no undo; the oldest sibling inherits the default) |
 | `add_caregiver`     | Register another email into the caller's household                      |
 | `remove_caregiver`  | Remove a caregiver's email from the caller's household (not yourself)   |
 | `create_household`  | Create a new isolated household with its first caregiver + default baby |
