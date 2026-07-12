@@ -24,7 +24,10 @@ timezone.
   A feeding added within 10 minutes of an existing one tops up that entry
   instead of creating another; the toast shows the new total and its Undo
   subtracts the amount rather than deleting the entry.
-- A milk-intake gauge compares today against the recent days' band.
+- A marker-anchored milk-intake gauge: a horizontal box plot of the last
+  14 days' daily intake (whiskers = lowest/highest day, box = the usual
+  middle-half band, tick = median) with the intake over the 24 h ending at
+  the needle drawn against it — scrubbing the tape re-reads that window.
 - Data comes from a single aggregated `/api/dashboard` request (which also
   evaluates indications server-side over Madrid-day windows), refetched
   whenever the app returns to the foreground.

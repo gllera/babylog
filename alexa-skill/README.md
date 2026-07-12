@@ -106,9 +106,13 @@ se hacen desde la web o el agente MCP.
 | "cómo vamos" / "resumen de hoy"               | Resumen de tomas + pañales + rutinas + última toma                 |
 | "cuándo fue la última toma"                   | Hora y volumen de la última toma + cuánto hace                     |
 
+> Una toma registrada dentro de los 10 min de otra **suma** a esa toma en
+> lugar de crear una nueva; Alexa dice "Añadidos X ml a la toma anterior:
+> Y en total".
+
 La skill **solo expone los intents de uso frecuente por voz**: tomas,
-pañales, rutinas, resumen y última toma. Pesos, tallas, notas libres y
-edad se gestionan por la web (`/app`) o el agente MCP — operaciones raras
+pañales, rutinas, resumen y última toma. Pesos, tallas y edad se
+gestionan por la web (`/app`) o el agente MCP — operaciones raras
 o con precisión que casa mal con ASR.
 
 Synonyms (pis ↔ pipí ↔ mojado, baño ↔ bañito ↔ ducha, etc.) live in the
@@ -128,6 +132,10 @@ many milliliters?"* — then just say the number.
 | "gave vitamin D" / "did bath time"                   | `record_routine("Vitamin D" / "Bath" / …)` — the canonical English name is stored, same as web and MCP |
 | "how are we doing" / "daily summary"                 | Summary of feedings + diapers + routines + last feeding        |
 | "when was the last feeding"                          | Time and volume of the last feeding + how long ago             |
+
+> A feeding recorded within 10 min of another **tops up** that feeding
+> instead of creating a new one; Alexa says "Added X milliliters to the
+> previous feeding: Y in total".
 
 Spoken output is identical for `en-US` and `en-GB` (text-to-speech pronounces
 "milliliters"/"millilitres" the same); both locales share
@@ -270,5 +278,7 @@ anyone who learns your endpoint URL can record entries.
   or the cert chain URL was tampered with. Make sure no middleware is
   rewriting the request body.
 - **"There was a problem with the requested skill's response"** — open the
-  Alexa console **Test** tab → **Skill I/O**; the raw JSON shows the
-  Worker's error message in the speech text.
+  Alexa console **Test** tab → **Skill I/O** to inspect the request/response.
+  The Worker never echoes raw error text back as speech (it speaks only a
+  generic error line), so check the Worker's live logs (`wrangler tail`) for
+  the real cause.

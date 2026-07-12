@@ -1676,7 +1676,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       }
     );
 
-    // record_many uses a flat schema where `amount_ml`/`kind`/`name`/`text` are
+    // record_many uses a flat schema where `amount_ml`/`kind`/`name` are
     // all optional on every event; we then runtime-check the right field for
     // the chosen `type`. A Zod `discriminatedUnion` would be cleaner, but it
     // serializes to JSON Schema `oneOf` and not every MCP client today
@@ -1929,7 +1929,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       "remove_baby",
       {
         description:
-          "PERMANENTLY delete a baby and their entire diary — every feeding, diaper, routine, note, weight, height and indication. There is no undo. Only call this after the user has explicitly confirmed, in this conversation, that this specific baby should be deleted; set confirm=true to assert that. If the default baby is removed, the oldest remaining baby becomes the default.",
+          "PERMANENTLY delete a baby and their entire diary — every feeding, diaper, routine, weight, height and indication. There is no undo. Only call this after the user has explicitly confirmed, in this conversation, that this specific baby should be deleted; set confirm=true to assert that. If the default baby is removed, the oldest remaining baby becomes the default.",
         inputSchema: {
           baby: z
             .string()

@@ -32,7 +32,7 @@ All record / list / stats / indication tools accept an optional `baby`
 | `record_height`     | Log a length/height in cm: `height_cm`, `when` (reports delta)          |
 | `list_heights`      | List height measurements. Optional `since` / `until` / `limit`          |
 | `delete_height`     | Remove a height measurement by `id`                                     |
-| `add_indication`    | Define a target over an N-day window (e.g. '1 poop a day', 'bath every 2 days', 'max 4h between feedings'): `label`, `metric`, `target`, `comparison`, `period_days`, `filter`. `metric` ∈ `feeding_total_ml` / `feeding_count` / `feeding_gap_max_min` / `diaper_count` / `routine_count` |
+| `add_indication`    | Define a target over an N-day window (e.g. '1 poop a day', 'bath every 2 days', 'max 4h between feedings'): `label`, `metric`, `target`, `comparison`, `period_days`, `filter`, `formula`. `metric` ∈ `feeding_total_ml` / `feeding_count` / `feeding_gap_max_min` / `diaper_count` / `routine_count`. Set `formula` (`milk_ml_per_kg_day` / `feeds_per_day` / `feed_gap_max_by_age` / `poops_per_day_by_age`) to make the target auto-progress with the baby's weight and age — `target` then acts only as a fallback and the formula fixes `comparison`/`filter` (caller-supplied values are ignored). `metric` must match the formula |
 | `list_indications`  | List defined indications (active by default)                            |
 | `delete_indication` | Remove an indication by `id`                                            |
 | `check_indications` | Evaluate all active indications against a day's actuals (today by default) |
