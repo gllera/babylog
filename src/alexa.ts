@@ -603,12 +603,12 @@ async function handleRecordDiaper(
   const v = VOICES[lang];
   const id = slotResolvedId(intent.slots?.kind);
   let kind: DiaperKind | null = null;
-  if (id === "pee" || id === "poop" || id === "both") {
+  if (id === "pee" || id === "poop") {
     kind = id;
   } else {
     // Best-effort fallback (es + en) if synonym resolution gave no id. Combined
     // phrasings ("pis y caca" / "pee and poop") are checked first so they
-    // aren't misread as just one kind.
+    // aren't misread as pee-only — a wet-and-dirty diaper is logged as poop.
     const raw = (
       slotResolvedName(intent.slots?.kind) ?? slotRaw(intent.slots?.kind) ?? ""
     ).toLowerCase();
@@ -617,7 +617,7 @@ async function handleRecordDiaper(
         raw
       )
     )
-      kind = "both";
+      kind = "poop";
     else if (
       /(^|\W)(pip[ií]?|pis|mojado|pee|wee|wet)(\W|$)/.test(raw) ||
       /number one/.test(raw)
@@ -713,8 +713,8 @@ async function handleGetStats(
     ).bind(babyId, startIso, endIso),
     env.DB.prepare(
       `SELECT
-         SUM(CASE WHEN kind IN ('pee','both')  THEN 1 ELSE 0 END) AS pee_n,
-         SUM(CASE WHEN kind IN ('poop','both') THEN 1 ELSE 0 END) AS poop_n
+         SUM(CASE WHEN kind = 'pee'  THEN 1 ELSE 0 END) AS pee_n,
+         SUM(CASE WHEN kind = 'poop' THEN 1 ELSE 0 END) AS poop_n
        FROM diapers WHERE baby_id = ? AND ts >= ? AND ts < ?`
     ).bind(babyId, startIso, endIso),
     env.DB.prepare(

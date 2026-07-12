@@ -20,7 +20,7 @@ export type FeedingRow = {
   amount_ml: number;
 };
 
-export type DiaperKind = "pee" | "poop" | "both";
+export type DiaperKind = "pee" | "poop";
 
 export type DiaperRow = {
   id: number;
@@ -32,12 +32,6 @@ export type RoutineRow = {
   id: number;
   ts: string;
   name: string;
-};
-
-export type NoteRow = {
-  id: number;
-  ts: string;
-  text: string;
 };
 
 export type WeightRow = {

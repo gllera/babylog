@@ -105,8 +105,7 @@ export type IndicationMetricName =
   | "feeding_count"
   | "feeding_gap_max_min"
   | "diaper_count"
-  | "routine_count"
-  | "note_count";
+  | "routine_count";
 
 // Inputs a formula draws on. Either can be null (no weigh-in yet / no DOB set),
 // in which case a formula that needs it returns null and the caller falls back.
@@ -148,7 +147,7 @@ export const GROWTH_FORMULAS: Record<GrowthFormulaKey, GrowthFormula> = {
     metric: "feeding_total_ml",
     comparison: ">=",
     filter: null,
-    label: "Milk ≥ 150 ml/kg",
+    label: "Milk",
     fallbackTarget: 600,
     compute: ({ estWeightG }) =>
       estWeightG == null
@@ -160,7 +159,7 @@ export const GROWTH_FORMULAS: Record<GrowthFormulaKey, GrowthFormula> = {
     metric: "feeding_count",
     comparison: ">=",
     filter: null,
-    label: "Feeds/day",
+    label: "Feeds",
     fallbackTarget: 6,
     compute: ({ ageDays }) =>
       ageDays == null
@@ -181,7 +180,7 @@ export const GROWTH_FORMULAS: Record<GrowthFormulaKey, GrowthFormula> = {
     metric: "feeding_gap_max_min",
     comparison: "<=",
     filter: null,
-    label: "Max feed gap",
+    label: "Feed gap",
     fallbackTarget: 300,
     compute: ({ ageDays }) =>
       ageDays == null ? null : ageDays < 28 ? 240 : ageDays < 90 ? 300 : 360,
@@ -191,7 +190,7 @@ export const GROWTH_FORMULAS: Record<GrowthFormulaKey, GrowthFormula> = {
     metric: "diaper_count",
     comparison: ">=",
     filter: "poop",
-    label: "Poops/day",
+    label: "Poops",
     fallbackTarget: 1,
     compute: ({ ageDays }) => (ageDays == null ? null : ageDays < 42 ? 2 : 1),
   },

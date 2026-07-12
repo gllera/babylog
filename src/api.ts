@@ -177,12 +177,12 @@ const ENTITIES: Record<string, EntityConfig> = {
     table: "diapers",
     fields: ["kind"],
     createSchema: z.object({
-      kind: z.enum(["pee", "poop", "both"]),
+      kind: z.enum(["pee", "poop"]),
       when: whenField,
     }),
     listFilter: (url, clauses, params) => {
       const kind = url.searchParams.get("kind");
-      if (kind && ["pee", "poop", "both"].includes(kind)) {
+      if (kind && ["pee", "poop"].includes(kind)) {
         clauses.push("kind = ?");
         params.push(kind);
       }
@@ -200,21 +200,6 @@ const ENTITIES: Record<string, EntityConfig> = {
       if (name) {
         clauses.push("LOWER(name) LIKE ? ESCAPE '\\'");
         params.push(`%${escapeLike(name.toLowerCase())}%`);
-      }
-    },
-  },
-  notes: {
-    table: "notes",
-    fields: ["text"],
-    createSchema: z.object({
-      text: z.string().min(1).max(2000),
-      when: whenField,
-    }),
-    listFilter: (url, clauses, params) => {
-      const search = url.searchParams.get("search");
-      if (search) {
-        clauses.push("LOWER(text) LIKE ? ESCAPE '\\'");
-        params.push(`%${escapeLike(search.toLowerCase())}%`);
       }
     },
   },

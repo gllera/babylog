@@ -12,7 +12,6 @@ import type {
   FeedingRow,
   DiaperRow,
   RoutineRow,
-  NoteRow,
   WeightRow,
   HeightRow,
   UserRow,
@@ -75,7 +74,6 @@ const INDICATION_METRICS = [
   "feeding_gap_max_min",
   "diaper_count",
   "routine_count",
-  "note_count",
 ] as const;
 type IndicationMetric = (typeof INDICATION_METRICS)[number];
 const indicationMetricSchema = z.enum(INDICATION_METRICS);
@@ -191,9 +189,8 @@ export function buildIndicationStatement(
     case "diaper_count": {
       let sql =
         "SELECT COUNT(*) AS v FROM diapers WHERE baby_id = ? AND ts >= ? AND ts < ?";
-      if (filter === "pee") sql += " AND kind IN ('pee','both')";
-      else if (filter === "poop") sql += " AND kind IN ('poop','both')";
-      else if (filter === "both") sql += " AND kind = 'both'";
+      if (filter === "pee") sql += " AND kind = 'pee'";
+      else if (filter === "poop") sql += " AND kind = 'poop'";
       return db.prepare(sql).bind(babyId, start, end);
     }
     case "routine_count":
@@ -207,19 +204,6 @@ export function buildIndicationStatement(
       return db
         .prepare(
           "SELECT COUNT(*) AS v FROM routines WHERE baby_id = ? AND ts >= ? AND ts < ?"
-        )
-        .bind(babyId, start, end);
-    case "note_count":
-      if (filter) {
-        return db
-          .prepare(
-            "SELECT COUNT(*) AS v FROM notes WHERE baby_id = ? AND ts >= ? AND ts < ? AND LOWER(text) LIKE ? ESCAPE '\\'"
-          )
-          .bind(babyId, start, end, `%${escapeLike(filter.toLowerCase())}%`);
-      }
-      return db
-        .prepare(
-          "SELECT COUNT(*) AS v FROM notes WHERE baby_id = ? AND ts >= ? AND ts < ?"
         )
         .bind(babyId, start, end);
   }
@@ -728,12 +712,12 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       "record_diaper",
       {
         description:
-          "Record a diaper change — pee, poop, or both. If the user does not specify a time, OMIT the `when` parameter — the server records the change at the current time. Only pass `when` if the user gave an explicit past/future time. The response includes the gap since the previous diaper of any kind.",
+          "Record a diaper change — pee or poop. If the user does not specify a time, OMIT the `when` parameter — the server records the change at the current time. Only pass `when` if the user gave an explicit past/future time. The response includes the gap since the previous diaper of any kind.",
         inputSchema: {
           kind: z
-            .enum(["pee", "poop", "both"])
+            .enum(["pee", "poop"])
             .describe(
-              "'pee' = wet only, 'poop' = dirty only, 'both' = wet and dirty in the same diaper"
+              "'pee' = wet, 'poop' = dirty (a wet-and-dirty diaper counts as 'poop')"
             ),
           when: whenInput(
             "Optional ISO 8601 timestamp (e.g. 2026-05-14T07:30:00Z, or with a local offset like 2026-05-14T09:30:00+02:00 — stored as UTC). OMIT this when the change is happening now — the server fills in the current time. Only pass this if the user explicitly gave a different time."
@@ -743,11 +727,11 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         outputSchema: {
           id: z.number().int(),
           ts: z.string(),
-          kind: z.enum(["pee", "poop", "both"]),
+          kind: z.enum(["pee", "poop"]),
           gap_since_previous: z.string().nullable(),
           gap_since_previous_min: z.number().int().nullable(),
           previous_ts: z.string().nullable(),
-          previous_kind: z.enum(["pee", "poop", "both"]).nullable(),
+          previous_kind: z.enum(["pee", "poop"]).nullable(),
         },
       },
       async ({ kind, when, baby }) => {
@@ -802,7 +786,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       rowSchema: {
         id: z.number().int(),
         ts: z.string(),
-        kind: z.enum(["pee", "poop", "both"]),
+        kind: z.enum(["pee", "poop"]),
       },
       itemNoun: "events",
       emptyText: "No diaper events in that range.",
@@ -810,9 +794,9 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       extra: {
         key: "kind",
         schema: z
-          .enum(["pee", "poop", "both"])
+          .enum(["pee", "poop"])
           .optional()
-          .describe("Filter to only pee, only poop, or only 'both' events"),
+          .describe("Filter to only pee or only poop events"),
         apply: (kind, clauses, params) => {
           clauses.push("kind = ?");
           params.push(kind);
@@ -931,94 +915,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       idDesc: "Routine id to delete (from list_routines)",
     });
 
-    this.server.registerTool(
-      "record_note",
-      {
-        description:
-          "Record a free-form note about the baby — anything that doesn't fit feedings, diapers, routines, weights, or heights. Examples: 'pimples on the face', 'first smile', 'rash on left arm', 'fussy after nap'. If the user does not specify a time, OMIT the `when` parameter — the server uses the current time.",
-        inputSchema: {
-          text: z
-            .string()
-            .min(1)
-            .max(2000)
-            .describe(
-              "The note itself, in the user's own words. Required."
-            ),
-          when: whenInput(
-            "Optional ISO 8601 timestamp. OMIT this when the note is happening now — the server fills in the current time."
-          ),
-          baby: babyField,
-        },
-        outputSchema: {
-          id: z.number().int(),
-          ts: z.string(),
-          text: z.string(),
-        },
-      },
-      async ({ text, when, baby }) => {
-        const t = await this.tenant();
-        const target = pickBaby(t.babies, baby);
-        const ts = normalizeTs(when);
-        const inserted = await db
-          .prepare(
-            "INSERT INTO notes (ts, text, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-          )
-          .bind(ts, text, target.id, t.email)
-          .first<{ id: number }>();
-
-        const id = inserted?.id ?? 0;
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Recorded note #${id}${forBabyNote(t, target)} at ${ts}: ${text}`,
-            },
-          ],
-          structuredContent: { id, ts, text },
-        };
-      }
-    );
-
-    registerListTool<NoteRow>(this.server, db, tenant, {
-      name: "list_notes",
-      description:
-        "List notes, most recent first. Optionally filter by time window or a substring of the text.",
-      table: "notes",
-      resultKey: "notes",
-      cols: ["text"],
-      rowSchema: {
-        id: z.number().int(),
-        ts: z.string(),
-        text: z.string(),
-      },
-      itemNoun: "notes",
-      emptyText: "No notes recorded in that range.",
-      line: (r) => `#${r.id}  ${r.ts}  ${r.text}`,
-      extra: {
-        key: "search",
-        schema: z
-          .string()
-          .min(1)
-          .max(200)
-          .optional()
-          .describe(
-            "Substring to search for inside the note text (case-insensitive)"
-          ),
-        apply: (search, clauses, params) => {
-          clauses.push("LOWER(text) LIKE ? ESCAPE '\\'");
-          params.push(`%${escapeLike(search.toLowerCase())}%`);
-        },
-      },
-    });
-
-    registerDeleteTool(this.server, db, tenant, {
-      name: "delete_note",
-      description: "Delete a note by its numeric id.",
-      table: "notes",
-      label: "note",
-      idDesc: "Note id to delete (from list_notes)",
-    });
-
     registerMeasurementRecordTool(this.server, db, tenant, {
       name: "record_weight",
       description:
@@ -1107,7 +1003,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
               "Short human-readable label, e.g. '1 poop per day', 'bath every 2 days', 'max 4h between feedings'"
             ),
           metric: indicationMetricSchema.describe(
-            "What to aggregate: feeding_total_ml (sum of feeding ml), feeding_count, feeding_gap_max_min (max minutes between consecutive feedings in the window, including the gap from the last feeding before the window and the trailing gap up to now / the end of the window — use with comparison='<='), diaper_count, routine_count, note_count"
+            "What to aggregate: feeding_total_ml (sum of feeding ml), feeding_count, feeding_gap_max_min (max minutes between consecutive feedings in the window, including the gap from the last feeding before the window and the trailing gap up to now / the end of the window — use with comparison='<='), diaper_count, routine_count"
           ),
           target: z
             .number()
@@ -1132,7 +1028,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .max(100)
             .optional()
             .describe(
-              "Narrows the metric. diaper_count: 'pee' | 'poop' | 'both' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). note_count: substring of note text. Not allowed for feeding_*."
+              "Narrows the metric. diaper_count: 'pee' | 'poop' (omit for any). routine_count: substring of routine name (e.g. 'vitamin d'). Not allowed for feeding_*."
             ),
           formula: formulaSchema
             .optional()
@@ -1163,12 +1059,12 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         baby,
       }) => {
         if (metric === "diaper_count" && filter) {
-          if (!["pee", "poop", "both"].includes(filter)) {
+          if (!["pee", "poop"].includes(filter)) {
             return {
               content: [
                 {
                   type: "text",
-                  text: `Invalid filter '${filter}' for diaper_count. Use 'pee', 'poop', 'both', or omit.`,
+                  text: `Invalid filter '${filter}' for diaper_count. Use 'pee', 'poop', or omit.`,
                 },
               ],
               isError: true,
@@ -1547,7 +1443,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       "get_stats",
       {
         description:
-          "Summarize feedings, diapers, routines, and notes within a time window, plus the latest weight (g) and height (cm). Pass `window` for a quick preset, or `since`/`until` for a custom range. Defaults to the last 24 hours.",
+          "Summarize feedings, diapers, and routines within a time window, plus the latest weight (g) and height (cm). Pass `window` for a quick preset, or `since`/`until` for a custom range. Defaults to the last 24 hours.",
         inputSchema: {
           window: z
             .enum(["24h", "today", "7d", "30d"])
@@ -1589,10 +1485,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
               z.object({ name: z.string(), count: z.number().int() })
             ),
           }),
-          notes: z.object({
-            count: z.number().int(),
-            last_ts: z.string().nullable(),
-          }),
           latest_weight: z
             .object({ ts: z.string(), weight_g: z.number().int() })
             .nullable(),
@@ -1624,7 +1516,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           diaperAgg,
           routineAgg,
           routineBreakdown,
-          noteAgg,
           weightLatest,
           heightLatest,
         ] = await db.batch([
@@ -1640,8 +1531,8 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           db.prepare(
             `SELECT
                COUNT(*)                                                   AS event_count,
-               SUM(CASE WHEN kind IN ('pee',  'both') THEN 1 ELSE 0 END)  AS pee_count,
-               SUM(CASE WHEN kind IN ('poop', 'both') THEN 1 ELSE 0 END)  AS poop_count,
+               SUM(CASE WHEN kind = 'pee'  THEN 1 ELSE 0 END)              AS pee_count,
+               SUM(CASE WHEN kind = 'poop' THEN 1 ELSE 0 END)              AS poop_count,
                MAX(ts)                                                    AS last_ts
              FROM diapers
              WHERE baby_id = ? AND ts >= ? AND ts < ?`
@@ -1657,11 +1548,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
              WHERE baby_id = ? AND ts >= ? AND ts < ?
              GROUP BY name
              ORDER BY n DESC`
-          ).bind(targetBaby.id, start, end),
-          db.prepare(
-            `SELECT COUNT(*) AS count, MAX(ts) AS last_ts
-             FROM notes
-             WHERE baby_id = ? AND ts >= ? AND ts < ?`
           ).bind(targetBaby.id, start, end),
           db.prepare(
             "SELECT ts, weight_g FROM weights WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
@@ -1691,10 +1577,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           name: string;
           n: number;
         }>;
-        const notes = noteAgg.results[0] as {
-          count: number;
-          last_ts: string | null;
-        };
 
         const latestWeight = (
           weightLatest.results as Array<{ ts: string; weight_g: number }>
@@ -1744,12 +1626,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           );
         }
 
-        if (notes.count === 0) {
-          lines.push("Notes:       none");
-        } else {
-          lines.push(`Notes:       ${notes.count}  (last ${notes.last_ts})`);
-        }
-
         if (latestWeight || latestHeight) {
           lines.push("");
         }
@@ -1789,10 +1665,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
                 count: r.n,
               })),
             },
-            notes: {
-              count: notes.count,
-              last_ts: notes.last_ts,
-            },
             latest_weight: latestWeight
               ? { ts: latestWeight.ts, weight_g: latestWeight.weight_g }
               : null,
@@ -1826,7 +1698,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
             .array(
               z.object({
                 type: z
-                  .enum(["feeding", "diaper", "routine", "note"])
+                  .enum(["feeding", "diaper", "routine"])
                   .describe("Event kind"),
                 amount_ml: z
                   .number()
@@ -1835,21 +1707,15 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
                   .optional()
                   .describe("Required for `feeding`: milk in ml"),
                 kind: z
-                  .enum(["pee", "poop", "both"])
+                  .enum(["pee", "poop"])
                   .optional()
-                  .describe("Required for `diaper`: pee | poop | both"),
+                  .describe("Required for `diaper`: pee | poop"),
                 name: z
                   .string()
                   .min(1)
                   .max(100)
                   .optional()
                   .describe("Required for `routine`: entry name"),
-                text: z
-                  .string()
-                  .min(1)
-                  .max(2000)
-                  .optional()
-                  .describe("Required for `note`: free-form text"),
                 when: z
                   .string()
                   .datetime({ offset: true })
@@ -1868,7 +1734,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           count: z.number().int(),
           recorded: z.array(
             z.object({
-              type: z.enum(["feeding", "diaper", "routine", "note"]),
+              type: z.enum(["feeding", "diaper", "routine"]),
               id: z.number().int(),
               ts: z.string(),
             })
@@ -1880,7 +1746,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
         const t = await this.tenant();
         const targetBaby = pickBaby(t.babies, baby);
         const defaultTs = normalizeTs(defaultWhen);
-        type EvType = "feeding" | "diaper" | "routine" | "note";
+        type EvType = "feeding" | "diaper" | "routine";
         const stmts: D1PreparedStatement[] = [];
         const stmtMeta: Array<{ type: EvType; ts: string }> = [];
         const errors: string[] = [];
@@ -1927,19 +1793,6 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
                 .bind(ts, ev.name, targetBaby.id, t.email)
             );
             stmtMeta.push({ type: "routine", ts });
-          } else if (ev.type === "note") {
-            if (!ev.text) {
-              errors.push(`event #${i}: note requires text`);
-              continue;
-            }
-            stmts.push(
-              db
-                .prepare(
-                  "INSERT INTO notes (ts, text, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-                )
-                .bind(ts, ev.text, targetBaby.id, t.email)
-            );
-            stmtMeta.push({ type: "note", ts });
           }
         }
 

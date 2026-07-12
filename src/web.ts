@@ -22,7 +22,7 @@ export const WEB_MANIFEST = JSON.stringify({
   name: "Baby diary",
   short_name: "Baby diary",
   description:
-    "Log feedings, diapers, routines, weights, heights, and notes.",
+    "Log feedings, diapers, routines, weights, and heights.",
   start_url: "/app",
   scope: "/",
   display: "standalone",

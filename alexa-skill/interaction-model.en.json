@@ -119,15 +119,8 @@
                   "pooped",
                   "poopy",
                   "dirty",
-                  "number two"
-                ]
-              }
-            },
-            {
-              "id": "both",
-              "name": {
-                "value": "both",
-                "synonyms": [
+                  "number two",
+                  "both",
                   "the works",
                   "everything",
                   "pee and poop",

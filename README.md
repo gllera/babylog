@@ -2,7 +2,7 @@
 
 A baby tracker deployed to **Cloudflare Workers**, backed by a single **D1**
 database, scoped **per household** so the same history is visible to every
-caregiver. It records feedings, diapers, routines/medication, notes, and
+caregiver. It records feedings, diapers, routines/medication, and
 growth (weight & height), and evaluates daily **indications** — fixed targets
 like "1 poop a day" or "max 4h between feedings", plus formula-driven ones
 (e.g. ml of milk per kg per day) that auto-progress as the baby grows.

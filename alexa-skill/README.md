@@ -124,7 +124,7 @@ many milliliters?"* — then just say the number.
 | If you say…                                          | It does…                                                       |
 | ---------------------------------------------------- | -------------------------------------------------------------- |
 | "120" / "took 120 milliliters"                       | `record_feeding(120)` (+ gap since the previous one)           |
-| "did a pee" / "did a poop" / "both"                  | `record_diaper(...)`                                           |
+| "did a pee" / "did a poop"                           | `record_diaper(...)` — "both" counts as poop                   |
 | "gave vitamin D" / "did bath time"                   | `record_routine("Vitamin D" / "Bath" / …)` — the canonical English name is stored, same as web and MCP |
 | "how are we doing" / "daily summary"                 | Summary of feedings + diapers + routines + last feeding        |
 | "when was the last feeding"                          | Time and volume of the last feeding + how long ago             |

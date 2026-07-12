@@ -130,9 +130,7 @@ const ROUTINE_DISPLAY_ES: Record<string, string> = {
 export const voiceEs: Voice = {
   humanGap: humanGapEs,
   diaperKind(kind) {
-    if (kind === "pee") return "pis";
-    if (kind === "poop") return "caca";
-    return "pis y caca";
+    return kind === "pee" ? "pis" : "caca";
   },
   routineDisplay(canonical) {
     return ROUTINE_DISPLAY_ES[canonical] ?? canonical;
@@ -176,8 +174,8 @@ export const voiceEs: Voice = {
   },
   feedingCard: "Toma registrada",
 
-  askDiaper: "¿Qué tipo de pañal? Puedes decir pis, caca o las dos cosas.",
-  askDiaperReprompt: "Dime pis, caca o las dos cosas.",
+  askDiaper: "¿Qué tipo de pañal? Puedes decir pis o caca.",
+  askDiaperReprompt: "Dime pis o caca.",
   diaperRecorded(kind, tail) {
     return `Apuntado: ${this.diaperKind(kind)}${tail}.`;
   },
@@ -266,9 +264,7 @@ const ROUTINE_DISPLAY_EN: Record<string, string> = {
 export const voiceEn: Voice = {
   humanGap: humanGapEn,
   diaperKind(kind) {
-    if (kind === "pee") return "pee";
-    if (kind === "poop") return "poop";
-    return "pee and poop";
+    return kind === "pee" ? "pee" : "poop";
   },
   routineDisplay(canonical) {
     return ROUTINE_DISPLAY_EN[canonical] ?? canonical;
@@ -312,8 +308,8 @@ export const voiceEn: Voice = {
   },
   feedingCard: "Feeding logged",
 
-  askDiaper: "What kind of diaper? You can say pee, poop, or both.",
-  askDiaperReprompt: "Tell me pee, poop, or both.",
+  askDiaper: "What kind of diaper? You can say pee or poop.",
+  askDiaperReprompt: "Tell me pee or poop.",
   diaperRecorded(kind, tail) {
     return `Logged: ${this.diaperKind(kind)}${tail}.`;
   },

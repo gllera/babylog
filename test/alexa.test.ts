@@ -60,7 +60,6 @@ describe("voiceEn fragments", () => {
   it("diaperKind", () => {
     expect(v.diaperKind("pee")).toBe("pee");
     expect(v.diaperKind("poop")).toBe("poop");
-    expect(v.diaperKind("both")).toBe("pee and poop");
   });
 
   it("routineDisplay maps canonical English names", () => {
@@ -131,7 +130,8 @@ describe("voiceEs", () => {
   });
 
   it("diaperKind", () => {
-    expect(v.diaperKind("both")).toBe("pis y caca");
+    expect(v.diaperKind("pee")).toBe("pis");
+    expect(v.diaperKind("poop")).toBe("caca");
   });
 
   it("feedingSummary marks the total", () => {
