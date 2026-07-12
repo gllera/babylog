@@ -23,7 +23,12 @@ exponential complement to a **linear drain** over the same 5 h span
 glance (user decision). The gauge's window sums keep the exponential
 kernel; the `fullness + digested = fed` complement identity was dropped
 on purpose. Calibration uses the same linear model, so the hungry test
-stays self-consistent.
+stays self-consistent. The night window (21:00–07:00 below) also became
+a per-device Settings preference (two time pickers, `localStorage`
+`"night"`, minute precision): one definition (`nightStartMin` /
+`nightDurMin` / `nightAt`) now drives both the tape's night shading and
+this calibration's day/night classes, so the two still can never
+disagree.
 
 ## Problem
 

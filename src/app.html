@@ -207,7 +207,8 @@
     .measure-field:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
     .measure-unit { padding: 0 12px; color: var(--muted); font-size: 15px; }
     form.entry-form input[type=date],
-    form.settings-form input, form.settings-form select {
+    form.settings-form input, form.settings-form select,
+    .night-options input {
       flex: 0 1 180px;
       min-width: 0;
       min-height: 64px;
@@ -232,7 +233,8 @@
     form.settings-form .form-line select { flex: 0 1 auto; }
     form.settings-form .form-line input[type=date] { flex: 0 1 152px; }
     form.entry-form input[type=date]:focus-visible,
-    form.settings-form input:focus-visible, form.settings-form select:focus-visible {
+    form.settings-form input:focus-visible, form.settings-form select:focus-visible,
+    .night-options input:focus-visible {
       outline: 2px solid var(--primary);
       outline-offset: 2px;
     }
@@ -1367,6 +1369,11 @@
     }
     .lang-options { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
     .lang-options button.active, #baby-switcher button.active { border-color: var(--primary); color: var(--text); }
+    /* Night window: two time pickers around a quiet dash, centered on the
+       flyleaf's spine like the language row. */
+    .night-options { display: flex; gap: 8px; align-items: center; justify-content: center; }
+    .night-options input { flex: 0 1 152px; }
+    .night-options .night-dash { color: var(--muted); }
     .settings-list { display: flex; flex-direction: column; }
     .settings-note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
     @media (max-width: 640px) {
@@ -1386,7 +1393,8 @@
       .sect { margin-top: 32px; }
       .measure-latest .measure-val { font-size: 22px; }
       .measure-field input, form.entry-form input[type=date],
-      form.settings-form input, form.settings-form select { font-size: 16px; min-height: 54px; }
+      form.settings-form input, form.settings-form select,
+      .night-options input { font-size: 16px; min-height: 54px; }
       form.entry-form input[type=date] { flex: 1 1 130px; }
       form.entry-form button, form.settings-form button { flex: 1 1 100%; min-height: 56px; font-size: 16px; }
     }
@@ -1517,6 +1525,19 @@
         </div>
       </div>
 
+      <!-- The child's night (wall-clock window): shades the Today tape and
+           gives the hunger reference its own night bar. Direct controls
+           like Language — nothing to fold; saved on this device. -->
+      <div class="sect">
+        <div class="sect-title"><span data-i18n="Night">Night</span></div>
+        <div class="night-options" id="settings-night">
+          <input type="time" id="night-start" required aria-label="Night starts" data-i18n-aria-label="Night starts">
+          <span class="night-dash">&ndash;</span>
+          <input type="time" id="night-end" required aria-label="Night ends" data-i18n-aria-label="Night ends">
+        </div>
+        <p class="settings-note" data-i18n="Night hours shade the Today tape and get their own hunger level. Saved on this device.">Night hours shade the Today tape and get their own hunger level. Saved on this device.</p>
+      </div>
+
       <!-- Language is its own control — nothing to fold; it closes the
            flyleaf as the least-touched section. -->
       <div class="sect">
@@ -1570,6 +1591,23 @@
         if (navLang.indexOf("es") === 0) LANG = "es";
       }
     } catch (_) {}
+
+    // Night window (Madrid wall clock): shades the tape and splits the
+    // hunger calibration into day/night classes. Redefinable in Settings,
+    // remembered per device like the language ("night" = "HH:MM-HH:MM");
+    // defaults to 21:00–07:00. Equal times = no night (degenerate but
+    // honest: no shading, one combined hunger reference).
+    var nightStartMin = 21 * 60, nightEndMin = 7 * 60;
+    try {
+      var storedNight = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(localStorage.getItem("night") || "");
+      if (storedNight) {
+        nightStartMin = +storedNight[1] * 60 + +storedNight[2];
+        nightEndMin = +storedNight[3] * 60 + +storedNight[4];
+      }
+    } catch (_) {}
+    // Night length in minutes; the window may cross midnight (the default
+    // does), so all night tests run modulo the day.
+    function nightDurMin() { return (nightEndMin - nightStartMin + 1440) % 1440; }
 
     var STRINGS = {
       es: {
@@ -1682,6 +1720,10 @@
         // Settings
         "Settings": "Ajustes",
         "Language": "Idioma",
+        "Night": "Noche",
+        "Night starts": "Empieza la noche",
+        "Night ends": "Termina la noche",
+        "Night hours shade the Today tape and get their own hunger level. Saved on this device.": "Las horas de noche sombrean la cinta de Hoy y tienen su propio nivel de hambre. Se guarda en este dispositivo.",
         "Name": "Nombre",
         "Sex": "Sexo",
         "Girl": "Niña",
@@ -1763,6 +1805,31 @@
         try { localStorage.setItem("lang", lang); } catch (_) {}
         location.reload();
       });
+    }
+
+    // Night window in Settings. No re-render here: the tape and gauge
+    // aren't visible from the flyleaf, and returning to Today reloads the
+    // dashboard anyway — only the memoized hunger references (night-classed)
+    // need explicit invalidation.
+    function initSettingsNight() {
+      var s = document.getElementById("night-start"), e = document.getElementById("night-end");
+      if (!s || !e) return;
+      function fmt(min) {
+        var h = Math.floor(min / 60), m = min % 60;
+        return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+      }
+      s.value = fmt(nightStartMin);
+      e.value = fmt(nightEndMin);
+      function save() {
+        var m1 = /^(\d{2}):(\d{2})/.exec(s.value), m2 = /^(\d{2}):(\d{2})/.exec(e.value);
+        if (!m1 || !m2) return; // a cleared picker keeps the last good window
+        nightStartMin = +m1[1] * 60 + +m1[2];
+        nightEndMin = +m2[1] * 60 + +m2[2];
+        try { localStorage.setItem("night", fmt(nightStartMin) + "-" + fmt(nightEndMin)); } catch (_) {}
+        fgHungerFor = null; // day/night classes moved: recalibrate on next use
+      }
+      s.addEventListener("change", save);
+      e.addEventListener("change", save);
     }
 
     // WHO Child Growth Standards (2006), LMS values by completed month 0-24.
@@ -2891,7 +2958,8 @@
 
     // The last RS_DAYS days as one continuous axis (Madrid wall time), tall
     // enough to be the tab's whole surface: one lane per domain with events
-    // as dots, night hours shaded (21:00–07:00, merged across midnight),
+    // as dots, night hours shaded (the Settings-defined window, default
+    // 21:00–07:00, merged across midnight),
     // hairlines + date captions at each midnight, hourly ticks under the
     // axis, and a cursor at "now" riding the tape; the fixed tape-head
     // marker is an HTML overlay on the wrap, outside the scroller.
@@ -2926,8 +2994,8 @@
         '</linearGradient></defs>';
       var dayI;
       for (dayI = -1; dayI < RS_DAYS; dayI++) {
-        var ns = Math.max(0, dayI * 1440 + 21 * 60);
-        var ne = Math.min(RS_MIN, dayI * 1440 + 31 * 60);
+        var ns = Math.max(0, dayI * 1440 + nightStartMin);
+        var ne = Math.min(RS_MIN, dayI * 1440 + nightStartMin + nightDurMin());
         if (ne > ns) {
           svg += '<rect class="rs-night" x="' + x(ns) + '" y="20" width="' +
             ((ne - ns) / RS_MIN * RS_AXIS).toFixed(1) + '" height="92"/>';
@@ -3794,9 +3862,13 @@
 
     var FG_HGR_MIN_N = 20;     // pre-feed samples before the meter shows at all
     var FG_HGR_MIN_CLASS = 12; // per day/night class, else combined fallback
-    // The tape's night band (21:00–07:00 Madrid wall) classifies feeds and
-    // instants — babies run longer gaps at night, so night gets its own bar.
-    function nightHour(h) { return h >= 21 || h < 7; }
+    // The tape's night band (the Settings-defined window, Madrid wall)
+    // classifies feeds and instants — babies run longer gaps at night, so
+    // night gets its own bar.
+    function nightAt(tMs) {
+      var w = toWall(new Date(tMs));
+      return ((w.getUTCHours() * 60 + w.getUTCMinutes() - nightStartMin + 1440) % 1440) < nightDurMin();
+    }
 
     // Self-calibrated hunger references: the median fullness at the moments
     // just before her own past feeds — "hungry" means emptier than she
@@ -3816,7 +3888,7 @@
         // so this is the history's fullness ceiling — a scrub-stable scale
         // for the trace.
         if (f + ev[i].a > peak) peak = f + ev[i].a;
-        (nightHour(toWall(new Date(ev[i].t)).getUTCHours()) ? night : day).push(f);
+        (nightAt(ev[i].t) ? night : day).push(f);
       }
       if (all.length < FG_HGR_MIN_N) return null;
       all.sort(function(a, b) { return a - b; });
@@ -3998,8 +4070,7 @@
         // Emptier than she usually is when she actually gets fed → the mark
         // trades its feed hue for the page's breach ink (the chips'
         // language: loudest state without inventing an alarm color).
-        var hungry = fNow <
-          (nightHour(toWall(new Date(endMs)).getUTCHours()) ? hgRefs.night : hgRefs.day);
+        var hungry = fNow < (nightAt(endMs) ? hgRefs.night : hgRefs.day);
         belly = fgMark("fg-belly" + (hungry ? " hungry" : ""),
           Math.max(0, Math.min(100, 100 * fNow / hgRefs.peak)),
           i18n("belly ≈ {n} ml", { n: fgMl(fNow) }) +
@@ -4731,6 +4802,7 @@
 
     applyStaticI18n();
     initSettingsLang();
+    initSettingsNight();
     showTab("today");
 
     if ("serviceWorker" in navigator) {

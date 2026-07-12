@@ -14,9 +14,9 @@ timezone.
 
 - A chart-recorder **rhythm tape**: one faint lane per domain (feeds /
   diapers / routines) under a fixed center needle, scrubbable through the
-  last days, with night hours shaded and the future fogged out. Tapping the
-  dial readout opens a jump-to-a-date/time dialog that extends the tape into
-  deeper history.
+  last days, with night hours shaded (the Settings-defined window, default
+  21:00–07:00) and the future fogged out. Tapping the dial readout opens a
+  jump-to-a-date/time dialog that extends the tape into deeper history.
 - A quick-add row records a feeding, diaper, or routine at the marker's
   moment; the recent-records log below reads the tape back, and its rows arm
   an inline editor (value controls + two-tap Delete). Tapping a record's mark
@@ -24,10 +24,17 @@ timezone.
   A feeding added within 10 minutes of an existing one tops up that entry
   instead of creating another; the toast shows the new total and its Undo
   subtracts the amount rather than deleting the entry.
-- A marker-anchored milk-intake gauge: a horizontal box plot of the last
-  14 days' daily intake (whiskers = lowest/highest day, box = the usual
-  middle-half band, tick = median) with the intake over the 24 h ending at
-  the needle drawn against it — scrubbing the tape re-reads that window.
+- A marker-anchored milk gauge: a horizontal box plot of the last 14 days'
+  daily **digested** milk — an exponential gastric-emptying model releases
+  each feed gradually, so window boundaries slice feeds proportionally and
+  every caption carries ≈ (whiskers = lowest/highest day, box = the usual
+  middle-half band, tick = median) — with the 24 h ending at the needle
+  drawn against it; scrubbing the tape re-reads that window. A hollow
+  square **belly mark** rides its own 0→peak scale: current stomach
+  content, draining linearly to empty over 5 h, turning danger-red when
+  she's emptier than she usually is when actually fed (self-calibrated
+  medians of pre-feed fullness, split by the Settings-defined day/night
+  window; hidden until ~20 feeds of history).
 - Data comes from a single aggregated `/api/dashboard` request (which also
   evaluates indications server-side over Madrid-day windows), refetched
   whenever the app returns to the foreground.
@@ -88,6 +95,10 @@ household's people → app preference.
   `remove_caregiver` / `add_baby` MCP tools. Inviting only registers the
   email in the household — it must also be allowed by the Cloudflare
   Access policy to log in at all.
+- **Night** — two time pickers redefining the night window (default
+  21:00–07:00): it shades the Today tape and gives the hunger calibration
+  its own night reference. Per-device in `localStorage`, like the
+  language; equal times mean "no night".
 - **Language** — English / Spanish toggles centered under the last divider
   (persisted in `localStorage`, guessed from the browser on first visit);
   closes the flyleaf as the least-touched section.
