@@ -458,6 +458,13 @@
     .rs-night { fill: url(#rs-ng); }
     .rs-night-stop { stop-color: var(--night); }
     .rs-lane { stroke: var(--border); stroke-width: 1; }
+    /* Fullness trace (hunger-meter spec): the belly-content sawtooth along
+       the feed lane — hairline scaffolding like the lanes, with the
+       below-reference stretches in the feed hue (the tint IS the signal;
+       no reference line is drawn). Never interactive: the marks own the
+       taps. */
+    .rs-fullness { fill: none; stroke: var(--border); stroke-width: 1; pointer-events: none; }
+    .rs-fullness-low { fill: none; stroke: var(--primary); stroke-width: 1.5; pointer-events: none; }
     /* Marks are doors to their record's editor (the tape click handler
        arms stripEdit from the nearest one within finger reach). */
     .rs-dot { stroke: var(--bg); stroke-width: 1; cursor: pointer; }
@@ -3116,6 +3123,72 @@
             : '<circle class="rs-dot routine" cx="' + x(m) + '" cy="' + LANES.routine + '" r="5" ' + meta + '</circle>';
         }
         return out;
+      }
+      // Fullness trace (hunger-meter spec): belly content sampled along the
+      // tape — up at each bottle, decaying between — drawn before the marks
+      // so their opaque backings paint over it; the edge fog fades it out
+      // like everything else. Wall-minute space end to end (the night
+      // shading's space), so a DST fold distorts one night twice a year —
+      // accepted. Same gate as the readout line.
+      var hgRefs = hungerRefs(d);
+      if (hgRefs) {
+        var hev = [], hgi, hgm;
+        for (hgi = 0; hgi < (d.strip_feedings || []).length; hgi++) {
+          hgm = evMin(d.strip_feedings[hgi].ts);
+          if (hgm <= nowMin) hev.push({ m: hgm, a: d.strip_feedings[hgi].amount_ml || 0 });
+        }
+        hev.sort(function(a, b) { return a.m - b.m; });
+        // Sample minutes: the step grid plus each feed twice (a hair before
+        // for the pre-jump value, the minute itself for the post-jump one).
+        var hgStep = RS_DAYS > 7 ? 15 : 5, hgSpan = FG_DIG_SPAN_HL * 60;
+        var hgMins = [];
+        for (hgm = 0; hgm <= nowMin; hgm += hgStep) hgMins.push(hgm);
+        for (hgi = 0; hgi < hev.length; hgi++) {
+          if (hev[hgi].m > 0) hgMins.push(hev[hgi].m - 0.001, hev[hgi].m);
+        }
+        hgMins.sort(function(a, b) { return a - b; });
+        // One ascending pass; hev[lo..up) = feeds live at the sample minute.
+        var hgPts = [], lo = 0, up = 0, hgF, hgMax = 0, hk;
+        for (hgi = 0; hgi < hgMins.length; hgi++) {
+          hgm = hgMins[hgi];
+          while (up < hev.length && hev[up].m <= hgm) up++;
+          while (lo < up && hgm - hev[lo].m >= hgSpan) lo++;
+          hgF = 0;
+          for (hk = lo; hk < up; hk++) hgF += hev[hk].a * (1 - digFrac((hgm - hev[hk].m) * 60000));
+          hgPts.push({ m: hgm, f: hgF });
+          if (hgF > hgMax) hgMax = hgF;
+        }
+        if (hgMax > 0) {
+          // 0 ml at y=52 up to the tape-window max at y=24: the feed lane's
+          // band, clear of the diaper lane.
+          var hgY = function(f) { return (52 - 28 * f / hgMax).toFixed(1); };
+          var hgRef = function(m) {
+            return nightHour(Math.floor(m / 60) % 24) ? hgRefs.night : hgRefs.day;
+          };
+          var hgD = "", hgLow = "", inLow = false, hp, hq, hxr, hseg;
+          for (hgi = 0; hgi < hgPts.length; hgi++) {
+            hp = hgPts[hgi];
+            hgD += (hgi ? "L" : "M") + x(hp.m) + " " + hgY(hp.f);
+          }
+          // Below-reference stretches, crossings interpolated between samples
+          // (the reference of the earlier sample stands in across a step —
+          // sub-step precision is cosmetic here).
+          for (hgi = 0; hgi + 1 < hgPts.length; hgi++) {
+            hp = hgPts[hgi]; hq = hgPts[hgi + 1];
+            var hpb = hp.f < hgRef(hp.m), hqb = hq.f < hgRef(hp.m);
+            if (hpb && !inLow) { hgLow += "M" + x(hp.m) + " " + hgY(hp.f); inLow = true; }
+            if (hpb && hqb) { hgLow += "L" + x(hq.m) + " " + hgY(hq.f); }
+            else if (hpb !== hqb) {
+              hseg = (hgRef(hp.m) - hp.f) / (hq.f - hp.f);
+              hxr = hp.m + (hq.m - hp.m) * hseg;
+              if (hpb) { hgLow += "L" + x(hxr) + " " + hgY(hgRef(hp.m)); inLow = false; }
+              else { hgLow += "M" + x(hxr) + " " + hgY(hgRef(hp.m)) + "L" + x(hq.m) + " " + hgY(hq.f); inLow = true; }
+            }
+            else inLow = false;
+          }
+          svg += '<path class="rs-fullness" d="' + hgD + '"/>';
+          if (hgLow) svg += '<path class="rs-fullness-low" d="' + hgLow + '"/>';
+        }
       }
       svg += gauges(d.strip_feedings || []);
       svg += diaperMarks(d.strip_diapers || []);
