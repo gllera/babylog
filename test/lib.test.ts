@@ -17,6 +17,7 @@ import {
   isValidIsoDate,
   feedingMergeWindow,
   feedingMergeWrites,
+  recordFeeding,
   MAX_FEEDING_ML,
   FEEDING_MERGE_WINDOW_MIN,
 } from "../src/lib";
@@ -380,5 +381,86 @@ describe("feedingMergeWrites", () => {
     // INSERT only fires when nothing already sits in the window.
     expect(ins.sql).toContain("NOT EXISTS");
     expect(ins.binds).toEqual([ts, 120, 3, "a@b.co", 3, start, end]);
+  });
+});
+
+// recordFeeding threads the pre-merge amount through so the client can undo a
+// merge exactly — even a clamped one. A stub captures the batch and returns
+// canned per-statement results; no engine needed.
+describe("recordFeeding", () => {
+  const ts = "2026-06-10T12:00:00.000Z";
+
+  // batchResults: results arrays for [prevTs, preAmount, UPDATE, INSERT].
+  function stubDb(batchResults: unknown[][]) {
+    const calls: { sql: string; binds: unknown[] }[][] = [];
+    const db = {
+      prepare(sql: string) {
+        return { bind: (...binds: unknown[]) => ({ sql, binds }) };
+      },
+      async batch(stmts: { sql: string; binds: unknown[] }[]) {
+        calls.push(stmts);
+        return batchResults.map((results) => ({ results }));
+      },
+    };
+    return { db: db as unknown as D1Database, calls };
+  }
+
+  it("reads the pre-merge amount before the UPDATE and returns it", async () => {
+    const { start, end } = feedingMergeWindow(ts);
+    const { db, calls } = stubDb([
+      [{ ts: "2026-06-10T11:00:00.000Z" }], // prevTs
+      [{ amount_ml: 200 }], // pre-merge amount of the in-window row
+      [{ id: 5, ts, amount_ml: 300 }], // UPDATE merged the row (200 + 100)
+      [], // INSERT no-op
+    ]);
+
+    const row = await recordFeeding(db, 3, "a@b.co", ts, 100);
+
+    expect(row).toEqual({
+      id: 5,
+      ts,
+      amount_ml: 300,
+      merged: true,
+      preAmount: 200,
+      prevTs: "2026-06-10T11:00:00.000Z",
+    });
+    // The pre-amount SELECT sits at index 1 — before the UPDATE (index 2) in the
+    // one transaction, so it reads the amount before the top-up — and targets
+    // the same window + oldest-row pick the UPDATE merges into.
+    const stmts = calls[0];
+    expect(stmts[1].sql).toContain("SELECT amount_ml");
+    expect(stmts[1].binds).toEqual([3, start, end]);
+    expect(stmts[2].sql).toContain("MIN(amount_ml + ?, ?)");
+  });
+
+  it("returns the true pre-merge amount even when the merge clamped at the cap", async () => {
+    const { db } = stubDb([
+      [], // no prior feeding
+      [{ amount_ml: 4900 }], // in-window row already near the cap
+      [{ id: 5, ts, amount_ml: MAX_FEEDING_ML }], // 4900 + 200 clamped to 5000
+      [],
+    ]);
+
+    const row = await recordFeeding(db, 3, "a@b.co", ts, 200);
+
+    // amount_ml alone (5000) can't be un-merged, but preAmount restores 4900.
+    expect(row.merged).toBe(true);
+    expect(row.amount_ml).toBe(MAX_FEEDING_ML);
+    expect(row.preAmount).toBe(4900);
+  });
+
+  it("reports no pre-merge amount on a fresh insert", async () => {
+    const { db } = stubDb([
+      [], // no prior feeding
+      [], // nothing in the window
+      [], // UPDATE matched nothing
+      [{ id: 9, ts, amount_ml: 120 }], // fresh insert
+    ]);
+
+    const row = await recordFeeding(db, 3, "a@b.co", ts, 120);
+
+    expect(row.merged).toBe(false);
+    expect(row.preAmount).toBe(null);
+    expect(row.id).toBe(9);
   });
 });

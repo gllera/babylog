@@ -2235,24 +2235,21 @@
       return function() { afterUndo(entity, deleteEntry(entity, id)); };
     }
 
-    // The server clamps a merged feeding total at this cap (MAX_FEEDING_ML in
-    // src/lib.ts). A total that hit the cap lost the true pre-merge amount, so
-    // the subtract-undo below can't reconstruct the original.
-    var MAX_FEEDING_ML = 5000;
-
     // A feedings POST within 10 minutes of an existing entry comes back with
     // merged:true — the server topped up that entry instead of inserting.
     // Then "Saved" would lie and the delete-undo would eat the pre-existing
-    // record, so toast the new total and make undo subtract the amount.
-    function savedToast(entity, body, created) {
+    // record, so toast the new total and make undo restore the pre-merge amount.
+    function savedToast(entity, created) {
       if (!created || !created.merged) {
         toast(i18n("Saved"), false, makeUndo(entity, created && created.id));
         return;
       }
-      // A merge clamped at the cap can't be subtracted back to the original,
-      // so toast the total with no undo rather than restore a wrong amount.
-      var undo = created.amount_ml === MAX_FEEDING_ML ? null : function() {
-        afterUndo(entity, putJson(entities[entity].endpoint + "/" + created.id, { amount_ml: created.amount_ml - body.amount_ml }));
+      // Undo restores the row to the exact amount it held before the merge
+      // (created.preAmount, straight from the server) — correct even when the
+      // server clamped the total at its cap, which created.amount_ml alone
+      // can't reverse. A null preAmount (shouldn't occur for a merge) drops undo.
+      var undo = created.preAmount == null ? null : function() {
+        afterUndo(entity, putJson(entities[entity].endpoint + "/" + created.id, { amount_ml: created.preAmount }));
       };
       toast(i18n("Added to previous feeding — {n} ml total", { n: created.amount_ml }), false, undo);
     }
@@ -4678,7 +4675,7 @@
       body.when = markerInstant().toISOString();
       try {
         var created = await postJson(entities[entity].endpoint, body);
-        savedToast(entity, body, created);
+        savedToast(entity, created);
         loadDashboard();
       } catch (err) {
         toastErr(err);
@@ -5203,7 +5200,7 @@
           } else {
             var created = await postJson(entities[entity].endpoint, body);
             form.reset();
-            savedToast(entity, body, created);
+            savedToast(entity, created);
           }
           loadList(entity);
         } catch (err) {

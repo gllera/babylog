@@ -255,6 +255,11 @@ export type FeedingWrite = {
   // The row's total after the write (old amount + new amount when merged).
   amount_ml: number;
   merged: boolean;
+  // The matched row's amount BEFORE this write, when merged (null on a fresh
+  // insert). Lets the client's merge-undo restore the exact pre-merge total —
+  // even a merge the DB clamped at MAX_FEEDING_ML, which `amount_ml` alone
+  // can't reconstruct.
+  preAmount: number | null;
   // Last feeding strictly before `ts`, for gap reporting on fresh inserts.
   prevTs: string | null;
 };
@@ -306,12 +311,22 @@ export async function recordFeeding(
   ts: string,
   amountMl: number
 ): Promise<FeedingWrite> {
-  const [prevRes, updRes, insRes] = await db.batch([
+  const { start, end } = feedingMergeWindow(ts);
+  // The pre-amount SELECT runs before the merge UPDATE in the same transaction,
+  // so it reads the in-window row's amount *before* it's topped up — the value
+  // undo restores to (FeedingWrite.preAmount). Same window and row-pick (ORDER
+  // BY ts LIMIT 1) as the UPDATE, so it names the very row that gets merged.
+  const [prevRes, preRes, updRes, insRes] = await db.batch([
     db
       .prepare(
         "SELECT ts FROM feedings WHERE baby_id = ? AND ts < ? ORDER BY ts DESC LIMIT 1"
       )
       .bind(babyId, ts),
+    db
+      .prepare(
+        "SELECT amount_ml FROM feedings WHERE baby_id = ? AND ts >= ? AND ts <= ? ORDER BY ts LIMIT 1"
+      )
+      .bind(babyId, start, end),
     ...feedingMergeWrites(db, babyId, createdBy, ts, amountMl),
   ]);
   type Row = { id: number; ts: string; amount_ml: number };
@@ -322,6 +337,10 @@ export async function recordFeeding(
     ts: row.ts,
     amount_ml: row.amount_ml,
     merged: mergedRow !== undefined,
+    preAmount:
+      mergedRow !== undefined
+        ? (preRes.results as Array<{ amount_ml: number }>)[0]?.amount_ml ?? null
+        : null,
     prevTs: (prevRes.results as Array<{ ts: string }>)[0]?.ts ?? null,
   };
 }

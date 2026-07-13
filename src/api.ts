@@ -182,7 +182,13 @@ const ENTITIES: Record<string, EntityConfig> = {
         value.amount_ml as number
       );
       return jsonOk(
-        { id: row.id, ts: row.ts, amount_ml: row.amount_ml, merged: row.merged },
+        {
+          id: row.id,
+          ts: row.ts,
+          amount_ml: row.amount_ml,
+          merged: row.merged,
+          preAmount: row.preAmount,
+        },
         row.merged ? 200 : 201
       );
     },
