@@ -105,6 +105,26 @@ describe("belly ring DOM", () => {
     expect(tip.v).not.toContain("next feed ~ now");
   });
 
+  it("refreshes the aria-label ml even when frac stays clamped and the token is unchanged", () => {
+    // Peak deliberately low so fullness clamps frac to 1 well before the
+    // marker scrub below pushes f even higher.
+    const { r, el, setMarker } = setup({ refs: { peak: 40 } });
+    r.updateBellyTank();
+    const label1 = el.getAttribute("aria-label");
+    const fill1 = el.querySelector(".br-fill")!.getAttribute("stroke-dasharray");
+    // Earlier marker → the most-recent feed (30 min old at NOW) is only
+    // 15 min old here → higher fullness, but still far past peak 40, so
+    // frac stays pinned at 1 (asserted below) while the ml keeps rising.
+    setMarker(NOW - 15 * 60000);
+    r.updateBellyTank();
+    const label2 = el.getAttribute("aria-label");
+    const fill2 = el.querySelector(".br-fill")!.getAttribute("stroke-dasharray");
+    expect(fill2).toBe(fill1); // frac clamped both times — the old sig would collide
+    const ml1 = Number(label1!.match(/belly ≈ (\d+) ml/)![1]);
+    const ml2 = Number(label2!.match(/belly ≈ (\d+) ml/)![1]);
+    expect(ml2).not.toBe(ml1); // but the label's own ml must still refresh
+  });
+
   it("ships the es translation for the overdue caption", async () => {
     const { readFileSync } = await import("node:fs");
     const here = import.meta.url;

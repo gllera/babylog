@@ -4420,7 +4420,7 @@
       // what lets the arc's CSS transition run (an innerHTML rebuild remakes
       // the nodes and jumps). The signature spares quiet ticks a patch; a
       // changed one invalidates an open caption (its estimate went stale).
-      var sig = frac.toFixed(4) + "|" + refFrac.toFixed(4) + "|" + token + "|" + (f < ref);
+      var sig = frac.toFixed(4) + "|" + refFrac.toFixed(4) + "|" + token + "|" + (f < ref) + "|" + fgMl(f);
       if (sig === bellyTankLast && el.firstChild) return;
       bellyTankLast = sig;
       if (tapTipEl && tapTipEl.tipFor === el) hideTapTip();
