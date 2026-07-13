@@ -88,4 +88,23 @@ describe("belly kernel (extracted from app.html)", () => {
     expect(refs.peak).toBeGreaterThan(100);
     expect(refs.peak).toBeLessThan(500); // the max would be ≈ 930
   });
+
+  it("gates off volumeless history (peak 0) instead of handing the ring a 0 scale", () => {
+    const k = kernel();
+    // A breastfeeding-only household: plenty of feeds, none carrying an ml
+    // amount. peak (p90 of maxima) is 0, so f/peak downstream would be NaN.
+    // hungerCalib must return null so the ring gates off like young history —
+    // not a refs object the renderer divides by zero.
+    const volumeless = Array.from({ length: 24 }, (_, i) => feed(T0 + i * 3 * H, 0));
+    expect(k.hungerCalib(volumeless)).toBeNull();
+    // A history whose top decile carries volume still scales (regression guard:
+    // the gate keys on peak > 0, so it must not swallow real volume — here the
+    // last third of feeds carry ml, keeping the p90 of maxima positive).
+    const someVolume = Array.from({ length: 24 }, (_, i) =>
+      feed(T0 + i * 3 * H, i >= 16 ? 130 : 0)
+    );
+    const refs = k.hungerCalib(someVolume);
+    expect(refs).not.toBeNull();
+    expect(refs.peak).toBeGreaterThan(0);
+  });
 });

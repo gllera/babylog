@@ -1358,6 +1358,12 @@
       pointer-events: none;
     }
     .br-ml { font-style: normal; font-size: 8px; font-weight: 500; color: var(--muted); margin-left: 1px; }
+    /* The countdown's time unit (m / h / ½h) mirrors the ml unit's small
+       upright shape, but wears the feed hue --primary where ml stays muted —
+       so a glance tells a next-feed countdown from the belly ml by colour, not
+       by reading "m" vs "ml". The countdown only shows on the non-hungry
+       (feed-hue) arc, so it never fights the danger token. */
+    .br-unit { font-style: normal; font-size: 8px; font-weight: 500; color: var(--primary); margin-left: 1px; }
     /* Probably hungry (emptier than her usual pre-feed level): the arc and the
        centre token trade the feed hue for danger — the reserve tick makes the
        red self-explanatory (below the level she usually eats at). The track
@@ -1717,12 +1723,10 @@
         "next feed ~ now": "próxima toma ~ ya",
         "usually fed by ~{t}": "suele comer antes de las ~{t}",
         "usually fed when ≈ {n} ml remain": "suele comer cuando quedan ≈ {n} ml",
-        // Belly ring centre countdown token (magnitude-adaptive)
+        // Belly ring centre countdown token short end (the m / h / ½h units
+        // are not translated — hardcoded in bellyCountdownToken like durationLabel)
         "soon": "pronto",
         "now": "ya",
-        "~{d}m": "~{d}m",
-        "~{d}h": "~{d}h",
-        "~{d}½h": "~{d}½h",
         // Forms
         "Add": "Añadir",
         "Update": "Actualizar",
@@ -4020,13 +4024,19 @@
       day.sort(function(a, b) { return a - b; });
       night.sort(function(a, b) { return a - b; });
       peaks.sort(function(a, b) { return a - b; });
+      var peak = fgQuantile(peaks, 0.9);
+      // Volumeless history (no ml logged on ~any feed): the p90 of maxima is 0,
+      // so the ring's 0→peak scale would divide by zero (NaN arc/tick). The
+      // gauge is volume-based and can't render without volume — gate off like
+      // young history rather than hand the renderer a 0 scale.
+      if (!(peak > 0)) return null;
       var med = fgQuantile(all, 0.5);
       return {
         day: day.length >= FG_HGR_MIN_CLASS ? fgQuantile(day, 0.5) : med,
         night: night.length >= FG_HGR_MIN_CLASS ? fgQuantile(night, 0.5) : med,
         n: all.length,
         firstMs: ev[0].t,
-        peak: fgQuantile(peaks, 0.9)
+        peak: peak
       };
     }
 
@@ -4367,10 +4377,12 @@
       return null;
     }
 
-    // The centre token: a terse, magnitude-adaptive countdown ('~' on every
-    // value) when the marker reads now and a crossing lands within 12h; else
-    // the belly ml (a tiny ml unit). 'soon'/'now' cover the short end. "Marker
-    // at now" is the readout's own test (markerMin ≥ nowMin) — NOT
+    // The centre token: a terse, magnitude-adaptive countdown to the next feed
+    // (a bare number with a small feed-hue unit — m / h / ½h — mirroring the ml
+    // token's number+unit shape; the feed hue is what tells the two apart at a
+    // glance) when the marker reads now and a crossing lands within 12h; else
+    // the belly ml (a tiny muted ml unit). 'soon'/'now' cover the short end.
+    // "Marker at now" is the readout's own test (markerMin ≥ nowMin) — NOT
     // stripFollowNow (see bellyTankTip). Always returns something.
     function bellyCountdownToken(feeds, refs, ml) {
       if (stripMarkerMin() >= rsNowMin()) {
@@ -4381,11 +4393,11 @@
           if (mins < 15) return i18n("soon");
           if (mins < 60) {
             var m5 = Math.round(mins / 5) * 5;
-            if (m5 < 60) return i18n("~{d}m", { d: m5 });
+            if (m5 < 60) return m5 + '<i class="br-unit">m</i>';
             // rounded up to the hour → fall through to the hour format
           }
           var halves = Math.round(mins / 30), h = Math.floor(halves / 2);
-          return halves % 2 ? i18n("~{d}½h", { d: h }) : i18n("~{d}h", { d: h });
+          return h + '<i class="br-unit">' + (halves % 2 ? "½h" : "h") + '</i>';
         }
       }
       return fgMl(ml) + '<i class="br-ml">ml</i>';
@@ -4445,10 +4457,11 @@
         "rotate(" + (refFrac * 360).toFixed(2) + " " + BR_C + " " + BR_C + ")");
       el.querySelector(".br-token").innerHTML = token;
       // The svg is decorative (aria-hidden); the div itself tells assistive
-      // tech the story — belly ml, plus the countdown when one is showing
-      // (the ml-fallback token would just repeat the label).
+      // tech the story — belly ml, plus the countdown when one is showing,
+      // tag-stripped ("40m", not the <i>-wrapped unit markup). The ml-fallback
+      // token is skipped — it would just repeat the label.
       var label = i18n("belly ≈ {n} ml", { n: fgMl(f) });
-      if (token.indexOf("br-ml") < 0) label += " · " + token;
+      if (token.indexOf("br-ml") < 0) label += " · " + token.replace(/<[^>]*>/g, "");
       el.setAttribute("aria-label", label);
     }
 
