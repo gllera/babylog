@@ -1,5 +1,43 @@
 import { describe, it, expect } from "vitest";
 import { langOf, VOICES } from "../src/alexa-i18n";
+import { classifyDiaperKind } from "../src/alexa";
+
+describe("classifyDiaperKind", () => {
+  // Combined phrasings must resolve to poop (a wet+dirty diaper is the messy
+  // one) — the bug was that "wet"/"dirty" were absent from the combined regex,
+  // so "wet and dirty" fell through to the pee-only branch.
+  it("combined phrasings resolve to poop", () => {
+    expect(classifyDiaperKind("wet and dirty")).toBe("poop");
+    expect(classifyDiaperKind("pee and dirty")).toBe("poop");
+    expect(classifyDiaperKind("dirty and wet")).toBe("poop");
+    expect(classifyDiaperKind("pee and poop")).toBe("poop");
+    expect(classifyDiaperKind("pis y caca")).toBe("poop");
+    expect(classifyDiaperKind("mojado y sucio")).toBe("poop");
+    expect(classifyDiaperKind("both")).toBe("poop");
+  });
+
+  it("single pee phrasings", () => {
+    expect(classifyDiaperKind("pee")).toBe("pee");
+    expect(classifyDiaperKind("wet")).toBe("pee");
+    expect(classifyDiaperKind("mojado")).toBe("pee");
+    expect(classifyDiaperKind("pis")).toBe("pee");
+    expect(classifyDiaperKind("number one")).toBe("pee");
+  });
+
+  it("single poop phrasings", () => {
+    expect(classifyDiaperKind("caca")).toBe("poop");
+    expect(classifyDiaperKind("dirty")).toBe("poop");
+    expect(classifyDiaperKind("sucio")).toBe("poop");
+    expect(classifyDiaperKind("poop")).toBe("poop");
+    expect(classifyDiaperKind("number two")).toBe("poop");
+  });
+
+  it("is case-insensitive and returns null when nothing matches", () => {
+    expect(classifyDiaperKind("Wet And Dirty")).toBe("poop");
+    expect(classifyDiaperKind("hello")).toBe(null);
+    expect(classifyDiaperKind("")).toBe(null);
+  });
+});
 
 describe("langOf", () => {
   it("maps en-US and en-GB to en", () => {

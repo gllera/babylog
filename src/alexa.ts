@@ -580,6 +580,31 @@ async function handleRecordFeeding(
   });
 }
 
+// Classify a free-text diaper utterance (es + en) into a kind, or null when
+// nothing matches. Combined phrasings ("pis y caca" / "wet and dirty") are
+// checked first so they aren't misread as pee-only — a wet-and-dirty diaper is
+// the messy one, logged as poop.
+export function classifyDiaperKind(raw: string): DiaperKind | null {
+  const s = raw.toLowerCase();
+  if (
+    /(pis|pip[ií]|pee|wee|mojado|wet).*(caca|pop[oó]|poop|poo|sucio|dirty)|(caca|pop[oó]|poop|poo|sucio|dirty).*(pis|pip[ií]|pee|wee|mojado|wet)|ambos|las\s*dos|los\s*dos|todo|complet|both|everything|the works/.test(
+      s
+    )
+  )
+    return "poop";
+  if (
+    /(^|\W)(pip[ií]?|pis|mojado|pee|wee|wet)(\W|$)/.test(s) ||
+    /number one/.test(s)
+  )
+    return "pee";
+  if (
+    /cac|pop[oó]|deposici|sucio|poop|poo|dirty/.test(s) ||
+    /number two/.test(s)
+  )
+    return "poop";
+  return null;
+}
+
 async function handleRecordDiaper(
   intent: AlexaIntent,
   env: AlexaEnv,
@@ -591,28 +616,10 @@ async function handleRecordDiaper(
   if (id === "pee" || id === "poop") {
     kind = id;
   } else {
-    // Best-effort fallback (es + en) if synonym resolution gave no id. Combined
-    // phrasings ("pis y caca" / "pee and poop") are checked first so they
-    // aren't misread as pee-only — a wet-and-dirty diaper is logged as poop.
-    const raw = (
+    // Synonym resolution gave no id — classify the raw utterance instead.
+    kind = classifyDiaperKind(
       slotResolvedName(intent.slots?.kind) ?? slotRaw(intent.slots?.kind) ?? ""
-    ).toLowerCase();
-    if (
-      /(pis|pip[ií]|pee|wee).*(caca|pop[oó]|poop|poo)|(caca|pop[oó]|poop|poo).*(pis|pip[ií]|pee|wee)|ambos|las\s*dos|los\s*dos|todo|complet|both|everything|the works/.test(
-        raw
-      )
-    )
-      kind = "poop";
-    else if (
-      /(^|\W)(pip[ií]?|pis|mojado|pee|wee|wet)(\W|$)/.test(raw) ||
-      /number one/.test(raw)
-    )
-      kind = "pee";
-    else if (
-      /cac|pop[oó]|deposici|sucio|poop|poo|dirty/.test(raw) ||
-      /number two/.test(raw)
-    )
-      kind = "poop";
+    );
   }
   if (!kind) {
     return speak(v.askDiaper, {
