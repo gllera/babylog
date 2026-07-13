@@ -45,9 +45,12 @@ export function kernel(nightAt: (tMs: number) => boolean = () => false): any {
     fnSource("digSumMl"),
     fnSource("fullnessAt"),
     fnSource("hungerCalib"),
+    fnSource("calibKappa0"),
+    fnSource("fgForecastErr"),
     "return { fgQuantile, medFeedMl, fgKappa, fgSpanMs, remFrac, digestedFrac," +
-      " digSumMl, fullnessAt, hungerCalib, FG_T_HALF_MS, FG_BETA, FG_VOL_P," +
-      " FG_EPS, FG_KAPPA0_MS, FG_TRUNC, FG_MED_FALLBACK, FG_HGR_MIN_N };",
+      " digSumMl, fullnessAt, hungerCalib, calibKappa0, fgForecastErr," +
+      " FG_T_HALF_MS, FG_BETA, FG_VOL_P, FG_EPS, FG_KAPPA0_MS, FG_TRUNC," +
+      " FG_MED_FALLBACK, FG_HGR_MIN_N };",
   ].join("\n");
   return new Function("nightAt", src)(nightAt);
 }

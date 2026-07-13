@@ -3882,7 +3882,7 @@
     // longer and a small top-up clears fast. Both the belly ring and the
     // digested-gauge stats share this one kernel, so fullness + digested = fed
     // holds exactly for any feed already taken.
-    var FG_T_HALF_MS = 60 * 60 * 1000; // a median feed half-empties at 60 min
+    var FG_T_HALF_MS = 60 * 60 * 1000; // prior anchor: a median feed half-empties at 60 min (calibKappa0 may re-pick t½ from her own history)
     var FG_BETA = 1.4;                 // power-exp lag (β=1 → pure exponential)
     var FG_VOL_P = 0.6;                // sublinear volume scale (p=0 → fixed span)
     var FG_EPS = 0.03;                 // truncation floor; sets each feed's span
@@ -3913,16 +3913,16 @@
 
     // κ for a feed of amountMl against the median feed medMl: κ₀·(A/M)^p. A 0
     // or null feed uses the median scale (it contributes 0 ml regardless).
-    function fgKappa(amountMl, medMl) {
-      return FG_KAPPA0_MS * Math.pow((amountMl > 0 ? amountMl : medMl) / medMl, FG_VOL_P);
+    function fgKappa(amountMl, medMl, k0) {
+      return (k0 || fgK0Ms) * Math.pow((amountMl > 0 ? amountMl : medMl) / medMl, FG_VOL_P);
     }
     // This feed's truncation span Tᵢ (where the raw curve reaches FG_EPS).
     function fgSpanMs(amountMl, medMl) { return fgKappa(amountMl, medMl) * FG_TRUNC; }
     // Renormalized remaining fraction of one feed at age ageMs: exactly 1 at
     // ageMs≤0, exactly 0 at ageMs≥Tᵢ, monotone and continuous between.
-    function remFrac(ageMs, amountMl, medMl) {
+    function remFrac(ageMs, amountMl, medMl, k0) {
       if (ageMs <= 0) return 1;
-      var kappa = fgKappa(amountMl, medMl);
+      var kappa = fgKappa(amountMl, medMl, k0);
       if (ageMs >= kappa * FG_TRUNC) return 0;
       var r = Math.exp(-Math.pow(ageMs / kappa, FG_BETA));
       var v = (r - FG_EPS) / (1 - FG_EPS);
@@ -3935,6 +3935,7 @@
     // Digested ml over (startMs, endMs]: each feed contributes the slice of
     // its own volume-scaled release curve that falls inside the window.
     function digSumMl(feeds, startMs, endMs) {
+      calibKappa0(feeds);
       var m = medFeedMl(feeds), s = 0, i, t, a;
       for (i = 0; i < feeds.length; i++) {
         t = new Date(feeds[i].ts).getTime();
@@ -3950,6 +3951,7 @@
     // exactly tMs counts in full (the belly fills at t⁺); a feed past its own
     // span Tᵢ contributes exactly 0.
     function fullnessAt(feeds, tMs) {
+      calibKappa0(feeds);
       var m = medFeedMl(feeds), s = 0, i, t, a;
       for (i = 0; i < feeds.length; i++) {
         t = new Date(feeds[i].ts).getTime();
@@ -3972,6 +3974,7 @@
     // just before her own past feeds — "hungry" means emptier than she
     // usually is when she actually gets fed. Null until enough history.
     function hungerCalib(feeds) {
+      calibKappa0(feeds);
       var m = medFeedMl(feeds);
       var ev = [], i, j, f, maxA = 0;
       for (i = 0; i < feeds.length; i++) {
@@ -4010,6 +4013,78 @@
         firstMs: ev[0].t,
         peak: fgQuantile(peaks, 0.9)
       };
+    }
+
+    // ---- Self-calibrated emptying speed (see the realistic belly-ring design in docs/) ----
+    // t½ is a per-baby unknown (breastmilk vs formula alone is ~2×). The
+    // hungry classification self-corrects — the same kernel measures both
+    // the current fullness and the pre-feed references — but the countdown's
+    // *slope* does not. So pick the half-life whose own next-feed forecast
+    // best matches when she actually got fed. The grid is ordered prior-first
+    // (by distance from the 60-min anchor) with strict improvement required,
+    // so regular schedules — forecast-invariant across candidates — keep the
+    // prior. Memoized on the feeds array identity like medFeedMl; sparse
+    // history (under the meter's own 20-sample gate) keeps the anchor.
+    var FG_T_HALF_GRID = [60, 45, 75, 30, 90, 105, 120]; // minutes, prior-first
+    var fgK0For = null, fgK0Ms = FG_KAPPA0_MS;
+    function calibKappa0(feeds) {
+      if (feeds === fgK0For) return fgK0Ms;
+      fgK0For = feeds;
+      fgK0Ms = FG_KAPPA0_MS;
+      var m = medFeedMl(feeds), ev = [], i;
+      for (i = 0; i < feeds.length; i++)
+        ev.push({ t: new Date(feeds[i].ts).getTime(), a: feeds[i].amount_ml || 0 });
+      ev.sort(function(a, b) { return a.t - b.t; });
+      if (ev.length < FG_HGR_MIN_N) return fgK0Ms;
+      var bestErr = Infinity;
+      for (i = 0; i < FG_T_HALF_GRID.length; i++) {
+        var k0 = FG_T_HALF_GRID[i] * 60000 / Math.pow(Math.LN2, 1 / FG_BETA);
+        var err = fgForecastErr(ev, m, k0);
+        if (err != null && err < bestErr) { bestErr = err; fgK0Ms = k0; }
+      }
+      return fgK0Ms;
+    }
+
+    // Median |forecast − actual| (ms) for the candidate kernel: derive the
+    // candidate's own pre-feed reference levels, then after each feed
+    // forecast the reference crossing (5-min steps, 12h bound — a miss
+    // scores the bound, so a kernel that never predicts is penalized, not
+    // skipped) and compare against the next real feed. One grid evaluation
+    // is O(n·(span + 144·span)) — ms-scale for a loaded strip, and the
+    // whole grid runs once per payload thanks to the memo above.
+    function fgForecastErr(ev, m, k0) {
+      var pre = [], day = [], night = [], i, j, t, f;
+      var maxA = 0;
+      for (i = 0; i < ev.length; i++) if (ev[i].a > maxA) maxA = ev[i].a;
+      var span = fgKappa(maxA, m, k0) * FG_TRUNC;
+      for (i = 0; i < ev.length; i++) {
+        f = 0;
+        for (j = i - 1; j >= 0 && ev[i].t - ev[j].t < span; j--)
+          f += ev[j].a * remFrac(ev[i].t - ev[j].t, ev[j].a, m, k0);
+        pre.push(f);
+        (nightAt(ev[i].t) ? night : day).push(f);
+      }
+      var all = pre.slice().sort(function(a, b) { return a - b; });
+      day.sort(function(a, b) { return a - b; });
+      night.sort(function(a, b) { return a - b; });
+      var med = fgQuantile(all, 0.5);
+      var refDay = day.length >= FG_HGR_MIN_CLASS ? fgQuantile(day, 0.5) : med;
+      var refNight = night.length >= FG_HGR_MIN_CLASS ? fgQuantile(night, 0.5) : med;
+      var errs = [];
+      for (i = 0; i < ev.length - 1; i++) {
+        var cross = null;
+        for (var k = 0; k <= 144; k++) { // 12h in 5-min steps
+          t = ev[i].t + k * 300000;
+          f = 0;
+          for (j = i; j >= 0 && t - ev[j].t < span; j--)
+            f += ev[j].a * remFrac(t - ev[j].t, ev[j].a, m, k0);
+          if (f < (nightAt(t) ? refNight : refDay)) { cross = t; break; }
+        }
+        errs.push(Math.abs((cross == null ? ev[i].t + 144 * 300000 : cross) - ev[i + 1].t));
+      }
+      if (!errs.length) return null;
+      errs.sort(function(a, b) { return a - b; });
+      return fgQuantile(errs, 0.5);
     }
 
 
