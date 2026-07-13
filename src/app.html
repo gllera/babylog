@@ -2130,6 +2130,11 @@
       return function() { afterUndo(entity, deleteEntry(entity, id)); };
     }
 
+    // The server clamps a merged feeding total at this cap (MAX_FEEDING_ML in
+    // src/lib.ts). A total that hit the cap lost the true pre-merge amount, so
+    // the subtract-undo below can't reconstruct the original.
+    var MAX_FEEDING_ML = 5000;
+
     // A feedings POST within 10 minutes of an existing entry comes back with
     // merged:true — the server topped up that entry instead of inserting.
     // Then "Saved" would lie and the delete-undo would eat the pre-existing
@@ -2139,9 +2144,12 @@
         toast(i18n("Saved"), false, makeUndo(entity, created && created.id));
         return;
       }
-      toast(i18n("Added to previous feeding — {n} ml total", { n: created.amount_ml }), false, function() {
+      // A merge clamped at the cap can't be subtracted back to the original,
+      // so toast the total with no undo rather than restore a wrong amount.
+      var undo = created.amount_ml === MAX_FEEDING_ML ? null : function() {
         afterUndo(entity, putJson(entities[entity].endpoint + "/" + created.id, { amount_ml: created.amount_ml - body.amount_ml }));
-      });
+      };
+      toast(i18n("Added to previous feeding — {n} ml total", { n: created.amount_ml }), false, undo);
     }
 
     // One fetch feeds the whole measure group: the latest line, the trend
@@ -3005,7 +3013,7 @@
       // carry the full date, today/yesterday marks just the time. One rule for
       // every lane (gauges, diapers, routines) so they can't drift apart.
       function markWhen(ts, m) {
-        return m < (RS_DAYS - 1) * 1440 ? absoluteTs(ts) : formatTimeOfDay(new Date(ts));
+        return m < (RS_DAYS - 2) * 1440 ? absoluteTs(ts) : formatTimeOfDay(new Date(ts));
       }
       var LANES = { feed: 38, diaper: 66, routine: 94 };
       var nowMin = rsNowMin();

@@ -521,7 +521,9 @@ async function handleDashboard(
     est_weight_g: growthCtx.estWeightG,
     est_height_cm: estimateHeightCm(
       recentHeights.results as unknown as HeightSample[],
-      now,
+      // Project to the civil day's start, like est_weight_g above and the MCP
+      // path — not the live `now`, which would drift a hair by time of day.
+      new Date(dayStart),
       sel.baby.date_of_birth
     ),
   });
