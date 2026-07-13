@@ -1711,6 +1711,7 @@
         "belly ≈ {n} ml": "barriga ≈ {n} ml",
         "next feed ~{t}": "próxima toma ~{t}",
         "next feed ~ now": "próxima toma ~ ya",
+        "usually fed by ~{t}": "suele comer antes de las ~{t}",
         "usually fed when ≈ {n} ml remain": "suele comer cuando quedan ≈ {n} ml",
         // Belly ring centre countdown token (magnitude-adaptive)
         "soon": "pronto",
@@ -4349,6 +4350,19 @@
       return null;
     }
 
+    // The mirror question once already hungry: when DID she cross under the
+    // reference? Walk back minute-by-minute (12h bound) to the most recent
+    // instant at or above the then-current class reference; the crossing is
+    // one step after it. Null when the whole window reads hungry —
+    // calibration noise; better no claim than a wrong one.
+    function hungerCrossPastMs(feeds, refs, nowMs) {
+      for (var k = 1; k <= 720; k++) {
+        var t = nowMs - k * 60000;
+        if (fullnessAt(feeds, t) >= (nightAt(t) ? refs.night : refs.day)) return t + 60000;
+      }
+      return null;
+    }
+
     // The centre token: a terse, magnitude-adaptive countdown ('~' on every
     // value) when the marker reads now and a crossing lands within 12h; else
     // the belly ml (a tiny ml unit). 'soon'/'now' cover the short end. "Marker
@@ -4450,9 +4464,19 @@
       var v = i18n("belly ≈ {n} ml", { n: fgMl(fullnessAt(feeds, endMs)) });
       if (stripMarkerMin() >= rsNowMin()) {
         var cross = hungerCrossMs(feeds, refs, Date.now());
-        if (cross != null)
-          v += " · " + (cross <= Date.now() ? i18n("next feed ~ now")
-            : i18n("next feed ~{t}", { t: formatTimeOfDay(new Date(cross)) }));
+        if (cross != null) {
+          if (cross <= Date.now()) {
+            // Already under the reference: bare "now" goes stale (a long nap
+            // can sit red for hours) — say when the crossing happened so the
+            // parent can judge how overdue.
+            var past = hungerCrossPastMs(feeds, refs, Date.now());
+            v += " · " + (past != null
+              ? i18n("usually fed by ~{t}", { t: formatTimeOfDay(new Date(past)) })
+              : i18n("next feed ~ now"));
+          } else {
+            v += " · " + i18n("next feed ~{t}", { t: formatTimeOfDay(new Date(cross)) });
+          }
+        }
       }
       return {
         v: v,

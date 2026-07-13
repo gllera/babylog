@@ -87,4 +87,28 @@ describe("belly ring DOM", () => {
     r.updateBellyTank();
     expect(el.getAttribute("aria-label")).toMatch(/^belly ≈ \d+ ml$/);
   });
+
+  it("tip forecasts a clock time when not yet hungry", () => {
+    const { r } = setup();
+    const tip = r.bellyTankTip();
+    expect(tip.v).toMatch(/next feed ~\d{2}:\d{2}/);
+    expect(tip.m).toContain("usually fed when");
+  });
+
+  it("tip says when she'd usually have been fed once overdue", () => {
+    // Newest feed 4 h ago (past its span) → fullness 0, far under the 20 ml
+    // reference; the crossing happened mid-window, ≈137 min ago.
+    const overdueFeeds = [feed(240, 100), feed(600, 100), feed(900, 100), feed(1200, 100), feed(1500, 100)];
+    const { r } = setup({ feeds: overdueFeeds });
+    const tip = r.bellyTankTip();
+    expect(tip.v).toMatch(/usually fed by ~\d{2}:\d{2}/);
+    expect(tip.v).not.toContain("next feed ~ now");
+  });
+
+  it("ships the es translation for the overdue caption", async () => {
+    const { readFileSync } = await import("node:fs");
+    const here = import.meta.url;
+    const html = readFileSync(new URL("../src/app.html", here), "utf8");
+    expect(html).toContain('"usually fed by ~{t}":');
+  });
 });

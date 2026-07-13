@@ -82,6 +82,7 @@ export function ring(stubs: Record<string, any>): any {
     fnSource("calibKappa0"),
     fnSource("fgForecastErr"),
     fnSource("hungerCrossMs"),
+    fnSource("hungerCrossPastMs"),
     fnSource("bellyCountdownToken"),
     fnSource("updateBellyTank"),
     fnSource("bellyTankTip"),
