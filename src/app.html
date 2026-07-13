@@ -3913,6 +3913,13 @@
 
     // κ for a feed of amountMl against the median feed medMl: κ₀·(A/M)^p. A 0
     // or null feed uses the median scale (it contributes 0 ml regardless).
+    // κ₀: the explicit k0 when given (the calibration backtest passes each
+    // candidate's), else the module-global fgK0Ms. That global is the
+    // self-calibrated κ₀ for the CURRENT payload — a k0-omitting caller
+    // (fgSpanMs, remFrac/digestedFrac from fullnessAt/digSumMl/hungerCalib)
+    // must have run calibKappa0(feeds) for this payload first (its consumers
+    // all do, as their first statement). k0 grid values are always > 0, so
+    // the `|| fgK0Ms` never fires on a real explicit k0.
     function fgKappa(amountMl, medMl, k0) {
       return (k0 || fgK0Ms) * Math.pow((amountMl > 0 ? amountMl : medMl) / medMl, FG_VOL_P);
     }
@@ -4022,9 +4029,25 @@
     // *slope* does not. So pick the half-life whose own next-feed forecast
     // best matches when she actually got fed. The grid is ordered prior-first
     // (by distance from the 60-min anchor) with strict improvement required,
-    // so regular schedules — forecast-invariant across candidates — keep the
-    // prior. Memoized on the feeds array identity like medFeedMl; sparse
-    // history (under the meter's own 20-sample gate) keeps the anchor.
+    // so a candidate only unseats 60 min by strictly out-forecasting it.
+    // Memoized on the feeds array identity like medFeedMl; sparse history
+    // (under the meter's own 20-sample gate) keeps the anchor.
+    // Measured behavior (backtested against synthetic babies): recovers the
+    // true t½ well on realistic on-demand data, where she is fed at a
+    // consistent positive fullness so every candidate's pre-feed reference is
+    // > 0. Two known limitations, both benign and prior-leaning: (1) the
+    // objective is bimodal — a candidate whose span is shorter than her
+    // median feed gap reads ~0 pre-feed fullness, so its reference rounds to
+    // 0, no forecast can cross it, and it scores the 12h miss-bound; the pick
+    // is thus effectively the shortest t½ whose span clears her typical gap,
+    // then split on forecast quality. So with real gap jitter the 60-min
+    // prior CAN be nudged (e.g. to 75) when its own span no longer clears the
+    // gap — it is not strictly pinned for equal-size schedules. (2) frequent
+    // feeding biases the pick toward the shorter/safer anchor. Both move
+    // toward the conservative side and only touch the countdown slope, never
+    // fullness itself (fullnessAt/digSumMl self-calibrate to the same k0, so
+    // conservation still holds exactly). Sharpening the objective past the
+    // ref≈0 cliff is deferred — see the hardening plan's review notes.
     var FG_T_HALF_GRID = [60, 45, 75, 30, 90, 105, 120]; // minutes, prior-first
     var fgK0For = null, fgK0Ms = FG_KAPPA0_MS;
     function calibKappa0(feeds) {
