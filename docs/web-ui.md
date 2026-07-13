@@ -30,16 +30,29 @@ timezone.
   every caption carries ≈ (whiskers = lowest/highest day, box = the usual
   middle-half band, tick = median) — with the 24 h ending at the needle
   drawn against it; scrubbing the tape re-reads that window.
-- A corner **belly tank** beside the settings button: the tape's bottle
-  vessel at cluster size, its milk level the stomach content at the marker
-  (draining linearly to empty over 5 h) on her own 0→peak fullness scale,
-  a dotted reserve line at the level she's usually fed (self-calibrated
-  medians of pre-feed fullness, split by the Settings-defined day/night
-  window). Level under the line turns the milk danger-red. Tapping it
-  reveals the belly ml, the calibration story and — with the marker
-  riding "now" — a next-feed estimate (the first crossing under the
-  reference within 12 h). Hidden until ~20 feeds
-  of history, while the marker predates tracking, and on Settings.
+- A corner **belly chip** beside the settings button: a small squared tag —
+  calm by default (a quiet tag that recedes into either theme), warming to a
+  mealtime amber the moment she's due (the single warm point in the otherwise
+  cool interface) — carrying just the approximate time to the next feed. It's
+  one tag in two states: the countdown and `now` share a held footprint and
+  type lockup, so the due flip reads as the same chip warming up. The time is
+  shown in half-hour steps, the
+  decimal always shown and tilde-prefixed (`~0.5h`, `~1.0h`, `~1.5h`, `~2.0h`,
+  floored at `0.5h`) — or `now` when she's due. That time is the first instant
+  the draining stomach content (on her
+  own 0→peak fullness scale) crosses under the level she's usually fed at
+  (self-calibrated medians of pre-feed fullness, split by the Settings-defined
+  day/night window). That reference is floored at a few ml, so a baby usually
+  fed near-empty (reference ~0) counts down to *empty* rather than showing a
+  bare ml — the chip always shows a time. The countdown is measured from the
+  **marker** (draining only the feeds at/before it), so scrubbing the tape
+  into the past reads the forecast she had then — yellowing at the moments she
+  was due — instead of showing a bare ml. The whole chip goes yellow once
+  she's due (content under that reference) — the one glanceable "feed me"
+  signal, no gauge.
+  Tapping it reveals the belly ml at the marker, the calibration story and
+  the next-feed clock time (also from the marker). Hidden until ~20 feeds of
+  history, while the marker predates tracking, and on Settings.
 - Data comes from a single aggregated `/api/dashboard` request (which also
   evaluates indications server-side over Madrid-day windows), refetched
   whenever the app returns to the foreground.

@@ -83,6 +83,7 @@ export function ring(stubs: Record<string, any>): any {
     fnSource("fgForecastErr"),
     fnSource("hungerCrossMs"),
     fnSource("hungerCrossPastMs"),
+    fnSource("brDurToken"),
     fnSource("bellyCountdownToken"),
     fnSource("updateBellyTank"),
     fnSource("bellyTankTip"),

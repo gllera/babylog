@@ -42,6 +42,15 @@
          squared, radius 0). */
       --radius-control: 6px;
       --stack: 16px;
+      /* main's top margin — also the anchor the corner readout uses to drop
+         its headline onto the door/belly centre-line (see .rs-readout-btn);
+         shrinks on phones (media query below), which is why the readout
+         reads it rather than hard-coding the value. */
+      --main-top: 24px;
+      /* Corner cluster's top inset (door + belly). Shared with the readout's
+         alignment math so the three stay on one centre-line when it tightens
+         on phones. */
+      --ctop: 10px;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -79,7 +88,7 @@
     }
     main {
       max-width: 920px;
-      margin: 24px auto;
+      margin: var(--main-top) auto;
       padding: 0 16px 40px;
     }
     .tab { display: none; }
@@ -437,11 +446,11 @@
     }
     .rhythm-scroll::-webkit-scrollbar { display: none; }
     /* Spacers keep the scroll↔minute identity: the leading one equals the
-       needle's offset from the viewport's left (100% − 48px), the trailing
-       one its offset from the right (48px) — so the svg x under the needle
+       needle's offset from the viewport's left (100% − 36px), the trailing
+       one its offset from the right (36px) — so the svg x under the needle
        is exactly scrollLeft, and scrollMax lands exactly on "now". */
-    .rhythm-scroll::before { content: ""; flex: 0 0 calc(100% - 48px); }
-    .rhythm-scroll::after { content: ""; flex: 0 0 48px; }
+    .rhythm-scroll::before { content: ""; flex: 0 0 calc(100% - 36px); }
+    .rhythm-scroll::after { content: ""; flex: 0 0 36px; }
     .rhythm-strip {
       display: block;
       /* Width comes inline per render: scaled so the viewport spans 12 h of
@@ -520,8 +529,8 @@
       text-transform: uppercase;
       letter-spacing: 0.06em;
     }
-    /* The tape-head readout: a fixed dial whose text ends at the needle
-       (right-aligned to its 48px inset), reading the moment the quick-add
+    /* The tape-head readout: a fixed dial whose text ends near the needle
+       (right-aligned within the tape column), reading the moment the quick-add
        would log — big relative time over a small absolute one that
        resolves it ("Ayer · 22:05"). The dial is also a door: tapping it
        opens the jump-to-a-moment dialog (.rs-jump-dlg), so it renders as
@@ -539,7 +548,14 @@
     .rs-readout-btn {
       display: block;
       width: 100%;
-      padding: 4px 48px 6px 0;
+      /* Drop the headline onto the corner cluster's centre-line so the door
+         glyph, the belly chip and this readout read as one level top row.
+         The ⚙/belly band is page-absolute (top:--ctop, height:64px), so its
+         centre is --ctop + 64/2 from the page top; the readout flows inside
+         main (top edge = --main-top), so pad it down by the gap to that
+         centre, minus half the fixed 34px headline box below — exact at every
+         --ctop/--main-top pair and independent of the headline's font-size. */
+      padding: calc(var(--ctop) + 64px / 2 - var(--main-top) - 34px / 2) 24px 6px 0;
       text-align: right;
       font-family: inherit;
       background: transparent;
@@ -687,7 +703,13 @@
       .rs-jump-dlg[open] { animation: none; }
     }
     .rs-readout-rel {
-      display: block;
+      /* A fixed-height line box, right-aligned and vertically centred: the
+         34px height (with the padding above) is what parks the number on the
+         42px cluster centre-line regardless of the 26px/22px font. */
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      height: 34px;
       font-size: 26px;
       font-weight: 700;
       color: var(--primary);
@@ -704,11 +726,11 @@
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
-    /* The needle: pinned 48px in from the viewport's right edge (the
+    /* The needle: pinned 36px in from the viewport's right edge (the
        future side is empty, so the past gets the width), pointer-events
        none — the tape scrolls through underneath. Same span as the night
        band: y20–112 of the SVG's y14–138 crop → top 4.8%, bottom 21%. */
-    .rs-marker-ov { position: absolute; right: 48px; top: 0; bottom: 0; width: 0; pointer-events: none; }
+    .rs-marker-ov { position: absolute; right: 36px; top: 0; bottom: 0; width: 0; pointer-events: none; }
     .rs-marker-ov-line {
       position: absolute;
       top: 4.8%;
@@ -1271,7 +1293,7 @@
        content instead of floating over it. */
     #settings-btn {
       position: absolute;
-      top: 10px;
+      top: var(--ctop);
       left: max(10px, calc(50% - 444px));
       z-index: 40;
       display: inline-flex;
@@ -1318,7 +1340,7 @@
        readout's 122px inset (64px door + 48px ring + 10px gap) is unchanged. */
     #belly-tank {
       position: absolute;
-      top: 10px;
+      top: var(--ctop);
       left: max(74px, calc(50% - 380px));
       z-index: 40;
       display: flex;
@@ -1330,46 +1352,92 @@
       user-select: none;
     }
     #belly-tank[hidden] { display: none; }
-    .br-wrap { position: relative; display: inline-flex; }
-    .br-svg { display: block; }
-    .br-track { fill: none; stroke: var(--border); stroke-width: 2; }
-    /* Patched in place (node identity survives updates), so the arc can
-       ease between states instead of jumping on scrubs and ticks. */
-    .br-fill { fill: none; stroke: var(--primary); stroke-width: 4; transition: stroke-dasharray 240ms ease; }
-    @media (prefers-reduced-motion: reduce) { .br-fill, .br-tick { transition: none; } }
-    /* The reserve tick rides a transform (rotate to the reference angle), so
-       the usually-fed marker glides to a new level — day/night switch, a fresh
-       calibration — instead of snapping. Transitioning transform is portable;
-       transitioning x1/y1/x2/y2 geometry is not. */
-    .br-tick { stroke: var(--muted); stroke-width: 2; transition: transform 240ms ease; }
-    /* The countdown token, centred over the ring — the glanceable answer to
-       "when is the next feed?". Crisp HTML text (easier i18n than SVG text),
-       non-interactive so the tap falls through to #belly-tank. */
-    .br-token {
-      position: absolute;
-      inset: 0;
+    /* The belly chip (.br-disc kept as the class name): a small squared tag in
+       the door's corner slot, its face carrying the time to the next feed
+       (bellyCountdownToken) — discreet, not the old big circle. Its surface has
+       three states of ONE tag: calm while counting down ("~30m"), a pale-honey
+       warm-up in the final minutes before due, then the full amber once she's
+       due ("now") — an eased colour change on a held silhouette, so it reads as
+       the same chip warming up, not a different widget. Width is reserved on the
+       token in ch (see .br-token), not a measured pixel, so short tokens ("now",
+       "~5m") pad out and the flip doesn't resize while any format/locale stays
+       safe. A hairline .br-level underline shows how full she is now. The amber
+       is the ONLY fully-warm surface in the otherwise cool, hairline interface —
+       the single "feed me" glow. Node identity survives updates so the colour
+       and the underline width ease. */
+    .br-disc {
+      box-sizing: border-box;
+      position: relative;      /* anchors the fullness underline (.br-level) */
+      padding: 4px 8px;
+      border: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 14px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      color: var(--text);
+      background: #fff;
+      color: #1a1a1a;
+      transition: background-color 220ms ease, border-color 220ms ease, color 220ms ease;
+    }
+    /* Dark mode: the calm chip is a quiet raised tag, not a glaring pure-white
+       block on the near-black page (light mode keeps the white). Ink follows the
+       theme so it stays legible; the due rule below re-fixes a dark ink on amber. */
+    @media (prefers-color-scheme: dark) {
+      .br-disc { background: #181c20; color: var(--text); }
+    }
+    /* Warm-up: the final BR_WARM_MS before due. The chip eases to a pale honey —
+       a tint between the calm surface and the due amber — so a glance gets lead
+       time before the full "feed me" amber lands. Gated !hungry (updateBellyTank),
+       so warming and hungry are never on together. */
+    #belly-tank.warming .br-disc { background: #f6e8c9; border-color: #ecd8ac; }
+    @media (prefers-color-scheme: dark) {
+      #belly-tank.warming .br-disc { background: #2b271d; border-color: #3a3427; }
+    }
+    /* Due for a feed (emptier than her usual pre-feed level): the whole chip
+       warms to a soft mealtime amber — self-explanatory, no gauge needed. A
+       muted honey (not a bright/neon yellow) so it reads as warmth, not a hazard
+       light, yet stays clear of the diaper ochre. Dark ink on the amber in both
+       themes; higher specificity keeps it over the theme ink. */
+    #belly-tank.hungry .br-disc { background: #e0b566; border-color: #e0b566; color: #1a1a1a; }
+    /* The fullness underline: a hairline bar along the chip's foot whose width is
+       the belly's current fill (fullnessAt / peak — the old ring's 0→peak scale),
+       so the face answers "how full now?" as well as "when next?" without a gauge.
+       currentColor at low opacity introduces no new hue and tracks the chip ink
+       in every state (calm, warming, amber), light and dark. Node identity
+       survives updates so the width eases like the colour. */
+    .br-level {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      height: 2px;
+      background: currentColor;
+      opacity: 0.28;
+      transition: width 220ms ease;
       pointer-events: none;
     }
-    .br-ml { font-style: normal; font-size: 8px; font-weight: 500; color: var(--muted); margin-left: 1px; }
-    /* The countdown's time unit (m / h / ½h) mirrors the ml unit's small
-       upright shape, but wears the feed hue --primary where ml stays muted —
-       so a glance tells a next-feed countdown from the belly ml by colour, not
-       by reading "m" vs "ml". The countdown only shows on the non-hungry
-       (feed-hue) arc, so it never fights the danger token. */
-    .br-unit { font-style: normal; font-size: 8px; font-weight: 500; color: var(--primary); margin-left: 1px; }
-    /* Probably hungry (emptier than her usual pre-feed level): the arc and the
-       centre token trade the feed hue for danger — the reserve tick makes the
-       red self-explanatory (below the level she usually eats at). The track
-       stays hairline. */
-    #belly-tank.hungry .br-fill { stroke: var(--danger); }
-    #belly-tank.hungry .br-token { color: var(--danger); }
+    @media (prefers-reduced-motion: reduce) { .br-disc, .br-level { transition: none; } }
+    /* The readout, centred in the chip — the glanceable answer to "when's the
+       next feed?". Crisp HTML text (easier i18n than SVG text), non-interactive
+       so the tap falls through to #belly-tank. Same size/weight/rhythm whether it
+       reads "~30m" or "now", so the flip looks like one chip changing state. The
+       min-width in ch (holds "~1h30"/"+1h30" in tabular figures) reserves a
+       footprint every common token pads out to, so nothing resizes across the
+       whole countdown — content-relative, unlike a measured pixel, so new formats
+       and es stay safe; only the rare wide "120ml" fallback grows past it.
+       Tabular figures keep the digits from shimmying as the countdown ticks; the
+       ink is inherited so it tracks the chip state. */
+    .br-token {
+      min-width: 5ch;
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      font-variant-numeric: tabular-nums;
+      color: inherit;
+      pointer-events: none;
+    }
+    /* The unit (ml / h) rides small on the number's baseline, same ink. */
+    .br-ml, .br-unit { font-style: normal; font-size: 9px; font-weight: 600; margin-left: 1px; }
     #settings-btn.at-settings + #belly-tank { display: none; }
     /* The flyleaf reads whose diary → the child's data → the household's
        people → app pref. Each section's management controls (ledger,
@@ -1429,9 +1497,11 @@
     .settings-list { display: flex; flex-direction: column; }
     .settings-note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
     @media (max-width: 640px) {
-      :root { --stack: 14px; }
-      #baby-switcher { padding: 10px 10px 0 136px; }
-      main { margin: 14px auto; padding: 0 10px 24px; }
+      /* Phones reclaim a little edge space: tighter top (--main-top / --ctop)
+         and 8px side gutters — enough to breathe, short of hugging the bezel. */
+      :root { --stack: 14px; --main-top: 10px; --ctop: 8px; }
+      #baby-switcher { padding: 10px 8px 0 136px; }
+      main { padding: 0 8px 24px; } /* margin follows --main-top from :root */
 
       .strip-btn { font-size: 16px; padding: 12px 8px; }
       .rs-readout-rel { font-size: 22px; }
@@ -1723,9 +1793,8 @@
         "next feed ~ now": "próxima toma ~ ya",
         "usually fed by ~{t}": "suele comer antes de las ~{t}",
         "usually fed when ≈ {n} ml remain": "suele comer cuando quedan ≈ {n} ml",
-        // Belly ring centre countdown token short end (the m / h / ½h units
-        // are not translated — hardcoded in bellyCountdownToken like durationLabel)
-        "soon": "pronto",
+        // Belly chip countdown token due end (the h unit is not translated —
+        // hardcoded in bellyCountdownToken like durationLabel)
         "now": "ya",
         // Forms
         "Add": "Añadir",
@@ -2841,7 +2910,7 @@
       return Math.floor((toWall(new Date()).getTime() - rsStartWallMs()) / 60000);
     }
 
-    // Tape-head model: the marker is fixed 48px in from the viewport's
+    // Tape-head model: the marker is fixed 36px in from the viewport's
     // right edge and the scroll position IS the picked time — the leading
     // flex spacer matches the needle's left offset, so the svg x under the
     // needle equals scrollLeft. While the tape sits pushed against the
@@ -4343,67 +4412,116 @@
       return fgHungerRefs;
     }
 
-    // ---- The corner belly ring (see the realistic belly-ring design in docs/) ----
-    // The hunger meter's face: a radial fullness gauge in the corner cluster's
-    // reserved 48px slot (right of the door). The feed-hue arc sweeps clockwise
-    // from 12 o'clock, its length = fullness at the marker on her own 0→peak
-    // scale; a muted tick marks the usually-fed reference for the marker's
-    // day/night class. The centre carries a terse magnitude-adaptive countdown
-    // to the next feed when the marker reads now, else the belly ml. Hungry
-    // (fullness under the reference) swaps the arc and token from feed-hue to
-    // danger. Precise clock-time + the calibration why-line live in the tap.
-    var BR_SZ = 48, BR_C = 24, BR_R = 20; // ring box / centre / radius (px)
-    var BR_TICK = 3.5;                    // reserve tick half-length across the ring
-    var BR_FLOOR = 0.035;                 // min swept fraction so non-empty ≠ empty
+    // ---- The corner belly chip ----
+    // The hunger meter's face: a small squared tag (.br-disc) in the corner
+    // cluster's reserved slot (right of the door). It dropped the radial fullness
+    // gauge for one glanceable readout — a terse countdown to the next feed, in
+    // minutes then hours (brDurToken). A hairline fullness underline (.br-level)
+    // rides its foot, so the face also shows how full she is now. Three surface
+    // states of ONE tag: calm while counting down, a pale-honey warm-up in the
+    // final BR_WARM_MS before due, then the full "feed me" amber once hungry
+    // (fullness under the reference). When she's usually fed near-empty her
+    // calibrated reference is ~0, which would leave no crossing to count down to;
+    // a small BR_EMPTY_ML floor makes the countdown (and the amber) track
+    // time-until-empty instead, so the chip always shows a time, never a bare ml.
+    // Past due it counts up ("+45m") rather than a flat "now". Everything is
+    // measured from the MARKER (draining only the feeds at/before it), so
+    // scrubbing the tape into the past reads the state she had then; the belly ml,
+    // precise clock-time + the calibration why-line live in the tap. The
+    // digestion kernel behind the forecast is unchanged.
+    var BR_EMPTY_ML = 3; // "essentially empty" floor (ml). Below any real pre-feed
+                         // reference, so it only rescues the usually-fed-empty
+                         // (ref≈0) case: the crossing/red then track time-to-empty.
+    // The chip warms toward amber this long before the crossing — a glance gets
+    // lead time before the full "feed me" amber lands.
+    var BR_WARM_MS = 10 * 60000;
+    // Overdue grace: within this of the crossing the face still reads "now";
+    // beyond it, it counts up ("+45m") so a long nap doesn't sit a flat "now".
+    var BR_OVERDUE_GRACE_MS = 10 * 60000;
+    // The fullness underline keeps a minimum swept fraction while the belly holds
+    // anything, so a non-empty belly never reads empty (as the old tank/arc did).
+    var BR_LEVEL_FLOOR = 0.05;
 
-    // First instant from nowMs (1-minute steps, up to +12h) where the draining
-    // fullness crosses under its own class reference — the tank's forecast, now
-    // feeding both the centre countdown and the tap. Each step re-classes
-    // day/night so the night boundary is respected. Returns nowMs when already
-    // hungry, null when nothing lands in 12h.
+    // First instant from nowMs (1-minute steps, up to +12h) where the belly —
+    // draining ONLY the feeds at/before nowMs — crosses under its class
+    // reference (floored at BR_EMPTY_ML, so a ~0 reference still yields a
+    // time-to-empty crossing). This is the forecast AS OF nowMs: capping the
+    // feeds at the anchor is what lets the disc read a time when the marker is
+    // scrubbed into the past (else feeds that came after it would refill the
+    // belly and push the crossing hours out — or past 12h, back to a bare ml).
+    // At "now" the cap is a no-op (every feed is already ≤ now), so the live
+    // reading is unchanged. Reuses the current global κ₀ (remFrac with no k0);
+    // a caller must have run calibKappa0(feeds) for this payload first — every
+    // caller does, via its leading fullnessAt. Each step re-classes day/night.
+    // Returns nowMs when already under, null when nothing lands in 12h.
     function hungerCrossMs(feeds, refs, nowMs) {
+      var m = medFeedMl(feeds), ev = [], i, ft, a;
+      for (i = 0; i < feeds.length; i++) {
+        ft = new Date(feeds[i].ts).getTime();
+        a = feeds[i].amount_ml || 0;
+        if (ft <= nowMs && a > 0) ev.push({ t: ft, a: a });
+      }
       for (var k = 0; k <= 720; k++) {
-        var t = nowMs + k * 60000;
-        if (fullnessAt(feeds, t) < (nightAt(t) ? refs.night : refs.day)) return t;
+        var t = nowMs + k * 60000, f = 0;
+        for (i = 0; i < ev.length; i++) f += ev[i].a * remFrac(t - ev[i].t, ev[i].a, m);
+        if (f < Math.max(BR_EMPTY_ML, nightAt(t) ? refs.night : refs.day)) return t;
       }
       return null;
     }
 
-    // The mirror question once already hungry: when DID she cross under the
-    // reference? Walk back minute-by-minute (12h bound) to the most recent
-    // instant at or above the then-current class reference; the crossing is
-    // one step after it. Null when the whole window reads hungry —
+    // The mirror question once already under: when DID she cross the reference?
+    // Walk back minute-by-minute (12h bound) to the most recent instant at or
+    // above the then-current class reference (same BR_EMPTY_ML floor); the
+    // crossing is one step after it. Null when the whole window reads under —
     // calibration noise; better no claim than a wrong one.
     function hungerCrossPastMs(feeds, refs, nowMs) {
       for (var k = 1; k <= 720; k++) {
         var t = nowMs - k * 60000;
-        if (fullnessAt(feeds, t) >= (nightAt(t) ? refs.night : refs.day)) return t + 60000;
+        if (fullnessAt(feeds, t) >= Math.max(BR_EMPTY_ML, nightAt(t) ? refs.night : refs.day)) return t + 60000;
       }
       return null;
     }
 
-    // The centre token: a terse, magnitude-adaptive countdown to the next feed
-    // (a bare number with a small feed-hue unit — m / h / ½h — mirroring the ml
-    // token's number+unit shape; the feed hue is what tells the two apart at a
-    // glance) when the marker reads now and a crossing lands within 12h; else
-    // the belly ml (a tiny muted ml unit). 'soon'/'now' cover the short end.
-    // "Marker at now" is the readout's own test (markerMin ≥ nowMin) — NOT
-    // stripFollowNow (see bellyTankTip). Always returns something.
+    // Format a positive duration (ms) as the terse face token: minutes under an
+    // hour ("~30m", nearest 5, floored at 5 so it never reads "~0m"), hours at or
+    // above ("~1h", "~1h30", nearest 15; on-the-hour drops the minutes — and a
+    // near-hour that rounds to 60 min falls through to "~1h", never "~60m"). The
+    // prefix is "~" for the forecast, "+" for counting up once overdue. The unit
+    // letter rides small on the digits' baseline (.br-unit), like the ml unit.
+    function brDurToken(ms, prefix) {
+      var mins = Math.round(ms / 60000);
+      var m5 = Math.round(mins / 5) * 5;
+      if (m5 < 60) return prefix + (m5 < 5 ? 5 : m5) + '<i class="br-unit">m</i>';
+      var q = Math.round(mins / 15) * 15;
+      var h = Math.floor(q / 60), mm = q % 60;
+      return prefix + h + '<i class="br-unit">h</i>' + (mm ? mm : "");
+    }
+
+    // The disc's face: a terse countdown to the next feed, measured from the
+    // MARKER (markerInstant) — so scrubbing the tape into the past reads the
+    // forecast she had then, not a bare ml. Minutes while under an hour ("~30m"),
+    // hours+15s above ("~1h", "~1h30") — resolution tightens as it nears (see
+    // brDurToken). At due it reads "now"; past a short grace it counts up
+    // ("+45m") off the actual crossing (hungerCrossPastMs, the same instant the
+    // tap reports) so a long nap doesn't sit a flat "now". The crossing is floored
+    // at BR_EMPTY_ML, so a usually-fed-empty baby counts down to empty rather than
+    // showing a bare ml. The belly-ml fallback survives only for the exotic
+    // no-crossing-in-12h case (a feed so large its span clears the window). The
+    // chip's colour, not the token, carries the due state. Always returns something.
     function bellyCountdownToken(feeds, refs, ml) {
-      if (stripMarkerMin() >= rsNowMin()) {
-        var cross = hungerCrossMs(feeds, refs, Date.now());
-        if (cross != null) {
-          if (cross <= Date.now()) return i18n("now");
-          var mins = (cross - Date.now()) / 60000;
-          if (mins < 15) return i18n("soon");
-          if (mins < 60) {
-            var m5 = Math.round(mins / 5) * 5;
-            if (m5 < 60) return m5 + '<i class="br-unit">m</i>';
-            // rounded up to the hour → fall through to the hour format
-          }
-          var halves = Math.round(mins / 30), h = Math.floor(halves / 2);
-          return h + '<i class="br-unit">' + (halves % 2 ? "½h" : "h") + '</i>';
+      var nowMs = markerInstant().getTime();
+      var cross = hungerCrossMs(feeds, refs, nowMs);
+      if (cross != null) {
+        if (cross <= nowMs) {
+          // Overdue: escalate past the grace. hungerCrossPastMs is when she
+          // actually crossed; count up from it. Null (calibration noise, the
+          // whole window under) → a bare "now" rather than a wrong "+".
+          var past = hungerCrossPastMs(feeds, refs, nowMs);
+          if (past != null && nowMs - past >= BR_OVERDUE_GRACE_MS)
+            return brDurToken(nowMs - past, "+");
+          return i18n("now");
         }
+        return brDurToken(cross - nowMs, "~");
       }
       return fgMl(ml) + '<i class="br-ml">ml</i>';
     }
@@ -4424,78 +4542,68 @@
       var feeds = dashboardData.strip_feedings || [];
       var f = fullnessAt(feeds, endMs);
       var ref = nightAt(endMs) ? refs.night : refs.day;
-      // Arc length = fullness on the 0→peak scale, with a sliver floor so a
-      // non-empty belly never reads fully empty; the reserve tick sits on the
-      // same scale. Both clamp to a full sweep at the fringe past peak.
-      var frac = Math.max(0, Math.min(1, f / refs.peak));
-      if (f > 0 && frac < BR_FLOOR) frac = BR_FLOOR;
-      var refFrac = Math.max(0, Math.min(1, ref / refs.peak));
-      var circ = 2 * Math.PI * BR_R;
+      // Same BR_EMPTY_ML floor as the countdown crossing, so the disc reddens
+      // exactly when the readout hits "now" — a usually-fed-empty (ref≈0) baby
+      // then goes red at empty instead of never.
+      var hungry = f < Math.max(BR_EMPTY_ML, ref);
+      // Warm-up: not yet due, but a crossing lands within BR_WARM_MS — the chip
+      // eases to the pale honey for lead time. Same marker-relative crossing the
+      // token reads; gated !hungry so the pale and the full amber never overlap.
+      var cross = hungerCrossMs(feeds, refs, endMs);
+      var warming = !hungry && cross != null && cross > endMs && (cross - endMs) <= BR_WARM_MS;
       var token = bellyCountdownToken(feeds, refs, f);
-      el.classList.toggle("hungry", f < ref);
+      el.classList.toggle("hungry", hungry);
+      el.classList.toggle("warming", warming);
       el.hidden = false;
-      // The svg is built once and then patched in place — node identity is
-      // what lets the arc's CSS transition run (an innerHTML rebuild remakes
-      // the nodes and jumps). The signature spares quiet ticks a patch; a
-      // changed one invalidates an open caption (its estimate went stale).
-      var sig = frac.toFixed(4) + "|" + refFrac.toFixed(4) + "|" + token + "|" + (f < ref) + "|" + fgMl(f);
+      // The disc is built once and then patched in place — node identity is
+      // what lets its background colour ease across the day/night and hungry
+      // flips (an innerHTML rebuild remakes the node and snaps). The signature
+      // spares quiet ticks a patch; a changed one invalidates an open caption
+      // (its estimate went stale). It carries the belly ml even when it's not
+      // the shown token, so the aria-label refreshes on a quiet marker scrub.
+      var sig = token + "|" + hungry + "|" + fgMl(f);
       if (sig === bellyTankLast && el.firstChild) return;
       bellyTankLast = sig;
       if (tapTipEl && tapTipEl.tipFor === el) hideTapTip();
       if (!el.firstChild) {
-        el.innerHTML = '<span class="br-wrap">' +
-          '<svg class="br-svg" width="' + BR_SZ + '" height="' + BR_SZ + '" viewBox="0 0 ' + BR_SZ + ' ' + BR_SZ + '" aria-hidden="true">' +
-            '<circle class="br-track" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R + '"/>' +
-            '<circle class="br-fill" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R +
-              '" transform="rotate(-90 ' + BR_C + ' ' + BR_C + ')"/>' +
-            '<line class="br-tick" x1="' + BR_C + '" y1="' + (BR_C - (BR_R - BR_TICK)) +
-              '" x2="' + BR_C + '" y2="' + (BR_C - (BR_R + BR_TICK)) + '"/>' +
-          '</svg>' +
-          '<span class="br-token"></span></span>';
+        el.innerHTML = '<span class="br-disc"><span class="br-level"></span><span class="br-token"></span></span>';
       }
-      el.querySelector(".br-fill").setAttribute("stroke-dasharray",
-        (circ * frac).toFixed(2) + " " + circ.toFixed(2));
-      // Reserve tick: the shell's fixed 12-o'clock segment (just inside→outside
-      // the ring) rotated to the reference angle (clockwise); patching only the
-      // transform lets it ease to a new usually-fed level instead of snapping.
-      el.querySelector(".br-tick").setAttribute("transform",
-        "rotate(" + (refFrac * 360).toFixed(2) + " " + BR_C + " " + BR_C + ")");
       el.querySelector(".br-token").innerHTML = token;
-      // The svg is decorative (aria-hidden); the div itself tells assistive
-      // tech the story — belly ml, plus the countdown when one is showing,
-      // tag-stripped ("40m", not the <i>-wrapped unit markup). The ml-fallback
-      // token is skipped — it would just repeat the label.
+      // The fullness underline: current belly on the ring's old 0→peak scale,
+      // sliver-floored so a non-empty belly never reads empty, clamped at full.
+      var lvl = f > 0 ? Math.min(1, Math.max(BR_LEVEL_FLOOR, f / refs.peak)) : 0;
+      el.querySelector(".br-level").style.width = (lvl * 100) + "%";
+      // The disc's colour carries the state to sighted eyes; the div itself
+      // tells assistive tech the story — belly ml, plus the time to the next
+      // feed when one is showing, tag-stripped ("40m", not the <i>-wrapped
+      // unit markup). The ml-fallback token is skipped — it would just repeat
+      // the label.
       var label = i18n("belly ≈ {n} ml", { n: fgMl(f) });
       if (token.indexOf("br-ml") < 0) label += " · " + token.replace(/<[^>]*>/g, "");
       el.setAttribute("aria-label", label);
     }
 
-    // Tap caption, built at tap time: the belly ml leads, the next-feed
-    // estimate rides along when the marker sits at now (the past needs
-    // no forecast), and the calibration story is the meta line. "At now"
-    // is the readout's own test (markerMin == nowMin, 5-min slack) — NOT
-    // stripFollowNow: the strict glue flag drifts false on idle float
-    // dust while the dial still reads "Now", and a tap that shows no
-    // forecast under a "Now" readout reads as broken.
+    // Tap caption, built at tap time: the belly ml at the marker leads, the
+    // next-feed estimate rides along (measured from the marker, same as the
+    // disc's countdown — so a tap while scrubbed into the past shows the
+    // forecast she had then), and the calibration story is the meta line.
     function bellyTankTip() {
       var refs = hungerRefs(dashboardData);
       var endMs = markerInstant().getTime();
       var feeds = dashboardData.strip_feedings || [];
       var v = i18n("belly ≈ {n} ml", { n: fgMl(fullnessAt(feeds, endMs)) });
-      if (stripMarkerMin() >= rsNowMin()) {
-        var cross = hungerCrossMs(feeds, refs, Date.now());
-        if (cross != null) {
-          if (cross <= Date.now()) {
-            // Already under the reference: bare "now" goes stale (a long nap
-            // can sit red for hours) — say when the crossing happened so the
-            // parent can judge how overdue.
-            var past = hungerCrossPastMs(feeds, refs, Date.now());
-            v += " · " + (past != null
-              ? i18n("usually fed by ~{t}", { t: formatTimeOfDay(new Date(past)) })
-              : i18n("next feed ~ now"));
-          } else {
-            v += " · " + i18n("next feed ~{t}", { t: formatTimeOfDay(new Date(cross)) });
-          }
+      var cross = hungerCrossMs(feeds, refs, endMs);
+      if (cross != null) {
+        if (cross <= endMs) {
+          // Already under the reference: bare "now" goes stale (a long nap
+          // can sit red for hours) — say when the crossing happened so the
+          // parent can judge how overdue.
+          var past = hungerCrossPastMs(feeds, refs, endMs);
+          v += " · " + (past != null
+            ? i18n("usually fed by ~{t}", { t: formatTimeOfDay(new Date(past)) })
+            : i18n("next feed ~ now"));
+        } else {
+          v += " · " + i18n("next feed ~{t}", { t: formatTimeOfDay(new Date(cross)) });
         }
       }
       return {
