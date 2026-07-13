@@ -4505,9 +4505,13 @@
     // showing a bare ml. The belly-ml fallback survives only for the exotic
     // no-crossing-in-12h case (a feed so large its span clears the window). The
     // chip's colour, not the token, carries the due state. Always returns something.
-    function bellyCountdownToken(feeds, refs, ml) {
-      var nowMs = markerInstant().getTime();
-      var cross = hungerCrossMs(feeds, refs, nowMs);
+    function bellyCountdownToken(feeds, refs, ml, nowMs, cross) {
+      // nowMs/cross let a caller that already has the marker instant and its
+      // hunger crossing (updateBellyTank) pass them in, so the O(720-step)
+      // hungerCrossMs loop runs once per tick, not twice. cross can be null (no
+      // crossing), so `=== undefined` — not `== null` — gates the recompute.
+      if (nowMs == null) nowMs = markerInstant().getTime();
+      if (cross === undefined) cross = hungerCrossMs(feeds, refs, nowMs);
       if (cross != null) {
         if (cross <= nowMs) {
           // Overdue: escalate past the grace. hungerCrossPastMs is when she
@@ -4548,7 +4552,9 @@
       // token reads; gated !hungry so the pale and the full amber never overlap.
       var cross = hungerCrossMs(feeds, refs, endMs);
       var warming = !hungry && cross != null && cross > endMs && (cross - endMs) <= BR_WARM_MS;
-      var token = bellyCountdownToken(feeds, refs, f);
+      // Reuse the crossing already computed above — bellyCountdownToken reads the
+      // same marker instant (endMs), so recomputing it would be identical work.
+      var token = bellyCountdownToken(feeds, refs, f, endMs, cross);
       el.classList.toggle("hungry", hungry);
       el.classList.toggle("warming", warming);
       el.hidden = false;
