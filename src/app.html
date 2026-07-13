@@ -4267,7 +4267,7 @@
           return halves % 2 ? i18n("~{d}½h", { d: h }) : i18n("~{d}h", { d: h });
         }
       }
-      return "≈" + fgMl(ml) + '<i class="br-ml">ml</i>';
+      return fgMl(ml) + '<i class="br-ml">ml</i>';
     }
 
     var bellyTankLast = null; // last html handed to the ring (no-op detector)
