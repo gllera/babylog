@@ -1265,6 +1265,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           date: z
             .string()
             .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .refine(isValidIsoDate, "must be a real ISO date (YYYY-MM-DD)")
             .optional()
             .describe(
               "ISO date YYYY-MM-DD (Europe/Madrid calendar day) to evaluate. Defaults to today."
@@ -1532,8 +1533,8 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           db.prepare(
             `SELECT
                COUNT(*)                                                   AS event_count,
-               SUM(CASE WHEN kind = 'pee'  THEN 1 ELSE 0 END)              AS pee_count,
-               SUM(CASE WHEN kind = 'poop' THEN 1 ELSE 0 END)              AS poop_count,
+               COALESCE(SUM(CASE WHEN kind = 'pee'  THEN 1 ELSE 0 END), 0) AS pee_count,
+               COALESCE(SUM(CASE WHEN kind = 'poop' THEN 1 ELSE 0 END), 0) AS poop_count,
                MAX(ts)                                                    AS last_ts
              FROM diapers
              WHERE baby_id = ? AND ts >= ? AND ts < ?`
