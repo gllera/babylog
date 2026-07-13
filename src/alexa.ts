@@ -580,18 +580,22 @@ async function handleRecordFeeding(
   });
 }
 
+// A wet-AND-dirty utterance is the messy diaper → logged as poop, and must be
+// caught before the pee-only branch below. The gap between the two terms is a
+// *negation-free* run (a tempered dot), NOT a bare `.*`: `.*` happily spanned a
+// "no"/"not"/"sin"/"without" and misread contrastive/negated phrasings ("wet
+// but not dirty", "mojado, no caca") as poop. Bare "todo" is likewise narrowed
+// to "de todo" ("the works") so "todo mojado" (all wet) isn't caught either.
+// "ambos"/"both"/… stay as explicit both-markers.
+const DIAPER_COMBINED =
+  /(pis|pip[ií]|pee|wee|mojado|wet)(?:(?!\b(?:no|not|sin|without)\b).)*(caca|pop[oó]|poop|poo|sucio|dirty)|(caca|pop[oó]|poop|poo|sucio|dirty)(?:(?!\b(?:no|not|sin|without)\b).)*(pis|pip[ií]|pee|wee|mojado|wet)|ambos|las\s*dos|los\s*dos|de\s+todo|complet|both|everything|the works/;
+
 // Classify a free-text diaper utterance (es + en) into a kind, or null when
 // nothing matches. Combined phrasings ("pis y caca" / "wet and dirty") are
-// checked first so they aren't misread as pee-only — a wet-and-dirty diaper is
-// the messy one, logged as poop.
+// checked first so they aren't misread as pee-only (see DIAPER_COMBINED).
 export function classifyDiaperKind(raw: string): DiaperKind | null {
   const s = raw.toLowerCase();
-  if (
-    /(pis|pip[ií]|pee|wee|mojado|wet).*(caca|pop[oó]|poop|poo|sucio|dirty)|(caca|pop[oó]|poop|poo|sucio|dirty).*(pis|pip[ií]|pee|wee|mojado|wet)|ambos|las\s*dos|los\s*dos|todo|complet|both|everything|the works/.test(
-      s
-    )
-  )
-    return "poop";
+  if (DIAPER_COMBINED.test(s)) return "poop";
   if (
     /(^|\W)(pip[ií]?|pis|mojado|pee|wee|wet)(\W|$)/.test(s) ||
     /number one/.test(s)

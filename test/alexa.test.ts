@@ -24,6 +24,24 @@ describe("classifyDiaperKind", () => {
     expect(classifyDiaperKind("number one")).toBe("pee");
   });
 
+  // A wet-only utterance that also names (and negates) a dirty term must stay
+  // pee — the old `.*`-bridge combined regex spanned the negation and the bare
+  // "todo", misreading these as poop.
+  it("negated / all-wet phrasings stay pee", () => {
+    expect(classifyDiaperKind("wet but not dirty")).toBe("pee");
+    expect(classifyDiaperKind("wet, no poop")).toBe("pee");
+    expect(classifyDiaperKind("mojado, no caca")).toBe("pee");
+    expect(classifyDiaperKind("mojado sin caca")).toBe("pee");
+    expect(classifyDiaperKind("todo mojado")).toBe("pee");
+  });
+
+  // Both-markers and non-negated distant mentions still resolve to poop.
+  it("explicit both-markers and distant wet+dirty resolve to poop", () => {
+    expect(classifyDiaperKind("de todo")).toBe("poop");
+    expect(classifyDiaperKind("wet and she pooped")).toBe("poop");
+    expect(classifyDiaperKind("completo")).toBe("poop");
+  });
+
   it("single poop phrasings", () => {
     expect(classifyDiaperKind("caca")).toBe("poop");
     expect(classifyDiaperKind("dirty")).toBe("poop");
