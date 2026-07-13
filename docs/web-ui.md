@@ -37,7 +37,8 @@ timezone.
   one tag in two states: the countdown and `now` share a held footprint and
   type lockup, so the due flip reads as the same chip warming up. The time is
   tilde-prefixed and tightens as it nears — 5-minute steps under an hour
-  (`~30m`, floored at `~5m`), 15-minute steps at or above (`~1h`, `~1h30`) — or
+  (`~30m`, floored at `~5m`), 15-minute steps at or above (`~1h00`, `~1h30`,
+  minutes always shown so the width holds on the hour) — or
   `now` when she's due, then counting up (`+45m`) once she's overdue past a
   short grace. That time is the first instant
   the draining stomach content (on her

@@ -22,9 +22,11 @@ const feedNow = [{ ts: new Date(NOW).toISOString(), amount_ml: 100 }];
 // digits' baseline (.br-unit), matching the ml fallback.
 const unit = (u: string) => `<i class="br-unit">${u}</i>`;
 const MIN = (n: number, p = "~") => `${p}${n}${unit("m")}`;
-const HR = (h: number, mm = 0, p = "~") => `${p}${h}${unit("h")}${mm || ""}`;
-// A well-formed countdown/overdue token (never the bare-ml fallback).
-const CD_RE = /^[~+](\d+<i class="br-unit">m<\/i>|\d+<i class="br-unit">h<\/i>(15|30|45)?)$/;
+const HR = (h: number, mm = 0, p = "~") =>
+  `${p}${h}${unit("h")}${String(mm).padStart(2, "0")}`;
+// A well-formed countdown/overdue token (never the bare-ml fallback). The hour
+// band always carries 2-digit minutes (00/15/30/45) so the width holds.
+const CD_RE = /^[~+](\d+<i class="br-unit">m<\/i>|\d+<i class="br-unit">h<\/i>(00|15|30|45))$/;
 
 function setup(opts: { feeds?: any[]; gated?: boolean; atNow?: boolean; refs?: any } = {}) {
   document.body.innerHTML = '<div id="belly-tank" hidden></div>';
@@ -196,11 +198,12 @@ describe("belly disc countdown token", () => {
 
   it("shows minutes under an hour and hours+minutes above, tightening as it nears", () => {
     const { r } = setup({ feeds: feedNow });
-    // ≥ 1 h: nearest 15 min, on-the-hour drops the minutes.
-    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(120), 0)).toBe(HR(2));
+    // ≥ 1 h: nearest 15 min, minutes always shown (even "00" on the hour) so the
+    // token width doesn't jump.
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(120), 0)).toBe(HR(2)); // ~2h00
     expect(r.bellyCountdownToken(feedNow, refsCrossingAt(90), 0)).toBe(HR(1, 30));
     // Just under an hour still rounds up into the hour band (never "~60m").
-    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(58), 0)).toBe(HR(1));
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(58), 0)).toBe(HR(1)); // ~1h00
     // < 1 h: nearest 5 min, in minutes.
     expect(r.bellyCountdownToken(feedNow, refsCrossingAt(45), 0)).toBe(MIN(45));
     expect(r.bellyCountdownToken(feedNow, refsCrossingAt(30), 0)).toBe(MIN(30));

@@ -4481,17 +4481,18 @@
 
     // Format a positive duration (ms) as the terse face token: minutes under an
     // hour ("~30m", nearest 5, floored at 5 so it never reads "~0m"), hours at or
-    // above ("~1h", "~1h30", nearest 15; on-the-hour drops the minutes — and a
-    // near-hour that rounds to 60 min falls through to "~1h", never "~60m"). The
-    // prefix is "~" for the forecast, "+" for counting up once overdue. The unit
-    // letter rides small on the digits' baseline (.br-unit), like the ml unit.
+    // above ("~1h00", "~1h30", nearest 15; the minutes are always shown — even
+    // "00" on the hour — so the token's width doesn't jump as it ticks past an
+    // hour, and a near-hour that rounds to 60 min reads "~1h00", never "~60m").
+    // The prefix is "~" for the forecast, "+" for counting up once overdue. The
+    // unit letter rides small on the digits' baseline (.br-unit), like the ml unit.
     function brDurToken(ms, prefix) {
       var mins = Math.round(ms / 60000);
       var m5 = Math.round(mins / 5) * 5;
       if (m5 < 60) return prefix + (m5 < 5 ? 5 : m5) + '<i class="br-unit">m</i>';
       var q = Math.round(mins / 15) * 15;
       var h = Math.floor(q / 60), mm = q % 60;
-      return prefix + h + '<i class="br-unit">h</i>' + (mm ? mm : "");
+      return prefix + h + '<i class="br-unit">h</i>' + pad2(mm);
     }
 
     // The disc's face: a terse countdown to the next feed, measured from the
