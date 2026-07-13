@@ -3984,29 +3984,31 @@
       // feed's span (bigger feeds have larger κ, hence larger Tᵢ); older feeds
       // contribute exactly 0, so the backward walk stops there.
       var span = fgSpanMs(maxA, m);
-      var all = [], day = [], night = [], peak = 0;
+      var all = [], day = [], night = [], peaks = [];
       for (i = 0; i < ev.length; i++) {
         f = 0;
         for (j = i - 1; j >= 0 && ev[i].t - ev[j].t < span; j--)
           f += ev[j].a * remFrac(ev[i].t - ev[j].t, ev[j].a, m);
         all.push(f);
-        // Fullness maxima only occur at feed instants (it decays between),
-        // so this is the history's fullness ceiling — a scrub-stable scale
-        // for the trace.
-        if (f + ev[i].a > peak) peak = f + ev[i].a;
+        // Fullness maxima only occur at feed instants (it decays between).
+        // The ring's scale is the p90 of those maxima, NOT the max — one
+        // typo'd mega-feed must not compress every future arc (frac clamps
+        // at 1, so the genuinely-fuller top decile simply reads full).
+        peaks.push(f + ev[i].a);
         (nightAt(ev[i].t) ? night : day).push(f);
       }
       if (all.length < FG_HGR_MIN_N) return null;
       all.sort(function(a, b) { return a - b; });
       day.sort(function(a, b) { return a - b; });
       night.sort(function(a, b) { return a - b; });
+      peaks.sort(function(a, b) { return a - b; });
       var med = fgQuantile(all, 0.5);
       return {
         day: day.length >= FG_HGR_MIN_CLASS ? fgQuantile(day, 0.5) : med,
         night: night.length >= FG_HGR_MIN_CLASS ? fgQuantile(night, 0.5) : med,
         n: all.length,
         firstMs: ev[0].t,
-        peak: peak
+        peak: fgQuantile(peaks, 0.9)
       };
     }
 

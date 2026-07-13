@@ -78,4 +78,14 @@ describe("belly kernel (extracted from app.html)", () => {
     expect(refs.night).toBe(refs.day); // stubbed nightAt=false → no night samples → combined median
     expect(refs.peak).toBeGreaterThan(100);
   });
+
+  it("peak survives a typo'd mega-feed (p90 of feed-instant maxima, not the max)", () => {
+    const k = kernel();
+    // 39 honest 100 ml feeds every 3 h + one 900 ml typo in the middle.
+    const feeds = Array.from({ length: 39 }, (_, i) => feed(T0 + i * 3 * H, 100));
+    feeds.push(feed(T0 + 19.5 * 3 * H, 900));
+    const refs = k.hungerCalib(feeds);
+    expect(refs.peak).toBeGreaterThan(100);
+    expect(refs.peak).toBeLessThan(500); // the max would be ≈ 930
+  });
 });
