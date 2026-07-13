@@ -4428,6 +4428,12 @@
       tick.setAttribute("x2", (BR_C + (BR_R + BR_TICK) * s).toFixed(2));
       tick.setAttribute("y2", (BR_C - (BR_R + BR_TICK) * c).toFixed(2));
       el.querySelector(".br-token").innerHTML = token;
+      // The svg is decorative (aria-hidden); the div itself tells assistive
+      // tech the story — belly ml, plus the countdown when one is showing
+      // (the ml-fallback token would just repeat the label).
+      var label = i18n("belly ≈ {n} ml", { n: fgMl(f) });
+      if (token.indexOf("br-ml") < 0) label += " · " + token;
+      el.setAttribute("aria-label", label);
     }
 
     // Tap caption, built at tap time: the belly ml leads, the next-feed

@@ -74,4 +74,17 @@ describe("belly ring DOM", () => {
     r.updateBellyTank();
     expect(el.classList.contains("hungry")).toBe(true);
   });
+
+  it("labels the ring for assistive tech: belly ml, countdown riding along", () => {
+    const { r, el } = setup();
+    r.updateBellyTank();
+    // ≈76 ml in the belly, crossing ≈74 min out → token "~1h"
+    expect(el.getAttribute("aria-label")).toMatch(/^belly ≈ \d+ ml · /);
+  });
+
+  it("does not repeat the ml when the token IS the ml fallback", () => {
+    const { r, el } = setup({ atNow: false }); // marker in the past → no countdown
+    r.updateBellyTank();
+    expect(el.getAttribute("aria-label")).toMatch(/^belly ≈ \d+ ml$/);
+  });
 });
