@@ -66,6 +66,34 @@ describe("belly ring DOM", () => {
     expect(fill.getAttribute("stroke-dasharray")).not.toBe(before);
   });
 
+  it("positions the reserve tick by a transitionable transform, not by snapping geometry", () => {
+    const { r, el, setMarker } = setup();
+    r.updateBellyTank();
+    const tick = el.querySelector(".br-tick")!;
+    // ref 20 / peak 200 = 0.1 of the ring → 36° clockwise from 12 o'clock.
+    expect(tick.getAttribute("transform")).toBe("rotate(36.00 24 24)");
+    // The segment itself is the fixed 12-o'clock line (x1 === x2 === centre);
+    // only the transform moves, so CSS can ease it. It must NOT be repositioned
+    // by snapping x1/y1/x2/y2 (transitioning geometry attrs isn't portable).
+    expect(tick.getAttribute("x1")).toBe("24");
+    expect(tick.getAttribute("x2")).toBe("24");
+    // Node identity preserved across an update, so the transition can run.
+    setMarker(NOW + 90 * 60000);
+    r.updateBellyTank();
+    expect(el.querySelector(".br-tick")).toBe(tick);
+  });
+
+  it("the reserve tick angle tracks the usually-fed level (refFrac)", () => {
+    const a = setup({ refs: { peak: 200 } }); // refFrac 20/200 = 0.10 → 36°
+    a.r.updateBellyTank();
+    const angleA = a.el.querySelector(".br-tick")!.getAttribute("transform");
+    const b = setup({ refs: { peak: 80 } }); //  refFrac 20/80  = 0.25 → 90°
+    b.r.updateBellyTank();
+    const angleB = b.el.querySelector(".br-tick")!.getAttribute("transform");
+    expect(angleA).toBe("rotate(36.00 24 24)");
+    expect(angleB).toBe("rotate(90.00 24 24)");
+  });
+
   it("toggles hungry when fullness drops under the reference", () => {
     const { r, el, setMarker } = setup();
     r.updateBellyTank();

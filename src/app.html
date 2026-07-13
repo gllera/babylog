@@ -1336,8 +1336,12 @@
     /* Patched in place (node identity survives updates), so the arc can
        ease between states instead of jumping on scrubs and ticks. */
     .br-fill { fill: none; stroke: var(--primary); stroke-width: 4; transition: stroke-dasharray 240ms ease; }
-    @media (prefers-reduced-motion: reduce) { .br-fill { transition: none; } }
-    .br-tick { stroke: var(--muted); stroke-width: 2; }
+    @media (prefers-reduced-motion: reduce) { .br-fill, .br-tick { transition: none; } }
+    /* The reserve tick rides a transform (rotate to the reference angle), so
+       the usually-fed marker glides to a new level — day/night switch, a fresh
+       calibration — instead of snapping. Transitioning transform is portable;
+       transitioning x1/y1/x2/y2 geometry is not. */
+    .br-tick { stroke: var(--muted); stroke-width: 2; transition: transform 240ms ease; }
     /* The countdown token, centred over the ring — the glanceable answer to
        "when is the next feed?". Crisp HTML text (easier i18n than SVG text),
        non-interactive so the tap falls through to #belly-tank. */
@@ -4410,9 +4414,6 @@
       if (f > 0 && frac < BR_FLOOR) frac = BR_FLOOR;
       var refFrac = Math.max(0, Math.min(1, ref / refs.peak));
       var circ = 2 * Math.PI * BR_R;
-      // Reserve tick: a short radial segment across the ring at the reference
-      // angle (0 at 12 o'clock, clockwise), from just inside to just outside.
-      var th = 2 * Math.PI * refFrac, s = Math.sin(th), c = Math.cos(th);
       var token = bellyCountdownToken(feeds, refs, f);
       el.classList.toggle("hungry", f < ref);
       el.hidden = false;
@@ -4430,17 +4431,18 @@
             '<circle class="br-track" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R + '"/>' +
             '<circle class="br-fill" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R +
               '" transform="rotate(-90 ' + BR_C + ' ' + BR_C + ')"/>' +
-            '<line class="br-tick"/>' +
+            '<line class="br-tick" x1="' + BR_C + '" y1="' + (BR_C - (BR_R - BR_TICK)) +
+              '" x2="' + BR_C + '" y2="' + (BR_C - (BR_R + BR_TICK)) + '"/>' +
           '</svg>' +
           '<span class="br-token"></span></span>';
       }
       el.querySelector(".br-fill").setAttribute("stroke-dasharray",
         (circ * frac).toFixed(2) + " " + circ.toFixed(2));
-      var tick = el.querySelector(".br-tick");
-      tick.setAttribute("x1", (BR_C + (BR_R - BR_TICK) * s).toFixed(2));
-      tick.setAttribute("y1", (BR_C - (BR_R - BR_TICK) * c).toFixed(2));
-      tick.setAttribute("x2", (BR_C + (BR_R + BR_TICK) * s).toFixed(2));
-      tick.setAttribute("y2", (BR_C - (BR_R + BR_TICK) * c).toFixed(2));
+      // Reserve tick: the shell's fixed 12-o'clock segment (just inside→outside
+      // the ring) rotated to the reference angle (clockwise); patching only the
+      // transform lets it ease to a new usually-fed level instead of snapping.
+      el.querySelector(".br-tick").setAttribute("transform",
+        "rotate(" + (refFrac * 360).toFixed(2) + " " + BR_C + " " + BR_C + ")");
       el.querySelector(".br-token").innerHTML = token;
       // The svg is decorative (aria-hidden); the div itself tells assistive
       // tech the story — belly ml, plus the countdown when one is showing
