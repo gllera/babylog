@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { ring } from "./app-inline";
+import { ring, kernel } from "./app-inline";
 
 const NOW = Date.UTC(2026, 6, 13, 10, 0);
 class FakeDate extends Date {
@@ -158,5 +158,64 @@ describe("belly ring DOM", () => {
     const here = import.meta.url;
     const html = readFileSync(new URL("../src/app.html", here), "utf8");
     expect(html).toContain('"usually fed by ~{t}":');
+  });
+});
+
+// The centre countdown is the ring's headline glance ("when's the next feed?").
+// Its magnitude-adaptive buckets were essentially unasserted. Drive each branch
+// deterministically: a single 100 ml feed at NOW drains on the kernel's own
+// curve, so setting the class reference to the fullness at (C − ½) min forces
+// the crossing to land at exactly C minutes (hungerCrossMs steps whole minutes).
+describe("belly ring countdown token", () => {
+  const K = kernel(); // same anchor kernel the ring uses for <20 feeds
+  const feedNow = [{ ts: new Date(NOW).toISOString(), amount_ml: 100 }];
+  // medFeedMl falls back to 120 for a single feed, so decay uses m = 120.
+  const refsCrossingAt = (mins: number) => ({
+    day: 100 * K.remFrac((mins - 0.5) * 60000, 100, 120),
+    night: 100 * K.remFrac((mins - 0.5) * 60000, 100, 120),
+    peak: 200,
+    firstMs: 0,
+    n: 30,
+  });
+
+  const M = (n: number) => n + '<i class="br-unit">m</i>';
+  const HR = (n: number, half: boolean) =>
+    n + '<i class="br-unit">' + (half ? "½h" : "h") + "</i>";
+
+  it("maps each crossing distance to its bucket string", () => {
+    const { r } = setup();
+    // < 15 min → "soon"
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(8), 0)).toBe("soon");
+    // 15–55 min → 5-min-rounded minutes with the feed-hue unit
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(30), 0)).toBe(M(30));
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(45), 0)).toBe(M(45));
+    // 55–60 min rounds up to the hour → falls through to "1h" (not "60m")
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(58), 0)).toBe(HR(1, false));
+    // whole and half hours
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(61), 0)).toBe(HR(1, false));
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(90), 0)).toBe(HR(1, true));
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(120), 0)).toBe(HR(2, false));
+  });
+
+  it("says 'now' when already under the reference", () => {
+    const { r } = setup();
+    // Reference above the current 100 ml fullness → hungry at NOW → "now".
+    const refs = { day: 150, night: 150, peak: 300, firstMs: 0, n: 30 };
+    expect(r.bellyCountdownToken(feedNow, refs, 0)).toBe("now");
+  });
+
+  it("falls back to the belly ml (rounded, tiny unit) when the marker is in the past", () => {
+    const { r } = setup({ atNow: false }); // stripMarkerMin < rsNowMin → no countdown
+    expect(r.bellyCountdownToken(feedNow, refsCrossingAt(30), 76)).toBe(
+      '76<i class="br-ml">ml</i>'
+    );
+  });
+
+  it("falls back to the belly ml when no crossing lands within 12h", () => {
+    const { r } = setup(); // marker at now, but the reference is never reached
+    const refs = { day: 0, night: 0, peak: 200, firstMs: 0, n: 30 };
+    expect(r.bellyCountdownToken(feedNow, refs, 42)).toBe(
+      '42<i class="br-ml">ml</i>'
+    );
   });
 });
