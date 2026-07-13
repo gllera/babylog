@@ -6,7 +6,13 @@
 // inside string literals are balanced i18n templates like "{n}".
 import { readFileSync } from "node:fs";
 
-const html = readFileSync(new URL("../src/app.html", import.meta.url), "utf8");
+// Indirected through a local: the literal `new URL(x, import.meta.url)` shape
+// is Vite's asset-URL pattern, and under vitest's jsdom pool (this module is
+// now also loaded there, for the DOM ring tests) it gets rewritten to a
+// dev-server URL instead of resolving the real file path. Binding the base
+// first sidesteps the syntactic match while resolving identically everywhere.
+const here = import.meta.url;
+const html = readFileSync(new URL("../src/app.html", here), "utf8");
 
 /** Source of the top-level `function name(...) {...}` declaration. */
 export function fnSource(name: string): string {
@@ -53,4 +59,33 @@ export function kernel(nightAt: (tMs: number) => boolean = () => false): any {
       " FG_MED_FALLBACK, FG_HGR_MIN_N };",
   ].join("\n");
   return new Function("nightAt", src)(nightAt);
+}
+
+/** The ring renderer + tap tip, run against a real DOM (jsdom) with
+ *  injected app-state stubs. Pass a `Date` whose static `now()` is pinned. */
+export function ring(stubs: Record<string, any>): any {
+  const deps = [
+    "document", "Date", "dashboardData", "hungerRefs", "markerInstant",
+    "nightAt", "stripMarkerMin", "rsNowMin", "i18n", "formatTimeOfDay",
+    "tapTipEl", "hideTapTip",
+  ];
+  const src = [
+    varLines(),
+    "var bellyTankLast = null;",
+    fnSource("fgQuantile"),
+    fnSource("fgMl"),
+    fnSource("medFeedMl"),
+    fnSource("fgKappa"),
+    fnSource("fgSpanMs"),
+    fnSource("remFrac"),
+    fnSource("fullnessAt"),
+    fnSource("calibKappa0"),
+    fnSource("fgForecastErr"),
+    fnSource("hungerCrossMs"),
+    fnSource("bellyCountdownToken"),
+    fnSource("updateBellyTank"),
+    fnSource("bellyTankTip"),
+    "return { updateBellyTank, bellyTankTip, bellyCountdownToken };",
+  ].join("\n");
+  return new Function(...deps, src)(...deps.map((d) => stubs[d]));
 }

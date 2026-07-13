@@ -1333,7 +1333,10 @@
     .br-wrap { position: relative; display: inline-flex; }
     .br-svg { display: block; }
     .br-track { fill: none; stroke: var(--border); stroke-width: 2; }
-    .br-fill { fill: none; stroke: var(--primary); stroke-width: 4; }
+    /* Patched in place (node identity survives updates), so the arc can
+       ease between states instead of jumping on scrubs and ticks. */
+    .br-fill { fill: none; stroke: var(--primary); stroke-width: 4; transition: stroke-dasharray 240ms ease; }
+    @media (prefers-reduced-motion: reduce) { .br-fill { transition: none; } }
     .br-tick { stroke: var(--muted); stroke-width: 2; }
     /* The countdown token, centred over the ring — the glanceable answer to
        "when is the next feed?". Crisp HTML text (easier i18n than SVG text),
@@ -4370,7 +4373,7 @@
       return fgMl(ml) + '<i class="br-ml">ml</i>';
     }
 
-    var bellyTankLast = null; // last html handed to the ring (no-op detector)
+    var bellyTankLast = null; // last rendered-state signature (no-op detector)
     function updateBellyTank() {
       var el = document.getElementById("belly-tank");
       if (!el) return;
@@ -4396,27 +4399,35 @@
       // Reserve tick: a short radial segment across the ring at the reference
       // angle (0 at 12 o'clock, clockwise), from just inside to just outside.
       var th = 2 * Math.PI * refFrac, s = Math.sin(th), c = Math.cos(th);
-      var tick = 'x1="' + (BR_C + (BR_R - BR_TICK) * s).toFixed(2) + '" y1="' + (BR_C - (BR_R - BR_TICK) * c).toFixed(2) +
-        '" x2="' + (BR_C + (BR_R + BR_TICK) * s).toFixed(2) + '" y2="' + (BR_C - (BR_R + BR_TICK) * c).toFixed(2) + '"';
-      var svg =
-        '<svg class="br-svg" width="' + BR_SZ + '" height="' + BR_SZ + '" viewBox="0 0 ' + BR_SZ + ' ' + BR_SZ + '" aria-hidden="true">' +
-          '<circle class="br-track" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R + '"/>' +
-          '<circle class="br-fill" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R +
-            '" stroke-dasharray="' + (circ * frac).toFixed(2) + ' ' + circ.toFixed(2) +
-            '" transform="rotate(-90 ' + BR_C + ' ' + BR_C + ')"/>' +
-          '<line class="br-tick" ' + tick + '/>' +
-        '</svg>';
-      var html = '<span class="br-wrap">' + svg +
-        '<span class="br-token">' + bellyCountdownToken(feeds, refs, f) + '</span></span>';
+      var token = bellyCountdownToken(feeds, refs, f);
       el.classList.toggle("hungry", f < ref);
       el.hidden = false;
-      // Unchanged html (a parked marker's tick) skips the rebuild; a changed
-      // one (arc shrank or the countdown ticked over) invalidates an open
-      // caption (its estimate went stale).
-      if (html === bellyTankLast && el.firstChild) return;
-      bellyTankLast = html;
+      // The svg is built once and then patched in place — node identity is
+      // what lets the arc's CSS transition run (an innerHTML rebuild remakes
+      // the nodes and jumps). The signature spares quiet ticks a patch; a
+      // changed one invalidates an open caption (its estimate went stale).
+      var sig = frac.toFixed(4) + "|" + refFrac.toFixed(4) + "|" + token + "|" + (f < ref);
+      if (sig === bellyTankLast && el.firstChild) return;
+      bellyTankLast = sig;
       if (tapTipEl && tapTipEl.tipFor === el) hideTapTip();
-      el.innerHTML = html;
+      if (!el.firstChild) {
+        el.innerHTML = '<span class="br-wrap">' +
+          '<svg class="br-svg" width="' + BR_SZ + '" height="' + BR_SZ + '" viewBox="0 0 ' + BR_SZ + ' ' + BR_SZ + '" aria-hidden="true">' +
+            '<circle class="br-track" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R + '"/>' +
+            '<circle class="br-fill" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R +
+              '" transform="rotate(-90 ' + BR_C + ' ' + BR_C + ')"/>' +
+            '<line class="br-tick"/>' +
+          '</svg>' +
+          '<span class="br-token"></span></span>';
+      }
+      el.querySelector(".br-fill").setAttribute("stroke-dasharray",
+        (circ * frac).toFixed(2) + " " + circ.toFixed(2));
+      var tick = el.querySelector(".br-tick");
+      tick.setAttribute("x1", (BR_C + (BR_R - BR_TICK) * s).toFixed(2));
+      tick.setAttribute("y1", (BR_C - (BR_R - BR_TICK) * c).toFixed(2));
+      tick.setAttribute("x2", (BR_C + (BR_R + BR_TICK) * s).toFixed(2));
+      tick.setAttribute("y2", (BR_C - (BR_R + BR_TICK) * c).toFixed(2));
+      el.querySelector(".br-token").innerHTML = token;
     }
 
     // Tap caption, built at tap time: the belly ml leads, the next-feed
