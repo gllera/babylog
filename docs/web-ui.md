@@ -36,9 +36,10 @@ timezone.
   cool interface) — carrying just the approximate time to the next feed. It's
   one tag in two states: the countdown and `now` share a held footprint and
   type lockup, so the due flip reads as the same chip warming up. The time is
-  shown in half-hour steps, the
-  decimal always shown and tilde-prefixed (`~0.5h`, `~1.0h`, `~1.5h`, `~2.0h`,
-  floored at `0.5h`) — or `now` when she's due. That time is the first instant
+  tilde-prefixed and tightens as it nears — 5-minute steps under an hour
+  (`~30m`, floored at `~5m`), 15-minute steps at or above (`~1h`, `~1h30`) — or
+  `now` when she's due, then counting up (`+45m`) once she's overdue past a
+  short grace. That time is the first instant
   the draining stomach content (on her
   own 0→peak fullness scale) crosses under the level she's usually fed at
   (self-calibrated medians of pre-feed fullness, split by the Settings-defined
