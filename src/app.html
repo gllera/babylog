@@ -1891,7 +1891,13 @@
         nightStartMin = +m1[1] * 60 + +m1[2];
         nightEndMin = +m2[1] * 60 + +m2[2];
         try { localStorage.setItem("night", fmt(nightStartMin) + "-" + fmt(nightEndMin)); } catch (_) {}
-        fgHungerFor = null; // day/night classes moved: recalibrate on next use
+        // Day/night classes moved: drop both night-dependent memos so they
+        // recalibrate on next use. hungerCalib buckets pre-feed references by
+        // nightAt, and calibKappa0's forecast backtest (fgForecastErr) classes
+        // its crossings by nightAt too — so its self-calibrated k0 is stale
+        // under a new window. (medFeedMl is night-independent; it needs none.)
+        fgHungerFor = null;
+        fgK0For = null;
       }
       s.addEventListener("change", save);
       e.addEventListener("change", save);

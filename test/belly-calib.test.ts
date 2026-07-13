@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { kernel } from "./app-inline";
+import { kernel, fnSource } from "./app-inline";
 
 const T0 = Date.UTC(2026, 5, 1);
 
@@ -58,5 +58,16 @@ describe("calibKappa0 (self-calibrated emptying half-life)", () => {
     const k = kernel();
     const feeds = makeBaby(k, 45, [60, 180], 40, 15);
     expect(k.calibKappa0(feeds)).toBe(k.calibKappa0(feeds));
+  });
+
+  it("the Settings night-save drops BOTH night-dependent memos", () => {
+    // The bug: initSettingsNight's save() reset fgHungerFor (hungerCalib's
+    // memo) but not fgK0For (calibKappa0's), so the self-calibrated k0 went
+    // stale under a new night window. Both must be invalidated; medFeedMl's
+    // memo (fgMedFor) is night-independent and correctly is not.
+    const src = fnSource("initSettingsNight");
+    expect(src).toContain("fgHungerFor = null");
+    expect(src).toContain("fgK0For = null");
+    expect(src).not.toContain("fgMedFor = null");
   });
 });
