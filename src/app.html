@@ -1303,22 +1303,19 @@
       outline: 2px solid var(--primary);
       outline-offset: 2px;
     }
-    /* The belly tank (belly-tank spec): the hunger meter's face, riding
-       the corner cluster right of the door — the tape's bottle vessel
-       grown to cluster size, milk level = stomach content at the marker
-       on her own 0→peak fullness scale, a dotted usually-fed reserve
-       line across it (dotted = scaffolding, the fg-gauge axis's
-       language). The icon rides alone — a printed ml label crowded the
-       tape's relative readout on narrow viewports (user's ask), so the
-       number leads the tap caption instead. The left edge continues the
-       door's clamp math (door left + 64px + 4px). Hidden on Settings via
-       the sibling selector below — the door reads ← there and the
-       flyleaf carries no live status. The paddings grow the 18px icon
-       into a 48px touch band (the door's dialect: hit area bigger than
-       the glyph), asymmetric on purpose: the left edge stops exactly at
-       the door's box (left pad 4 = the icon's old 4px gap), the right
-       carries the rest — the band must never shave the door's own hit
-       area. */
+    /* The belly ring (realistic belly-ring design): the hunger meter's face,
+       riding the corner cluster right of the door — a radial fullness gauge
+       filling the reserved 48px band. The feed-hue arc is fullness at the
+       marker on her own 0→peak scale; a muted tick marks the usually-fed
+       reserve; the centre carries a terse countdown (or the belly ml), the
+       precise clock-time living in the tap. A second sanctioned curved
+       exception after the tape bottle — hairline track, domain-hue fill,
+       muted reserve tick, danger-for-hungry, all via existing vars so
+       dark/light follow free. Hidden on Settings via the sibling selector —
+       the door reads ← there and the flyleaf carries no live status. The 48px
+       ring is its own touch band (the door's dialect: hit area ≥ the glyph);
+       its left edge continues the door's clamp math (door left + 64px), so the
+       readout's 122px inset (64px door + 48px ring + 10px gap) is unchanged. */
     #belly-tank {
       position: absolute;
       top: 10px;
@@ -1327,23 +1324,39 @@
       display: flex;
       align-items: center;
       height: 64px;
-      padding: 0 26px 0 4px;
       cursor: pointer;
       touch-action: manipulation;
       -webkit-user-select: none;
       user-select: none;
     }
     #belly-tank[hidden] { display: none; }
-    #belly-tank svg { display: block; }
-    .bt-back { fill: var(--bg); }
-    .bt-fill { fill: var(--primary); }
-    .bt-body { fill: none; stroke: var(--border); stroke-width: 1; }
-    .bt-ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; }
-    /* Probably hungry (emptier than her usual pre-feed level): the milk
-       trades its feed hue for danger — the reserve line makes the red
-       self-explanatory (level under the line she usually eats at). The
-       vessel outline stays hairline. */
-    #belly-tank.hungry .bt-fill { fill: var(--danger); }
+    .br-wrap { position: relative; display: inline-flex; }
+    .br-svg { display: block; }
+    .br-track { fill: none; stroke: var(--border); stroke-width: 2; }
+    .br-fill { fill: none; stroke: var(--primary); stroke-width: 4; }
+    .br-tick { stroke: var(--muted); stroke-width: 2; }
+    /* The countdown token, centred over the ring — the glanceable answer to
+       "when is the next feed?". Crisp HTML text (easier i18n than SVG text),
+       non-interactive so the tap falls through to #belly-tank. */
+    .br-token {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      pointer-events: none;
+    }
+    .br-ml { font-style: normal; font-size: 8px; font-weight: 500; color: var(--muted); margin-left: 1px; }
+    /* Probably hungry (emptier than her usual pre-feed level): the arc and the
+       centre token trade the feed hue for danger — the reserve tick makes the
+       red self-explanatory (below the level she usually eats at). The track
+       stays hairline. */
+    #belly-tank.hungry .br-fill { stroke: var(--danger); }
+    #belly-tank.hungry .br-token { color: var(--danger); }
     #settings-btn.at-settings + #belly-tank { display: none; }
     /* The flyleaf reads whose diary → the child's data → the household's
        people → app pref. Each section's management controls (ledger,
@@ -1691,11 +1704,17 @@
         "At most {n} between feeds": "Máximo {n} entre tomas",
         "150 ml per kg of body weight": "150 ml por kg de peso",
         "adjusts with age": "se ajusta con la edad",
-        // Belly tank tap captions
+        // Belly ring tap captions
         "belly ≈ {n} ml": "barriga ≈ {n} ml",
         "next feed ~{t}": "próxima toma ~{t}",
         "next feed ~ now": "próxima toma ~ ya",
         "usually fed when ≈ {n} ml remain": "suele comer cuando quedan ≈ {n} ml",
+        // Belly ring centre countdown token (magnitude-adaptive)
+        "soon": "pronto",
+        "now": "ya",
+        "~{d}m": "~{d}m",
+        "~{d}h": "~{d}h",
+        "~{d}½h": "~{d}½h",
         // Forms
         "Add": "Añadir",
         "Update": "Actualizar",
@@ -3856,55 +3875,85 @@
       return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
     }
 
-    // Digestion model: the gauge's stats are computed on *digested* ml. Each
-    // feed's amount is released along an exponential gastric-emptying curve,
-    // so a window boundary slices a feed proportionally instead of
-    // all-or-nothing — a 10-minute nudge can no longer teleport a whole
-    // bottle across a day edge (see the digested-gauge spec in docs/).
-    var FG_DIG_HALF_MS = 60 * 60 * 1000; // digestion half-life
-    var FG_DIG_SPAN_HL = 5;              // truncation, in half-lives
-    // Renormalizing by the truncation point credits every feed's full amount
-    // eventually — conservation stays exact despite the cutoff.
-    var FG_DIG_NORM = 1 - Math.pow(2, -FG_DIG_SPAN_HL);
+    // Digestion model (see the realistic belly-ring design in docs/): every
+    // feed empties along one volume-scaled, truncated, renormalized
+    // power-exponential curve. remaining = exp(−(τ/κ)^β); κ scales sublinearly
+    // with feed size vs the baby's own median feed M, so a bigger feed lingers
+    // longer and a small top-up clears fast. Both the belly ring and the
+    // digested-gauge stats share this one kernel, so fullness + digested = fed
+    // holds exactly for any feed already taken.
+    var FG_T_HALF_MS = 60 * 60 * 1000; // a median feed half-empties at 60 min
+    var FG_BETA = 1.4;                 // power-exp lag (β=1 → pure exponential)
+    var FG_VOL_P = 0.6;                // sublinear volume scale (p=0 → fixed span)
+    var FG_EPS = 0.03;                 // truncation floor; sets each feed's span
+    var FG_MED_FALLBACK = 120;         // median-feed ml when history is too sparse
+    // κ₀ anchors a median feed's raw half-life at FG_T_HALF_MS
+    // (exp(−(t½/κ₀)^β)=½ ⇒ κ₀ = t½ / (ln2)^(1/β)); FG_TRUNC gives each feed's
+    // span Tᵢ = κᵢ·FG_TRUNC, where the raw curve has decayed to FG_EPS.
+    var FG_KAPPA0_MS = FG_T_HALF_MS / Math.pow(Math.LN2, 1 / FG_BETA);
+    var FG_TRUNC = Math.pow(Math.log(1 / FG_EPS), 1 / FG_BETA);
 
-    // Fraction of a feed digested ageMs after it was taken (0 before it).
-    function digFrac(ageMs) {
-      var hl = ageMs / FG_DIG_HALF_MS;
-      if (hl <= 0) return 0;
-      if (hl >= FG_DIG_SPAN_HL) return 1;
-      return (1 - Math.pow(2, -hl)) / FG_DIG_NORM;
+    // Her own typical feed size: the median non-zero amount over the loaded
+    // window, memoized on the feeds array identity. A feed bigger than usual
+    // lingers longer than usual — so scaling is relative, never an invented
+    // absolute volume. Falls back to 120 ml until 5 non-zero feeds exist,
+    // independent of the 20-sample hunger gate so the gauge still scales in
+    // sparse history.
+    var fgMedFor = null, fgMedMl = FG_MED_FALLBACK;
+    function medFeedMl(feeds) {
+      if (feeds === fgMedFor) return fgMedMl;
+      fgMedFor = feeds;
+      var xs = [], i, a;
+      for (i = 0; i < feeds.length; i++) { a = feeds[i].amount_ml || 0; if (a > 0) xs.push(a); }
+      if (xs.length < 5) { fgMedMl = FG_MED_FALLBACK; return fgMedMl; }
+      xs.sort(function(p, q) { return p - q; });
+      fgMedMl = fgQuantile(xs, 0.5);
+      return fgMedMl;
     }
 
+    // κ for a feed of amountMl against the median feed medMl: κ₀·(A/M)^p. A 0
+    // or null feed uses the median scale (it contributes 0 ml regardless).
+    function fgKappa(amountMl, medMl) {
+      return FG_KAPPA0_MS * Math.pow((amountMl > 0 ? amountMl : medMl) / medMl, FG_VOL_P);
+    }
+    // This feed's truncation span Tᵢ (where the raw curve reaches FG_EPS).
+    function fgSpanMs(amountMl, medMl) { return fgKappa(amountMl, medMl) * FG_TRUNC; }
+    // Renormalized remaining fraction of one feed at age ageMs: exactly 1 at
+    // ageMs≤0, exactly 0 at ageMs≥Tᵢ, monotone and continuous between.
+    function remFrac(ageMs, amountMl, medMl) {
+      if (ageMs <= 0) return 1;
+      var kappa = fgKappa(amountMl, medMl);
+      if (ageMs >= kappa * FG_TRUNC) return 0;
+      var r = Math.exp(-Math.pow(ageMs / kappa, FG_BETA));
+      var v = (r - FG_EPS) / (1 - FG_EPS);
+      return v > 0 ? v : 0;
+    }
+    // Digested fraction is the complement — 0→1, exactly 1 at Tᵢ, so every ml
+    // is credited to exactly one instant (conservation stays exact).
+    function digestedFrac(ageMs, amountMl, medMl) { return 1 - remFrac(ageMs, amountMl, medMl); }
+
     // Digested ml over (startMs, endMs]: each feed contributes the slice of
-    // its release curve that falls inside the window.
+    // its own volume-scaled release curve that falls inside the window.
     function digSumMl(feeds, startMs, endMs) {
-      var s = 0, i, t;
+      var m = medFeedMl(feeds), s = 0, i, t, a;
       for (i = 0; i < feeds.length; i++) {
         t = new Date(feeds[i].ts).getTime();
-        s += (feeds[i].amount_ml || 0) * (digFrac(endMs - t) - digFrac(startMs - t));
+        a = feeds[i].amount_ml || 0;
+        s += a * (digestedFrac(endMs - t, a, m) - digestedFrac(startMs - t, a, m));
       }
       return s;
     }
 
-    // ---- Hunger meter (see the hunger-meter spec in docs/) ----
-    // Belly remainder of one feed at age ageMs: the belly drains LINEARLY
-    // to empty over the kernel's 5 h span — the mark moves at constant
-    // speed, so its pace reads at a glance (user decision; the gauge's
-    // window sums keep the exponential kernel for smoothing). Calibration
-    // below uses the same model, so "hungry" stays self-consistent.
-    function bellyLeft(ageMs) {
-      if (ageMs <= 0) return 1;
-      var span = FG_DIG_SPAN_HL * FG_DIG_HALF_MS;
-      return ageMs >= span ? 0 : 1 - ageMs / span;
-    }
-    // Fullness at instant tMs: every recent feed's still-undrained
-    // remainder. A feed at exactly tMs counts in full (the belly fills
-    // at t⁺).
+    // ---- Hunger meter (see the realistic belly-ring design in docs/) ----
+    // Fullness at instant tMs: every feed's still-undrained remainder on the
+    // shared per-feed emptying curve — a bigger feed lingers longer. A feed at
+    // exactly tMs counts in full (the belly fills at t⁺); a feed past its own
+    // span Tᵢ contributes exactly 0.
     function fullnessAt(feeds, tMs) {
-      var s = 0, i, t;
+      var m = medFeedMl(feeds), s = 0, i, t, a;
       for (i = 0; i < feeds.length; i++) {
         t = new Date(feeds[i].ts).getTime();
-        if (t <= tMs) s += (feeds[i].amount_ml || 0) * bellyLeft(tMs - t);
+        if (t <= tMs) { a = feeds[i].amount_ml || 0; s += a * remFrac(tMs - t, a, m); }
       }
       return s;
     }
@@ -3923,15 +3972,23 @@
     // just before her own past feeds — "hungry" means emptier than she
     // usually is when she actually gets fed. Null until enough history.
     function hungerCalib(feeds) {
-      var ev = [], i, j, f;
-      for (i = 0; i < feeds.length; i++)
-        ev.push({ t: new Date(feeds[i].ts).getTime(), a: feeds[i].amount_ml || 0 });
+      var m = medFeedMl(feeds);
+      var ev = [], i, j, f, maxA = 0;
+      for (i = 0; i < feeds.length; i++) {
+        var amt = feeds[i].amount_ml || 0;
+        ev.push({ t: new Date(feeds[i].ts).getTime(), a: amt });
+        if (amt > maxA) maxA = amt;
+      }
       ev.sort(function(a, b) { return a.t - b.t; });
+      // The widest a feed can still contribute over is the largest loaded
+      // feed's span (bigger feeds have larger κ, hence larger Tᵢ); older feeds
+      // contribute exactly 0, so the backward walk stops there.
+      var span = fgSpanMs(maxA, m);
       var all = [], day = [], night = [], peak = 0;
       for (i = 0; i < ev.length; i++) {
         f = 0;
-        for (j = i - 1; j >= 0 && ev[i].t - ev[j].t < FG_DIG_SPAN_HL * FG_DIG_HALF_MS; j--)
-          f += ev[j].a * bellyLeft(ev[i].t - ev[j].t);
+        for (j = i - 1; j >= 0 && ev[i].t - ev[j].t < span; j--)
+          f += ev[j].a * remFrac(ev[i].t - ev[j].t, ev[j].a, m);
         all.push(f);
         // Fullness maxima only occur at feed instants (it decays between),
         // so this is the history's fullness ceiling — a scrub-stable scale
@@ -4163,20 +4220,24 @@
       return fgHungerRefs;
     }
 
-    // ---- The corner belly tank (see the belly-tank spec in docs/) ----
-    // The hunger meter's face: the tape's bottle vessel at cluster size,
-    // milk level = fullness at the marker on her own 0→peak scale, a
-    // dotted reserve line at the usually-fed reference for the marker's
-    // day/night class. The ml lives in the tap caption, not beside the
-    // icon (a printed label crowded the tape's relative readout). Hungry
-    // (level under the line) swaps the milk's feed hue for danger.
-    var BT_W = 16, BT_H = 28, BT_RX = 4.5; // vessel units in the 18x30 box
+    // ---- The corner belly ring (see the realistic belly-ring design in docs/) ----
+    // The hunger meter's face: a radial fullness gauge in the corner cluster's
+    // reserved 48px slot (right of the door). The feed-hue arc sweeps clockwise
+    // from 12 o'clock, its length = fullness at the marker on her own 0→peak
+    // scale; a muted tick marks the usually-fed reference for the marker's
+    // day/night class. The centre carries a terse magnitude-adaptive countdown
+    // to the next feed when the marker reads now, else the belly ml. Hungry
+    // (fullness under the reference) swaps the arc and token from feed-hue to
+    // danger. Precise clock-time + the calibration why-line live in the tap.
+    var BR_SZ = 48, BR_C = 24, BR_R = 20; // ring box / centre / radius (px)
+    var BR_TICK = 3.5;                    // reserve tick half-length across the ring
+    var BR_FLOOR = 0.035;                 // min swept fraction so non-empty ≠ empty
 
-    // First instant from nowMs (1-minute steps, up to +12h) where the
-    // draining fullness crosses under its own class reference — the
-    // removed readout line's forecast, reinstated for the tank's tap.
-    // Each step re-classes day/night so the night boundary is respected.
-    // Returns nowMs when already hungry, null when nothing lands in 12h.
+    // First instant from nowMs (1-minute steps, up to +12h) where the draining
+    // fullness crosses under its own class reference — the tank's forecast, now
+    // feeding both the centre countdown and the tap. Each step re-classes
+    // day/night so the night boundary is respected. Returns nowMs when already
+    // hungry, null when nothing lands in 12h.
     function hungerCrossMs(feeds, refs, nowMs) {
       for (var k = 0; k <= 720; k++) {
         var t = nowMs + k * 60000;
@@ -4185,7 +4246,31 @@
       return null;
     }
 
-    var bellyTankLast = null; // last html handed to the tank (no-op detector)
+    // The centre token: a terse, magnitude-adaptive countdown ('~' on every
+    // value) when the marker reads now and a crossing lands within 12h; else
+    // the belly ml (a tiny ml unit). 'soon'/'now' cover the short end. "Marker
+    // at now" is the readout's own test (markerMin ≥ nowMin) — NOT
+    // stripFollowNow (see bellyTankTip). Always returns something.
+    function bellyCountdownToken(feeds, refs, ml) {
+      if (stripMarkerMin() >= rsNowMin()) {
+        var cross = hungerCrossMs(feeds, refs, Date.now());
+        if (cross != null) {
+          if (cross <= Date.now()) return i18n("now");
+          var mins = (cross - Date.now()) / 60000;
+          if (mins < 15) return i18n("soon");
+          if (mins < 60) {
+            var m5 = Math.round(mins / 5) * 5;
+            if (m5 < 60) return i18n("~{d}m", { d: m5 });
+            // rounded up to the hour → fall through to the hour format
+          }
+          var halves = Math.round(mins / 30), h = Math.floor(halves / 2);
+          return halves % 2 ? i18n("~{d}½h", { d: h }) : i18n("~{d}h", { d: h });
+        }
+      }
+      return "≈" + fgMl(ml) + '<i class="br-ml">ml</i>';
+    }
+
+    var bellyTankLast = null; // last html handed to the ring (no-op detector)
     function updateBellyTank() {
       var el = document.getElementById("belly-tank");
       if (!el) return;
@@ -4201,24 +4286,33 @@
       var feeds = dashboardData.strip_feedings || [];
       var f = fullnessAt(feeds, endMs);
       var ref = nightAt(endMs) ? refs.night : refs.day;
-      // Level with the tape bottles' sliver floor (a non-empty belly must
-      // never read as empty); reserve line on the same 0→peak scale.
-      var fh = f <= 0 ? 0 : Math.max(1.5, Math.min(BT_H, BT_H * f / refs.peak));
-      var refY = 1 + BT_H - Math.max(0, Math.min(BT_H, BT_H * ref / refs.peak));
-      var vessel = 'x="1" y="1" width="' + BT_W + '" height="' + BT_H + '" rx="' + BT_RX + '"';
-      var html =
-        '<svg width="18" height="30" viewBox="0 0 18 30" aria-hidden="true">' +
-          '<clipPath id="bt-clip"><rect ' + vessel + '/></clipPath>' +
-          '<rect class="bt-back" ' + vessel + '/>' +
-          '<rect class="bt-fill" clip-path="url(#bt-clip)" x="1" y="' + (1 + BT_H - fh).toFixed(1) +
-            '" width="' + BT_W + '" height="' + fh.toFixed(1) + '"/>' +
-          '<rect class="bt-body" ' + vessel + '/>' +
-          '<line class="bt-ref" x1="2" y1="' + refY.toFixed(1) + '" x2="' + BT_W + '" y2="' + refY.toFixed(1) + '"/>' +
+      // Arc length = fullness on the 0→peak scale, with a sliver floor so a
+      // non-empty belly never reads fully empty; the reserve tick sits on the
+      // same scale. Both clamp to a full sweep at the fringe past peak.
+      var frac = Math.max(0, Math.min(1, f / refs.peak));
+      if (f > 0 && frac < BR_FLOOR) frac = BR_FLOOR;
+      var refFrac = Math.max(0, Math.min(1, ref / refs.peak));
+      var circ = 2 * Math.PI * BR_R;
+      // Reserve tick: a short radial segment across the ring at the reference
+      // angle (0 at 12 o'clock, clockwise), from just inside to just outside.
+      var th = 2 * Math.PI * refFrac, s = Math.sin(th), c = Math.cos(th);
+      var tick = 'x1="' + (BR_C + (BR_R - BR_TICK) * s).toFixed(2) + '" y1="' + (BR_C - (BR_R - BR_TICK) * c).toFixed(2) +
+        '" x2="' + (BR_C + (BR_R + BR_TICK) * s).toFixed(2) + '" y2="' + (BR_C - (BR_R + BR_TICK) * c).toFixed(2) + '"';
+      var svg =
+        '<svg class="br-svg" width="' + BR_SZ + '" height="' + BR_SZ + '" viewBox="0 0 ' + BR_SZ + ' ' + BR_SZ + '" aria-hidden="true">' +
+          '<circle class="br-track" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R + '"/>' +
+          '<circle class="br-fill" cx="' + BR_C + '" cy="' + BR_C + '" r="' + BR_R +
+            '" stroke-dasharray="' + (circ * frac).toFixed(2) + ' ' + circ.toFixed(2) +
+            '" transform="rotate(-90 ' + BR_C + ' ' + BR_C + ')"/>' +
+          '<line class="br-tick" ' + tick + '/>' +
         '</svg>';
+      var html = '<span class="br-wrap">' + svg +
+        '<span class="br-token">' + bellyCountdownToken(feeds, refs, f) + '</span></span>';
       el.classList.toggle("hungry", f < ref);
       el.hidden = false;
-      // Unchanged html (a parked marker's tick) skips the rebuild; a
-      // changed one invalidates an open caption (its estimate went stale).
+      // Unchanged html (a parked marker's tick) skips the rebuild; a changed
+      // one (arc shrank or the countdown ticked over) invalidates an open
+      // caption (its estimate went stale).
       if (html === bellyTankLast && el.firstChild) return;
       bellyTankLast = html;
       if (tapTipEl && tapTipEl.tipFor === el) hideTapTip();
