@@ -44,13 +44,31 @@ describe("app.html es translations", () => {
     expect(nowVals).toEqual(["ya"]);
   });
 
-  it("every markup data-i18n key has an ES translation", () => {
-    // data-i18n="..." attributes are fully literal (unlike dynamic i18n(...)
+  it("every markup data-i18n key (incl. -placeholder/-title/-aria-label variants) has an ES translation", () => {
+    // data-i18n="..." and its data-i18n-<attr> variants (e.g.
+    // data-i18n-aria-label="...") are fully literal (unlike dynamic i18n(...)
     // call sites), so every value used in the markup must resolve — a typo'd
     // or relocated key would otherwise silently fall back to the raw English
     // text with no error anywhere.
     const dict = new Set(keysOf(langBlock("es")));
-    const used = [...html.matchAll(/\bdata-i18n="((?:[^"\\]|\\.)*)"/g)].map(
+    const used = [
+      ...html.matchAll(/\bdata-i18n(?:-[a-z-]+)?="((?:[^"\\]|\\.)*)"/g),
+    ].map((m) => m[1]);
+    expect(used.length).toBeGreaterThan(0);
+    const missing = used.filter((k) => !dict.has(k));
+    expect(missing).toEqual([]);
+  });
+
+  it("every literal i18n(\"...\") call-site key has an ES translation", () => {
+    // Dynamic i18n(...) calls often take a computed key (a variable, or a
+    // ternary of two literals), which this deliberately does not match — its
+    // key isn't fixed at the call site, so there's nothing static to check.
+    // But a literal-string argument is just as fixed as a data-i18n attribute
+    // and just as brittle: a typo'd/relocated key silently falls back to raw
+    // English with no error anywhere. `\s*` tolerates the call being wrapped
+    // across lines (i18n(\n  "...", {...})).
+    const dict = new Set(keysOf(langBlock("es")));
+    const used = [...html.matchAll(/i18n\(\s*"((?:[^"\\]|\\.)*)"/g)].map(
       (m) => m[1]
     );
     expect(used.length).toBeGreaterThan(0);
