@@ -47,7 +47,7 @@ import {
 } from "./growth";
 import {
   addBaby,
-  addCaregiver,
+  inviteCaregiver,
   pickBaby,
   removeBaby,
   removeCaregiver,
@@ -2007,18 +2007,18 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       "add_caregiver",
       {
         description:
-          "Register another caregiver's email into the caller's household so they see and record the same data. The email must match what they use to log in through Cloudflare Access (they must also be allowed by the Access policy — that lives in Cloudflare, not here).",
+          "Invite another caregiver's email into the caller's household so they see and record the same data. The invite is pending until that person logs in at www.32b.io and accepts it on the welcome screen (their login proves they own the email). If the email already belongs to another household, the invite stays dormant unless they leave it.",
         inputSchema: {
           email: z
             .string()
             .email()
-            .describe("Email address of the caregiver to add"),
+            .describe("Email address of the caregiver to invite"),
         },
       },
       async ({ email }) => {
         const t = await this.tenant();
         const norm = email.toLowerCase();
-        const error = await addCaregiver(db, t.householdId, email);
+        const error = await inviteCaregiver(db, t.householdId, email, t.email);
         if (error) {
           return { content: [{ type: "text", text: error }], isError: true };
         }
@@ -2026,7 +2026,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           content: [
             {
               type: "text",
-              text: `Added ${norm} to your household. Make sure the Cloudflare Access policy also allows this email, or they cannot reach the app.`,
+              text: `Invited ${norm} — they'll join your household when they log in and accept.`,
             },
           ],
         };
@@ -2037,7 +2037,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       "remove_caregiver",
       {
         description:
-          "Remove a caregiver's email from the caller's household so they no longer see or record its data. You cannot remove yourself. This does not touch the Cloudflare Access policy (that lives in Cloudflare, not here).",
+          "Remove a caregiver's email from the caller's household so they no longer see or record its data. You cannot remove yourself.",
         inputSchema: {
           email: z
             .string()
@@ -2084,7 +2084,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       "create_household",
       {
         description:
-          "Create a NEW isolated household (tenant) with its first caregiver and an unnamed default baby. The new household's data is completely separate from yours. The caregiver must also be allowed by the Cloudflare Access policy (managed in Cloudflare, not here).",
+          "Create a NEW isolated household (tenant) with its first caregiver and an unnamed default baby. The new household's data is completely separate from yours.",
         inputSchema: {
           email: z
             .string()
@@ -2148,7 +2148,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
           content: [
             {
               type: "text",
-              text: `Created household #${householdId} with ${norm} as its first caregiver and an unnamed default baby (they can set_profile it). Remember to allow ${norm} in the Cloudflare Access policy.`,
+              text: `Created household #${householdId} with ${norm} as its first caregiver and an unnamed default baby (they can set_profile it).`,
             },
           ],
           structuredContent: { household_id: householdId, email: norm },

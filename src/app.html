@@ -1650,7 +1650,7 @@
             <input type="email" name="email" required placeholder="partner@example.com" aria-label="Email" data-i18n-aria-label="Email">
             <button type="submit" data-i18n="Invite">Invite</button>
           </form>
-          <p class="settings-note" data-i18n="Invited partners must also be allowed by the Cloudflare Access policy, or they cannot log in.">Invited partners must also be allowed by the Cloudflare Access policy, or they cannot log in.</p>
+          <p class="settings-note" data-i18n="Invited partners join when they log in and accept the invite.">Invited partners join when they log in and accept the invite.</p>
         </div>
       </div>
 
@@ -1873,11 +1873,12 @@
         "Email": "Correo",
         "Invite": "Invitar",
         "you": "tú",
+        "invited": "pendiente",
         "Remove": "Quitar",
         "Removed": "Eliminado",
         "Invited {e}": "Invitado {e}",
-        "Invited partners must also be allowed by the Cloudflare Access policy, or they cannot log in.":
-          "Los cuidadores invitados también deben estar permitidos en la política de Cloudflare Access, o no podrán entrar."
+        "Invited partners join when they log in and accept the invite.":
+          "Los invitados se unen cuando inician sesión y aceptan la invitación."
       }
     };
 
@@ -2600,7 +2601,7 @@
         settingsBabies = d.babies || [];
         renderMasthead(settingsBabies);
         renderSettingsBabies(settingsBabies);
-        renderSettingsCaregivers(d.caregivers || [], d.me || {});
+        renderSettingsCaregivers(d.caregivers || [], d.me || {}, d.pending || []);
         // A household with no baby yet gets its first fold opened for it —
         // the bare masthead alone would never say where "add a baby" lives.
         if (!settingsBabies.length && document.getElementById("panel-babies").hidden) {
@@ -2752,7 +2753,7 @@
     // the panel (a remove × can't nest inside the roster's button). The ×
     // is the ledgers' two-tap delete, handled by the shared document
     // listener below.
-    function renderSettingsCaregivers(caregivers, me) {
+    function renderSettingsCaregivers(caregivers, me, pending) {
       var roster = "", ledger = "";
       for (var i = 0; i < caregivers.length; i++) {
         var c = caregivers[i];
@@ -2764,6 +2765,17 @@
           '<span class="grow">' + email + '</span>' + tag + '</div>' +
           (self ? "" : '<button type="button" class="delete-btn cg-remove" data-id="' + c.id +
             '" aria-label="' + escapeHtml(i18n("Remove")) + '" title="' + escapeHtml(i18n("Remove")) + '">&times;</button>') +
+          '</div>';
+      }
+      for (var j = 0; j < pending.length; j++) {
+        var p = pending[j];
+        var pEmail = escapeHtml(p.email);
+        var pTag = '<span class="ledger-tag">' + escapeHtml(i18n("invited")) + '</span>';
+        roster += '<span class="roster-row"><span class="roster-main">' + pEmail + '</span>' + pTag + '</span>';
+        ledger += '<div class="ledger-row"><div class="ledger-line">' +
+          '<span class="grow">' + pEmail + '</span>' + pTag + '</div>' +
+          '<button type="button" class="delete-btn inv-remove" data-id="' + p.id +
+          '" aria-label="' + escapeHtml(i18n("Remove")) + '" title="' + escapeHtml(i18n("Remove")) + '">&times;</button>' +
           '</div>';
       }
       document.getElementById("settings-caregivers").innerHTML = roster;
@@ -5262,6 +5274,10 @@
         if (t.classList.contains("cg-remove")) {
           // Partner removal shares the ledgers' × and its two-tap arm.
           await sendJson("DELETE", "/api/caregivers/" + encodeURIComponent(id));
+          toast(i18n("Removed"));
+          loadSettings();
+        } else if (t.classList.contains("inv-remove")) {
+          await sendJson("DELETE", "/api/invites/" + encodeURIComponent(id));
           toast(i18n("Removed"));
           loadSettings();
         } else {

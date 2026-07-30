@@ -36,12 +36,14 @@ import {
 import { getIdentityEmail } from "./identity";
 import {
   addBaby,
-  addCaregiver,
+  inviteCaregiver,
   listCaregivers,
+  listInvitesForHousehold,
   pickBaby,
   removeCaregiver,
   removeBaby,
   resolveTenant,
+  revokeInvite,
   notRegisteredMessage,
   updateBaby,
   type Tenant,
@@ -542,6 +544,7 @@ async function handleHousehold(env: Env, tenant: Tenant): Promise<Response> {
     household_id: tenant.householdId,
     me: { id: tenant.userId, email: tenant.email },
     caregivers: await listCaregivers(env.DB, tenant.householdId),
+    pending: await listInvitesForHousehold(env.DB, tenant.householdId),
     babies: tenant.babies,
   });
 }
@@ -621,9 +624,8 @@ async function handleBabyId(
   return jsonError(405, "Method not allowed.");
 }
 
-// POST /api/caregivers invites a partner; DELETE /api/caregivers/<id> removes
-// one. The DB row only grants tenancy — the email must also be allowed by the
-// Cloudflare Access policy (managed in Cloudflare) to reach the app at all.
+// POST /api/caregivers creates a pending invite (accepted on /welcome after
+// login); DELETE /api/caregivers/<id> removes a member.
 async function handleCaregivers(
   request: Request,
   env: Env,
@@ -637,13 +639,14 @@ async function handleCaregivers(
       z.object({ email: z.string().email() })
     );
     if (!parsed.ok) return jsonError(400, parsed.error);
-    const error = await addCaregiver(
+    const error = await inviteCaregiver(
       env.DB,
       tenant.householdId,
-      parsed.value.email
+      parsed.value.email,
+      tenant.email
     );
     if (error) return jsonError(409, error);
-    return jsonOk({ email: parsed.value.email.trim().toLowerCase() }, 201);
+    return jsonOk({ invited: parsed.value.email.trim().toLowerCase() }, 201);
   }
   if (method === "DELETE" && idStr) {
     const id = parseIdParam(idStr);
@@ -709,6 +712,17 @@ export async function handleApi(
   }
   if (parts[1] === "caregivers") {
     return handleCaregivers(request, env, tenant, parts[2]);
+  }
+  if (parts[1] === "invites" && parts.length === 3) {
+    if (request.method.toUpperCase() !== "DELETE") {
+      return jsonError(405, "Method not allowed.");
+    }
+    const id = parseIdParam(parts[2]);
+    if (id === null) return jsonError(400, "Invalid id.");
+    if (!(await revokeInvite(env.DB, tenant.householdId, id))) {
+      return jsonError(404, `No pending invite #${id} in your household.`);
+    }
+    return jsonOk({ deleted: id });
   }
   const cfg = ENTITIES[parts[1]];
   if (!cfg) return jsonError(404, "Unknown entity.");

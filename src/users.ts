@@ -43,7 +43,7 @@ export function pickBaby(babies: BabyRow[], ref?: string): BabyRow {
 }
 
 export function notRegisteredMessage(email: string): string {
-  return `${email} is not registered in any household. Ask the household owner to run add_caregiver('${email}') from their MCP client.`;
+  return `${email} is not registered in any household. Ask a household owner to invite you (add_caregiver('${email}')), then log in and accept the invite on the welcome screen.`;
 }
 
 export async function getBabies(
@@ -70,32 +70,6 @@ export async function listCaregivers(
     .bind(householdId)
     .all<CaregiverRow>();
   return results;
-}
-
-// Register `email` into the household so its owner sees and records the same
-// data. Returns a caller-facing error string, or null on success. The email
-// must also be allowed by the Cloudflare Access policy (that lives in
-// Cloudflare, not here) or its owner still cannot reach the app.
-export async function addCaregiver(
-  db: D1Database,
-  householdId: number,
-  email: string
-): Promise<string | null> {
-  const norm = email.trim().toLowerCase();
-  const existing = await db
-    .prepare("SELECT id, email, household_id FROM users WHERE email = ?")
-    .bind(norm)
-    .first<UserRow>();
-  if (existing) {
-    return existing.household_id === householdId
-      ? `${norm} is already a caregiver in your household.`
-      : `${norm} already belongs to another household.`;
-  }
-  await db
-    .prepare("INSERT INTO users (email, household_id) VALUES (?, ?)")
-    .bind(norm, householdId)
-    .run();
-  return null;
 }
 
 export type RemoveCaregiverResult =
@@ -390,7 +364,7 @@ export async function acceptInvite(
         .bind(norm, norm),
     ]);
   } catch (e) {
-    if (e instanceof Error && e.message.includes("UNIQUE")) {
+    if (e instanceof Error && e.message.includes("users.email")) {
       return { ok: false, message: "You already belong to a household." };
     }
     throw e;
@@ -449,7 +423,7 @@ export async function createHouseholdForEmail(
         .bind(norm),
     ]);
   } catch (e) {
-    if (e instanceof Error && e.message.includes("UNIQUE")) {
+    if (e instanceof Error && e.message.includes("users.email")) {
       return { ok: false, message: "You already belong to a household." };
     }
     throw e;

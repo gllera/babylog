@@ -43,4 +43,18 @@ describe("app.html es translations", () => {
     );
     expect(nowVals).toEqual(["ya"]);
   });
+
+  it("every markup data-i18n key has an ES translation", () => {
+    // data-i18n="..." attributes are fully literal (unlike dynamic i18n(...)
+    // call sites), so every value used in the markup must resolve — a typo'd
+    // or relocated key would otherwise silently fall back to the raw English
+    // text with no error anywhere.
+    const dict = new Set(keysOf(langBlock("es")));
+    const used = [...html.matchAll(/\bdata-i18n="((?:[^"\\]|\\.)*)"/g)].map(
+      (m) => m[1]
+    );
+    expect(used.length).toBeGreaterThan(0);
+    const missing = used.filter((k) => !dict.has(k));
+    expect(missing).toEqual([]);
+  });
 });
