@@ -307,7 +307,9 @@ export async function listInvitesForHousehold(
 
 // Create a pending invite. Returns a caller-facing error string, or null on
 // success (same contract the old direct-add had). Duplicate invites are a
-// silent no-op (OR IGNORE on the UNIQUE(household_id, email) key).
+// silent no-op (OR IGNORE on the UNIQUE(household_id, email) key). Only an
+// own-household duplicate is rejected; an email registered elsewhere still
+// gets a pending invite (see the no-oracle note below).
 export async function inviteCaregiver(
   db: D1Database,
   householdId: number,
@@ -319,11 +321,12 @@ export async function inviteCaregiver(
     .prepare("SELECT id, email, household_id FROM users WHERE email = ?")
     .bind(norm)
     .first<UserRow>();
-  if (existing) {
-    return existing.household_id === householdId
-      ? `${norm} is already a caregiver in your household.`
-      : `${norm} already belongs to another household.`;
+  if (existing && existing.household_id === householdId) {
+    return `${norm} is already a caregiver in your household.`;
   }
+  // An email registered in ANOTHER household gets a pending invite like any
+  // other (no cross-tenant existence oracle): it cannot be accepted while
+  // they're registered, and becomes live if they ever leave that household.
   await db
     .prepare(
       "INSERT OR IGNORE INTO invites (household_id, email, invited_by) VALUES (?, ?, ?)"
@@ -349,7 +352,10 @@ export async function revokeInvite(
 
 // Invitee-side accept: the invite must belong to this email. Joining deletes
 // ALL invites for the email in the same transaction — an email belongs to
-// exactly one household, so the rest just became unusable.
+// exactly one household, so the rest just became unusable. The batch
+// re-verifies the invite (a revoke racing between the check above and this
+// write must win) and guards the cleanup on the insert having landed, so a
+// concurrent double-accept can't eat the email's other invites for nothing.
 export async function acceptInvite(
   db: D1Database,
   email: string,
@@ -366,12 +372,32 @@ export async function acceptInvite(
     .bind(norm)
     .first<{ id: number }>();
   if (already) return { ok: false, message: "You already belong to a household." };
-  await db.batch([
-    db
-      .prepare("INSERT INTO users (email, household_id) VALUES (?, ?)")
-      .bind(norm, invite.household_id),
-    db.prepare("DELETE FROM invites WHERE email = ?").bind(norm),
-  ]);
+  // The batch re-verifies the invite (a revoke between the check above and
+  // this write must win), and the cleanup only fires if the insert landed —
+  // a failed insert must not eat the email's other invites.
+  let results;
+  try {
+    results = await db.batch([
+      db
+        .prepare(
+          "INSERT INTO users (email, household_id) SELECT ?, household_id FROM invites WHERE id = ? AND email = ?"
+        )
+        .bind(norm, inviteId, norm),
+      db
+        .prepare(
+          "DELETE FROM invites WHERE email = ? AND EXISTS (SELECT 1 FROM users WHERE email = ?)"
+        )
+        .bind(norm, norm),
+    ]);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("UNIQUE")) {
+      return { ok: false, message: "You already belong to a household." };
+    }
+    throw e;
+  }
+  if ((results[0]?.meta?.changes ?? 0) === 0) {
+    return { ok: false, message: "That invite no longer exists." };
+  }
   return { ok: true, householdId: invite.household_id };
 }
 
@@ -390,7 +416,8 @@ export async function declineInvite(
 // Self-serve household creation from /welcome. Mirrors the MCP
 // create_household batch (households → users → babies in one transaction —
 // D1 rolls the whole batch back on any failure). Guard: the email must not
-// be registered yet. Any pending invites die with the choice.
+// be registered yet. Any pending invites die with the choice; the final
+// SELECT resolves the new id inside the same transaction.
 export async function createHouseholdForEmail(
   db: D1Database,
   email: string,
@@ -402,23 +429,32 @@ export async function createHouseholdForEmail(
     .bind(norm)
     .first<{ id: number }>();
   if (existing) return { ok: false, message: "You already belong to a household." };
-  await db.batch([
-    db.prepare("INSERT INTO households (name) VALUES (?)").bind(name ?? null),
-    db
-      .prepare(
-        "INSERT INTO users (email, household_id) VALUES (?, last_insert_rowid())"
-      )
-      .bind(norm),
-    db
-      .prepare(
-        "INSERT INTO babies (household_id, is_default) SELECT household_id, 1 FROM users WHERE email = ?"
-      )
-      .bind(norm),
-    db.prepare("DELETE FROM invites WHERE email = ?").bind(norm),
-  ]);
-  const user = await db
-    .prepare("SELECT household_id FROM users WHERE email = ?")
-    .bind(norm)
-    .first<{ household_id: number }>();
-  return { ok: true, householdId: user?.household_id ?? 0 };
+  let results;
+  try {
+    results = await db.batch([
+      db.prepare("INSERT INTO households (name) VALUES (?)").bind(name ?? null),
+      db
+        .prepare(
+          "INSERT INTO users (email, household_id) VALUES (?, last_insert_rowid())"
+        )
+        .bind(norm),
+      db
+        .prepare(
+          "INSERT INTO babies (household_id, is_default) SELECT household_id, 1 FROM users WHERE email = ?"
+        )
+        .bind(norm),
+      db.prepare("DELETE FROM invites WHERE email = ?").bind(norm),
+      db
+        .prepare("SELECT household_id FROM users WHERE email = ?")
+        .bind(norm),
+    ]);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("UNIQUE")) {
+      return { ok: false, message: "You already belong to a household." };
+    }
+    throw e;
+  }
+  const row = results[4]?.results?.[0] as { household_id: number } | undefined;
+  if (!row) return { ok: false, message: "You already belong to a household." };
+  return { ok: true, householdId: row.household_id };
 }

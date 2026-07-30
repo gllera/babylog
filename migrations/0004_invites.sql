@@ -4,6 +4,7 @@
 -- household). It creates an invite instead; the invitee sees it on /welcome
 -- after magic-link login (which proves email ownership) and accepting it
 -- inserts the users row.
+-- No FKs (house style): any future delete-household path must cascade invites by hand.
 CREATE TABLE invites (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   household_id  INTEGER NOT NULL,
