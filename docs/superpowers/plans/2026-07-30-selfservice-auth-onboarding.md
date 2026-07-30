@@ -529,6 +529,17 @@ git add migrations/0004_invites.sql src/users.ts
 git commit -m "feat(auth): invites schema + self-serve household helpers"
 ```
 
+> **Post-review amendments** (applied in a follow-up commit; `src/users.ts` is
+> authoritative): `inviteCaregiver` no longer reports "already belongs to
+> another household" — a registered-elsewhere email silently gets a pending
+> invite (no cross-tenant existence oracle; it only becomes acceptable if
+> they leave that household). `acceptInvite` re-verifies the invite inside
+> the batch (revoke-wins race) with a self-guarding cleanup, and both it and
+> `createHouseholdForEmail` map the users.email UNIQUE race to the friendly
+> "already belong" error; `createHouseholdForEmail` resolves the new id via
+> a 5th in-batch SELECT (no `?? 0` fallback). Task 6's smoke should also
+> cover double-accept and accept-after-revoke.
+
 ---
 
 ### Task 4: Caregiver adds become pending invites
