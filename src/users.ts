@@ -266,3 +266,159 @@ export async function resolveTenant(
     babies: await getBabies(db, user.household_id),
   };
 }
+
+// ---- Invites & self-serve onboarding ----------------------------------------
+
+export type InviteRow = {
+  id: number;
+  household_id: number;
+  email: string;
+  invited_by: string | null;
+  household_name: string | null;
+};
+
+// Pending invites for an email, joined with the household name for /welcome.
+export async function listInvitesForEmail(
+  db: D1Database,
+  email: string
+): Promise<InviteRow[]> {
+  const { results } = await db
+    .prepare(
+      "SELECT i.id, i.household_id, i.email, i.invited_by, h.name AS household_name FROM invites i LEFT JOIN households h ON h.id = i.household_id WHERE i.email = ? ORDER BY i.id"
+    )
+    .bind(email.toLowerCase())
+    .all<InviteRow>();
+  return results;
+}
+
+export type PendingInvite = { id: number; email: string };
+
+// A household's outstanding invites, for the caregivers settings panel.
+export async function listInvitesForHousehold(
+  db: D1Database,
+  householdId: number
+): Promise<PendingInvite[]> {
+  const { results } = await db
+    .prepare("SELECT id, email FROM invites WHERE household_id = ? ORDER BY id")
+    .bind(householdId)
+    .all<PendingInvite>();
+  return results;
+}
+
+// Create a pending invite. Returns a caller-facing error string, or null on
+// success (same contract the old direct-add had). Duplicate invites are a
+// silent no-op (OR IGNORE on the UNIQUE(household_id, email) key).
+export async function inviteCaregiver(
+  db: D1Database,
+  householdId: number,
+  email: string,
+  invitedBy: string
+): Promise<string | null> {
+  const norm = email.trim().toLowerCase();
+  const existing = await db
+    .prepare("SELECT id, email, household_id FROM users WHERE email = ?")
+    .bind(norm)
+    .first<UserRow>();
+  if (existing) {
+    return existing.household_id === householdId
+      ? `${norm} is already a caregiver in your household.`
+      : `${norm} already belongs to another household.`;
+  }
+  await db
+    .prepare(
+      "INSERT OR IGNORE INTO invites (household_id, email, invited_by) VALUES (?, ?, ?)"
+    )
+    .bind(householdId, norm, invitedBy)
+    .run();
+  return null;
+}
+
+// Owner-side revoke. Rows outside the household simply don't match — same
+// "not found" as a bad id, no cross-tenant existence oracle.
+export async function revokeInvite(
+  db: D1Database,
+  householdId: number,
+  inviteId: number
+): Promise<boolean> {
+  const res = await db
+    .prepare("DELETE FROM invites WHERE id = ? AND household_id = ?")
+    .bind(inviteId, householdId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+// Invitee-side accept: the invite must belong to this email. Joining deletes
+// ALL invites for the email in the same transaction — an email belongs to
+// exactly one household, so the rest just became unusable.
+export async function acceptInvite(
+  db: D1Database,
+  email: string,
+  inviteId: number
+): Promise<{ ok: true; householdId: number } | { ok: false; message: string }> {
+  const norm = email.toLowerCase();
+  const invite = await db
+    .prepare("SELECT household_id FROM invites WHERE id = ? AND email = ?")
+    .bind(inviteId, norm)
+    .first<{ household_id: number }>();
+  if (!invite) return { ok: false, message: "That invite no longer exists." };
+  const already = await db
+    .prepare("SELECT id FROM users WHERE email = ?")
+    .bind(norm)
+    .first<{ id: number }>();
+  if (already) return { ok: false, message: "You already belong to a household." };
+  await db.batch([
+    db
+      .prepare("INSERT INTO users (email, household_id) VALUES (?, ?)")
+      .bind(norm, invite.household_id),
+    db.prepare("DELETE FROM invites WHERE email = ?").bind(norm),
+  ]);
+  return { ok: true, householdId: invite.household_id };
+}
+
+export async function declineInvite(
+  db: D1Database,
+  email: string,
+  inviteId: number
+): Promise<boolean> {
+  const res = await db
+    .prepare("DELETE FROM invites WHERE id = ? AND email = ?")
+    .bind(inviteId, email.toLowerCase())
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+// Self-serve household creation from /welcome. Mirrors the MCP
+// create_household batch (households → users → babies in one transaction —
+// D1 rolls the whole batch back on any failure). Guard: the email must not
+// be registered yet. Any pending invites die with the choice.
+export async function createHouseholdForEmail(
+  db: D1Database,
+  email: string,
+  name?: string
+): Promise<{ ok: true; householdId: number } | { ok: false; message: string }> {
+  const norm = email.toLowerCase();
+  const existing = await db
+    .prepare("SELECT id FROM users WHERE email = ?")
+    .bind(norm)
+    .first<{ id: number }>();
+  if (existing) return { ok: false, message: "You already belong to a household." };
+  await db.batch([
+    db.prepare("INSERT INTO households (name) VALUES (?)").bind(name ?? null),
+    db
+      .prepare(
+        "INSERT INTO users (email, household_id) VALUES (?, last_insert_rowid())"
+      )
+      .bind(norm),
+    db
+      .prepare(
+        "INSERT INTO babies (household_id, is_default) SELECT household_id, 1 FROM users WHERE email = ?"
+      )
+      .bind(norm),
+    db.prepare("DELETE FROM invites WHERE email = ?").bind(norm),
+  ]);
+  const user = await db
+    .prepare("SELECT household_id FROM users WHERE email = ?")
+    .bind(norm)
+    .first<{ household_id: number }>();
+  return { ok: true, householdId: user?.household_id ?? 0 };
+}
