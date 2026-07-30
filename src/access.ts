@@ -51,22 +51,3 @@ export async function verifyAccessJwt(
     return null;
   }
 }
-
-// The identity (lowercased email) behind a request, or null when
-// unauthenticated. Dev fallback: with no valid Access JWT, `DEV_USER_EMAIL`
-// (.dev.vars only — never a production var) supplies the identity so
-// `wrangler dev` works without Access in front.
-export async function getAccessEmail(
-  request: Request,
-  env: Env
-): Promise<string | null> {
-  const token = request.headers.get("Cf-Access-Jwt-Assertion");
-  if (token) {
-    const payload = await verifyAccessJwt(token, env);
-    if (typeof payload?.email === "string" && payload.email) {
-      return payload.email.toLowerCase();
-    }
-  }
-  if (env.DEV_USER_EMAIL) return env.DEV_USER_EMAIL.toLowerCase();
-  return null;
-}

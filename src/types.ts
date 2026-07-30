@@ -5,6 +5,9 @@ export type Env = {
   // forwarded Access JWT against these and reads its email claim.
   TEAM_DOMAIN: string;
   POLICY_AUD: string;
+  // HMAC key for the 32b.io `sess` cookie (same value as the www.32b.io
+  // Pages secret). Optional: absent, the sess-cookie auth path is disabled.
+  SESSION_SECRET?: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
   // Household that Alexa-logged events belong to (default "1").

@@ -3,7 +3,7 @@ import { BabyFeedingMCP } from "./tools";
 import { handleAlexa } from "./alexa";
 import { handleApi } from "./api";
 import { PNG_ICONS } from "./icons";
-import { getAccessEmail } from "./access";
+import { getIdentityEmail } from "./identity";
 import {
   ICON_SVG,
   WEB_MANIFEST,
@@ -34,7 +34,7 @@ export default {
     // its email claim — the identity every MCP tool scopes its data to,
     // handed to the Durable Object via ctx.props.
     if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
-      const email = await getAccessEmail(request, env);
+      const email = await getIdentityEmail(request, env);
       if (!email) return new Response("Unauthorized", { status: 401 });
       // workers-types declares ExecutionContext.props readonly; McpAgent
       // reads props from the execution context, so assign through a cast.

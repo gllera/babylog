@@ -33,7 +33,7 @@ import {
   type WeightSample,
   type HeightSample,
 } from "./growth";
-import { getAccessEmail } from "./access";
+import { getIdentityEmail } from "./identity";
 import {
   addBaby,
   addCaregiver,
@@ -672,10 +672,9 @@ export async function handleApi(
   env: Env,
   url: URL
 ): Promise<Response> {
-  // Cloudflare Access fronts baby.llera.eu; we additionally verify the JWT it
-  // stamps (and read the email) — with tenants, identity is load-bearing, so
-  // the Worker can't rely on fronting alone.
-  const email = await getAccessEmail(request, env);
+  // Identity is load-bearing with tenants: an Access JWT (baby.llera.eu) or
+  // a 32b.io sess cookie (baby.32b.io) must name the caller.
+  const email = await getIdentityEmail(request, env);
   if (!email) return jsonError(401, "Unauthorized.");
   const tenant = await resolveTenant(env.DB, email);
   if (!tenant) return jsonError(403, notRegisteredMessage(email));
