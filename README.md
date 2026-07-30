@@ -22,8 +22,8 @@ uses the shared 32b.io magic-link session (self-service — new users create a
 household or accept a caregiver invite at `/welcome`), while `baby.llera.eu`
 stays behind Cloudflare Access (still fronting MCP and Alexa). The Worker
 verifies whichever credential arrives and scopes all data to the email's
-household. The baby.32b.io route is not yet declared; see docs/setup.md for
-the go-live steps.
+household. Both hostnames are live (baby.32b.io since 2026-07-30); see
+docs/setup.md for how each is wired.
 
 ## Quick start
 

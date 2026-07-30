@@ -76,21 +76,39 @@ npm run db:migrate:remote && npm run deploy
 
 ## 32b.io session auth
 
-**Go-live runbook — not yet run.** `baby.32b.io` will front the Worker with
-the shared 32b.io magic-link session (self-service onboarding) alongside the
-existing `baby.llera.eu` + Access path. To bring it up:
+**Live since 2026-07-30.** `baby.32b.io` fronts the Worker with the shared
+32b.io magic-link session (self-service onboarding), alongside the existing
+`baby.llera.eu` + Access path. What was done, in this order:
 
-1. **Set the secret first:** `npx wrangler secret put SESSION_SECRET`, using
-   the same value as the www.32b.io Pages secret (a copy lives in
-   `~/ws/32b/.dev.vars`). Do this **before** adding the route below — the
-   Worker already knows how to verify the `sess` cookie (`src/session.ts`,
-   `src/identity.ts`), so setting the secret alone changes nothing until the
-   route exists, but the route must never go live without it.
-2. Add `"routes": [{ "pattern": "baby.32b.io", "custom_domain": true }]` to
-   `wrangler.jsonc` and deploy.
+1. **The secret first:** `npx wrangler secret put SESSION_SECRET`, using the
+   same value as the www.32b.io Pages secret (a copy lives in
+   `~/ws/32b/.dev.vars`). Always before the hostname exists — the Worker
+   verifies the `sess` cookie with it (`src/session.ts`, `src/identity.ts`),
+   and a live hostname without the secret is a redirect loop (see below).
+2. Deployed the code, then attached `baby.32b.io` as a Worker **custom
+   domain** — *not* a `routes` entry in `wrangler.jsonc`:
+
+   ```bash
+   curl -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCT/workers/domains" \
+     -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+     -d '{"environment":"production","hostname":"baby.32b.io",
+          "service":"baby-feeding-mcp","zone_id":"<32b.io zone id>"}'
+   ```
+
+   `baby.llera.eu` is attached the same way. **Don't move either into
+   `wrangler.jsonc`:** the CI token (`babylog-ci`) is account-scoped to
+   Workers Scripts + D1 and has no zone permissions, so a declared custom
+   domain would fail every CI deploy. Hostname changes are a deliberate
+   out-of-band step with the full-access token. (Note the endpoint is `PUT`;
+   `POST` returns error 10405.)
 
 `/welcome` is the self-service onboarding entry (create a household or accept
 a caregiver invite); invites live in the `invites` table (migration 0004).
+
+Both hostnames now reach the same Worker and the same tenancy: identity is
+Access JWT first, then the `sess` cookie (`src/identity.ts`). The `sess`
+cookie is `Domain=32b.io`, so it is never sent to `baby.llera.eu` — the two
+gates cannot shadow each other.
 
 > If `SESSION_SECRET` is unset or differs from the www.32b.io Pages secret
 > while a user holds a valid www session, baby.32b.io/app and the login page
@@ -111,12 +129,12 @@ Both run in CI (`.github/workflows/ci.yml`) on pushes to `main` and on PRs.
 - **Onboarding a new caregiver into the existing household is an invite +
   accept:** the owner invites from the web app's Settings tab or runs
   `add_caregiver`, creating a pending row in `invites`. The invitee then logs
-  in — Access on `baby.llera.eu` today (their email must still pass the
-  Access policy there to reach `/welcome`), the 32b.io magic link once the
-  `baby.32b.io` route goes live — and accepts on `/welcome`, turning the
-  invite into a `users` row. Once `baby.32b.io` is live, membership is purely
-  DB state at that point; until then, Access is still the gate in front of
-  `/welcome` itself. Starting a **separate** tenant is direct, not
+  in and accepts on `/welcome`, turning the invite into a `users` row. Which
+  door they use decides who may reach `/welcome` at all: on `baby.32b.io` any
+  32b.io magic-link login gets there, so membership is purely DB state; on
+  `baby.llera.eu` their email must still pass the Access policy first. Point
+  invitees at **`baby.32b.io`** — that is the self-service path, and it needs
+  no Access edit. Starting a **separate** tenant is direct, not
   invite-based: `create_household` (MCP, arbitrary email) or the create form
   on `/welcome` (`createHouseholdForEmail`, always the caller's own email)
   registers the email immediately — no accept step.
