@@ -61,16 +61,38 @@ describe("app.html es translations", () => {
 
   it("every literal i18n(\"...\") call-site key has an ES translation", () => {
     // Dynamic i18n(...) calls often take a computed key (a variable, or a
-    // ternary of two literals), which this deliberately does not match — its
-    // key isn't fixed at the call site, so there's nothing static to check.
-    // But a literal-string argument is just as fixed as a data-i18n attribute
-    // and just as brittle: a typo'd/relocated key silently falls back to raw
-    // English with no error anywhere. `\s*` tolerates the call being wrapped
-    // across lines (i18n(\n  "...", {...})).
+    // bare ternary of two literals, e.g. i18n(cond ? "a" : "b")) — this
+    // deliberately does not match either, since the key isn't fixed at the
+    // call site's first argument, so there's nothing static to check. A bare
+    // ternary is the one remaining documented gap (plural()'s ternary is
+    // covered separately below, since its two keys ARE literal at its own
+    // call site). But a literal-string i18n(...) argument is just as fixed as
+    // a data-i18n attribute and just as brittle: a typo'd/relocated key
+    // silently falls back to raw English with no error anywhere. `\s*`
+    // tolerates the call being wrapped across lines (i18n(\n  "...", {...})).
     const dict = new Set(keysOf(langBlock("es")));
     const used = [...html.matchAll(/i18n\(\s*"((?:[^"\\]|\\.)*)"/g)].map(
       (m) => m[1]
     );
+    expect(used.length).toBeGreaterThan(0);
+    const missing = used.filter((k) => !dict.has(k));
+    expect(missing).toEqual([]);
+  });
+
+  it("every plural(n, singularKey, pluralKey) call-site key pair has an ES translation", () => {
+    // plural(n, singularKey, pluralKey) resolves to i18n(n === 1 ?
+    // singularKey : pluralKey, ...) — a ternary-on-variables call the
+    // i18n(...) check above deliberately can't see (its key isn't a literal
+    // at that call site). But at the plural() call site itself both keys ARE
+    // fully literal, so they're just as fixed and just as brittle as any
+    // other checked key: a typo'd/relocated key would silently show English
+    // in an age string with no error anywhere.
+    const dict = new Set(keysOf(langBlock("es")));
+    const used = [
+      ...html.matchAll(
+        /\bplural\(\s*[^,]+,\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)/g
+      ),
+    ].flatMap((m) => [m[1], m[2]]);
     expect(used.length).toBeGreaterThan(0);
     const missing = used.filter((k) => !dict.has(k));
     expect(missing).toEqual([]);
