@@ -1125,6 +1125,15 @@ Then verify, in order:
 
 **Rollback:** remove the `routes` entry and redeploy (baby.32b.io detaches; llera.eu/Access path is untouched throughout).
 
+> **Post-execution note (2026-07-30):** Task 6 was executed LOCAL-ONLY by user
+> instruction — Step 1 (wrangler.jsonc route) and Step 6 (production secret,
+> push, deploy, prod verification) were deliberately NOT run. The go-live
+> sequence lives as a runbook in `docs/setup.md` ("32b.io session auth"),
+> including the SESSION_SECRET-before-route ordering and the redirect-loop
+> failure mode. Steps 2-5 ran as written (plus smoke additions: double-accept,
+> accept-after-revoke, CSP/XFO header checks — all passed), and the docs/test
+> commits landed as `9a483aa` + the amended docs commit.
+
 ---
 
 ## Out of scope (later rollout steps)
