@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Cloudflare Access JWT verification and identity extraction.
+// Cloudflare Access JWT verification.
 //
 // baby.llera.eu is fronted by a Cloudflare Access application with Managed
 // OAuth (whole-host: Managed OAuth apps cannot be path-scoped). Access runs

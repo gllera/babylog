@@ -28,6 +28,13 @@ export async function getIdentityEmail(
     const email = await getSessionEmail(request, env.SESSION_SECRET);
     if (email) return email;
   }
-  if (env.DEV_USER_EMAIL) return env.DEV_USER_EMAIL.toLowerCase();
+  // Dev fallback only answers on wrangler dev's local origin — a stray
+  // DEV_USER_EMAIL in production must never authenticate anybody.
+  if (env.DEV_USER_EMAIL) {
+    const host = new URL(request.url).hostname;
+    if (host === "localhost" || host === "127.0.0.1") {
+      return env.DEV_USER_EMAIL.toLowerCase();
+    }
+  }
   return null;
 }

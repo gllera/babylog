@@ -29,10 +29,11 @@ export default {
     // /mcp is fronted by a Cloudflare Access app with Managed OAuth, which runs
     // the entire OAuth 2.1 flow for the MCP client (discovery, dynamic client
     // registration, login). Access only forwards a request once it passes the
-    // policy, stamping `Cf-Access-Jwt-Assertion`. We verify that JWT (so the
-    // endpoint can't be reached via any origin Access doesn't front) and read
-    // its email claim — the identity every MCP tool scopes its data to,
-    // handed to the Durable Object via ctx.props.
+    // policy, stamping `Cf-Access-Jwt-Assertion`. The Worker resolves identity
+    // itself (Access JWT or 32b.io sess cookie — see identity.ts), so the
+    // endpoint stays closed on any origin Access doesn't front; the resolved
+    // email is the identity every MCP tool scopes its data to, handed to the
+    // Durable Object via ctx.props.
     if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
       const email = await getIdentityEmail(request, env);
       if (!email) return new Response("Unauthorized", { status: 401 });
