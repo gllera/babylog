@@ -992,6 +992,17 @@ git add src/onboard.ts src/index.ts
 git commit -m "feat(web): /welcome onboarding + /app session gate"
 ```
 
+> **Post-review amendments** (in the landed commit; code is authoritative):
+> Task 4 also refreshed the stale user-facing Access-allowlist copy
+> (settings note, create_household success text, handleCaregivers comment,
+> notRegisteredMessage now describes invite→login→accept), ES tag
+> "invitado"→"pendiente", and added a data-i18n → ES-dictionary cross-check
+> test. Task 5 hardening: `page()` sends `frame-ancestors 'none'` + XFO
+> DENY; household name capped server-side (100); `crossOrigin` also checks
+> `Sec-Fetch-Site`; garbage POST bodies → 400; `/welcome/` routed;
+> `LOGIN_URL` un-exported; the `gotoLogin()` comment in app.html describes
+> both login paths.
+
 ---
 
 ### Task 6: Config, secret, docs, local smoke, deploy
