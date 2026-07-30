@@ -15,12 +15,15 @@ keeping the existing Worker + single-D1 architecture and all three surfaces
 - **Auth**: reuse the existing self-built 32b.io magic-link auth (`~/ws/32b`):
   HMAC-signed `sess` cookie, `Domain=32b.io`, SES login emails, self-service
   (anyone may log in). No Cloudflare Access, no managed auth vendor.
-- **Billing**: Stripe (Checkout + Billing customer portal + webhooks), with
+- **Billing**: Stripe (Checkout in one-time `payment` mode + webhooks), with
   Stripe Tax enabled from day one.
-- **Pricing**: freemium. Free = 1 baby, web app, 2 caregivers. Premium
-  (~€3–5/mo, per household) = Alexa, MCP/AI, indications engine, unlimited
-  caregivers/babies, report exports (CSV/PDF). (GDPR JSON takeout is free for
-  every account — see §7.)
+- **Pricing**: freemium with a **one-time lifetime unlock** (no
+  subscription). Free = 1 baby, web app, 2 caregivers. Premium — a single
+  per-household purchase (~€25; final number set at Stripe setup) — unlocks
+  forever: Alexa, MCP/AI, indications engine, unlimited caregivers/babies,
+  report exports (CSV/PDF). (GDPR JSON takeout is free for every account —
+  see §7.) One-time fits the product's naturally capped lifespan (intense use
+  ~12–18 months) and eliminates subscription lifecycle complexity.
 - **Data layer**: unchanged. One Worker, one D1, existing household tenancy.
 
 ## Non-goals
@@ -70,14 +73,17 @@ keeping the existing Worker + single-D1 architecture and all three surfaces
 - Public Alexa availability additionally requires Amazon skill certification
   (process work, not code).
 
-## 4. Billing & entitlements (Stripe, freemium)
+## 4. Billing & entitlements (Stripe, one-time unlock)
 
-- Bill **per household**; the owner subscribes via Stripe Checkout and manages
-  the subscription via the hosted customer portal.
-- New D1 table `subscriptions`:
-  `household_id → stripe_customer_id, plan, status, current_period_end`.
-  Written **only** by the Stripe webhook handler (checkout completed,
-  subscription updated/deleted, payment failed).
+- Bill **per household**: the owner buys the unlock once via Stripe Checkout
+  in `payment` mode. No customer portal needed — there is nothing to manage
+  or cancel (Stripe's hosted receipt covers invoicing).
+- New D1 table `purchases`:
+  `household_id → stripe_customer_id, payment_intent_id, status, purchased_at`.
+  Written **only** by the Stripe webhook handler: `checkout.session.completed`
+  grants the entitlement; `charge.refunded` / dispute events revoke it.
+- No subscription lifecycle at all: no renewals, no dunning, no proration,
+  no cancel flow.
 - Tenant middleware attaches the effective plan to the resolved tenant; gates
   are enforced **server-side** on every surface (web, API, MCP, Alexa), not
   just hidden in the UI.
