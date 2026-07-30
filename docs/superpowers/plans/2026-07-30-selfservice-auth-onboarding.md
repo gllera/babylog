@@ -142,7 +142,9 @@ const unb64u = (s: string): Uint8Array =>
     c.charCodeAt(0)
   );
 
-const hmacKey = (secret: string, usages: KeyUsage[]) =>
+// usages is string[] because @cloudflare/workers-types types importKey that
+// way (KeyUsage is a DOM lib type and "dom" isn't in this repo's tsconfig).
+const hmacKey = (secret: string, usages: string[]) =>
   crypto.subtle.importKey(
     "raw",
     enc.encode(secret),
@@ -151,7 +153,11 @@ const hmacKey = (secret: string, usages: KeyUsage[]) =>
     usages
   );
 
-export type SessPayload = { t: string; e: string; x?: number };
+// `e` is optional: readToken returns any validly-signed payload of the right
+// type — only getSessionEmail guarantees a usable email. NOTE: a token STRING
+// is not canonical (extra dot segments / base64 padding verify identically);
+// never key anything (e.g. future revocation) on token-string equality.
+export type SessPayload = { t: string; e?: string; x?: number };
 
 export async function makeToken(
   secret: string,
