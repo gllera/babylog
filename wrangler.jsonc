@@ -5,10 +5,15 @@
   "compatibility_date": "2025-05-01",
   "compatibility_flags": ["nodejs_compat"],
 
-  // The Worker is reached only via baby.llera.eu, which Cloudflare Access
-  // fronts (the sole auth gate). Keep the *.workers.dev origin disabled — it
-  // is NOT fronted by Access, so leaving it on would expose /app + /api
-  // unauthenticated. Pinned here so a deploy can't silently re-enable it.
+  // Two hostnames, two auth gates: baby.llera.eu is fronted by Cloudflare
+  // Access, baby.32b.io verifies the shared 32b.io `sess` cookie in-Worker
+  // (SESSION_SECRET). Both are attached as Worker *custom domains* out of
+  // band (see docs/setup.md) rather than declared here — the CI token is
+  // account-scoped (Workers Scripts + D1) and cannot touch zone routes.
+  // Keep the *.workers.dev origin disabled: no Access in front of it, and the
+  // sess cookie is Domain=32b.io so it never reaches a workers.dev origin —
+  // leaving it on would just be a third, weaker door. Pinned here so a deploy
+  // can't silently re-enable it.
   "workers_dev": false,
 
   // Import .html files as plain strings (the web app shell in src/app.html).
