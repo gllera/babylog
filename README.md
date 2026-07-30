@@ -17,9 +17,13 @@ One Worker exposes the data three ways over the same database:
   "*took 120 milliliters*", "*how are we doing*") and Spanish (`es-ES`: "*tomó
   120 mililitros*", "*cómo vamos hoy*"). → [alexa-skill/](alexa-skill/README.md)
 
-Authentication is **Cloudflare Access** (Managed OAuth) fronting the whole
-host; the Worker verifies the Access JWT and scopes all data to the
-authenticated email's household.
+Authentication is dual during the llera.eu → 32b.io transition: `baby.32b.io`
+uses the shared 32b.io magic-link session (self-service — new users create a
+household or accept a caregiver invite at `/welcome`), while `baby.llera.eu`
+stays behind Cloudflare Access (still fronting MCP and Alexa). The Worker
+verifies whichever credential arrives and scopes all data to the email's
+household. The baby.32b.io route is not yet declared; see docs/setup.md for
+the go-live steps.
 
 ## Quick start
 

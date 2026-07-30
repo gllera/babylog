@@ -12,13 +12,24 @@ voice shows up in the web app and is queryable over MCP.
 
 ## Authentication
 
-**Cloudflare Access** (Managed OAuth) fronts the whole host. For MCP clients,
-Access runs the entire OAuth 2.1 flow (discovery, dynamic client registration,
-IdP login); browsers get the normal Access login. The Worker verifies the
-`Cf-Access-Jwt-Assertion` header Access stamps (team JWKS + issuer + AUD,
-`src/access.ts`) so no unfronted origin can slip through — `workers_dev: false`
-keeps the `*.workers.dev` origin closed — and reads the JWT's `email` claim as
-the user identity that all data is scoped to.
+Two identity sources feed one `getIdentityEmail()` (`src/identity.ts`), tried
+in order — during the llera.eu → 32b.io transition both stay live at once:
+
+1. **Cloudflare Access JWT** — `baby.llera.eu`. Access runs the entire OAuth
+   2.1 flow for MCP clients (discovery, dynamic client registration, IdP
+   login); browsers get the normal Access login. The Worker verifies the
+   `Cf-Access-Jwt-Assertion` header Access stamps (team JWKS + issuer + AUD,
+   `src/access.ts`) — `workers_dev: false` keeps the unfronted
+   `*.workers.dev` origin closed — and reads the JWT's `email` claim.
+2. **32b.io `sess` cookie** — `baby.32b.io`. Verified in-Worker
+   (`src/session.ts`, HMAC-SHA256, `SESSION_SECRET` shared with the
+   www.32b.io Pages deploy that mints it on magic-link login). A completed
+   login is taken as email-ownership proof.
+
+If neither is present, `DEV_USER_EMAIL` (`.dev.vars` only, never a production
+var) supplies identity for `wrangler dev` — but only when the request's host
+is `localhost`/`127.0.0.1`, so a stray `DEV_USER_EMAIL` can never authenticate
+anyone in production.
 
 The Alexa endpoint has no Access identity (it is reached through an AWS Lambda,
 not a browser). Its events are attributed to a fixed `alexa` identity and go to
@@ -28,18 +39,25 @@ the household in `ALEXA_HOUSEHOLD_ID` (default `1`).
 
 - A **household** is the tenancy unit: its caregivers all see and record the
   same data, and households never see each other's data.
-- A **user** (email, as authenticated by Cloudflare Access) belongs to exactly
-  one household.
+- A **user** (email, as authenticated by whichever identity source above
+  answered) belongs to exactly one household.
 - Each household has one or more **babies**; one of them is the *default*.
   Tools and API calls apply to the default baby unless a `baby` (name or id)
   says otherwise. The web app shows a baby switcher when a household has more
   than one baby.
 - Every recorded event stores **who logged it** (`created_by`: the caregiver
   email, or `alexa` for voice entries).
-- There is **no self-serve signup**: an authenticated email that is not
-  registered gets a 403 until an existing user runs `add_caregiver` (join my
-  household) or `create_household` (new isolated tenant). The email must also
-  be allowed by the Access policy, which is managed in Cloudflare.
+- There is **no silent provisioning**: an authenticated email that is not yet
+  registered is gated to `/welcome` (`src/onboard.ts`), where it takes exactly
+  one of two explicit paths. Either an existing caregiver in the *same*
+  household invited it — a pending row in the `invites` table (migration
+  0004), created by `add_caregiver`/the web app's Settings tab — and it
+  accepts or declines on `/welcome`; or it creates its own new, isolated
+  household via `/welcome`'s create form (`createHouseholdForEmail`, always
+  the caller's own email — distinct from the MCP `create_household` tool,
+  which can provision a new tenant for an arbitrary email). Silent auto-join
+  on first login is deliberately not offered: it would let one mistyped or
+  coincidental email match silently merge two families' data.
 
 ## Storage
 
@@ -56,9 +74,12 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 ```
 .
 ├── src/
-│   ├── index.ts                    # Router; verifies Access JWT, threads identity
-│   ├── access.ts                   # Access JWT verification + email extraction
-│   ├── users.ts                    # Tenancy: users → households → babies
+│   ├── index.ts                    # Router; resolves identity, threads it, /app + /welcome gating
+│   ├── identity.ts                 # getIdentityEmail(): Access JWT → sess cookie → DEV_USER_EMAIL
+│   ├── access.ts                   # Access JWT verification
+│   ├── session.ts                  # 32b.io sess-cookie codec (HMAC-SHA256, mint/verify)
+│   ├── onboard.ts                  # /welcome: accept/decline invite, create household
+│   ├── users.ts                    # Tenancy: users → households → babies; invites
 │   ├── tools.ts                    # McpAgent (Durable Object) + MCP tools
 │   ├── api.ts                      # JSON API for the web app (/api/*)
 │   ├── web.ts                      # App shell serving + PWA assets
@@ -73,7 +94,13 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 ├── test/
 │   ├── lib.test.ts                 # Unit tests for the pure helpers
 │   ├── users.test.ts               # Unit tests for baby selection (pickBaby)
+│   ├── identity.test.ts            # Unit tests for getIdentityEmail()
+│   ├── session.test.ts             # Unit tests for the sess-cookie codec
 │   ├── growth.test.ts              # Unit tests for growth-based targets
+│   ├── app-i18n.test.ts            # Cross-checks app.html's i18n keys against the ES dictionary
+│   ├── belly-calib.test.ts         # Unit tests for the belly ring's calibration backtest
+│   ├── belly-kernel.test.ts        # Unit tests for the belly ring's hunger-curve kernel
+│   ├── belly-ring.dom.test.ts      # DOM tests for the belly ring (jsdom)
 │   └── alexa.test.ts               # Unit tests for the Alexa voices
 ├── alexa-skill/
 │   ├── interaction-model.es-ES.json  # Spanish voice model to upload to Alexa

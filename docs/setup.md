@@ -74,6 +74,29 @@ Manual deploy still works:
 npm run db:migrate:remote && npm run deploy
 ```
 
+## 32b.io session auth
+
+**Go-live runbook — not yet run.** `baby.32b.io` will front the Worker with
+the shared 32b.io magic-link session (self-service onboarding) alongside the
+existing `baby.llera.eu` + Access path. To bring it up:
+
+1. **Set the secret first:** `npx wrangler secret put SESSION_SECRET`, using
+   the same value as the www.32b.io Pages secret (a copy lives in
+   `~/ws/32b/.dev.vars`). Do this **before** adding the route below — the
+   Worker already knows how to verify the `sess` cookie (`src/session.ts`,
+   `src/identity.ts`), so setting the secret alone changes nothing until the
+   route exists, but the route must never go live without it.
+2. Add `"routes": [{ "pattern": "baby.32b.io", "custom_domain": true }]` to
+   `wrangler.jsonc` and deploy.
+
+`/welcome` is the self-service onboarding entry (create a household or accept
+a caregiver invite); invites live in the `invites` table (migration 0004).
+
+> If `SESSION_SECRET` is unset or differs from the www.32b.io Pages secret
+> while a user holds a valid www session, baby.32b.io/app and the login page
+> redirect each other in a loop — set the secret first, and on any loop check
+> it first.
+
 ## Tests
 
 ```bash
@@ -85,11 +108,18 @@ Both run in CI (`.github/workflows/ci.yml`) on pushes to `main` and on PRs.
 
 ## Operational notes
 
-- **Onboarding a new caregiver takes two steps:** allow their email in the
-  Cloudflare Access policy, and register them — invite from the web app's
-  Settings tab or run `add_caregiver` (same household) or `create_household`
-  (separate tenant) from an MCP client. Until both are done they get the
-  Access login but a 403 from the app.
+- **Onboarding a new caregiver into the existing household is an invite +
+  accept:** the owner invites from the web app's Settings tab or runs
+  `add_caregiver`, creating a pending row in `invites`. The invitee then logs
+  in — Access on `baby.llera.eu` today (their email must still pass the
+  Access policy there to reach `/welcome`), the 32b.io magic link once the
+  `baby.32b.io` route goes live — and accepts on `/welcome`, turning the
+  invite into a `users` row. Once `baby.32b.io` is live, membership is purely
+  DB state at that point; until then, Access is still the gate in front of
+  `/welcome` itself. Starting a **separate** tenant is direct, not
+  invite-based: `create_household` (MCP, arbitrary email) or the create form
+  on `/welcome` (`createHouseholdForEmail`, always the caller's own email)
+  registers the email immediately — no accept step.
 - **D1 migrations are applied by CI** right before each deploy, so keep them
   additive (new tables/columns with sane defaults): the old Worker must
   tolerate the new schema for the seconds between the two steps.
