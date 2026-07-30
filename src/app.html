@@ -2182,9 +2182,10 @@
       if (err.message !== "Unauthorized") toast(i18n(key || "Error: {e}", { e: err.message }), true);
     }
 
-    // A 401 means the Cloudflare Access session expired (the app itself has no
-    // login). A full reload triggers a top-level navigation, which Access
-    // intercepts to re-run its login flow and then returns us here.
+    // A 401 means the session expired (the app itself has no login). A full
+    // reload triggers a top-level navigation: on baby.llera.eu Access
+    // intercepts it to re-run its login, and on baby.32b.io the /app gate
+    // 302s to the 32b.io magic-link login — either way we return here.
     function gotoLogin() {
       location.reload();
     }

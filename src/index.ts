@@ -4,6 +4,8 @@ import { handleAlexa } from "./alexa";
 import { handleApi } from "./api";
 import { PNG_ICONS } from "./icons";
 import { getIdentityEmail } from "./identity";
+import { resolveTenant } from "./users";
+import { handleWelcome, loginRedirect } from "./onboard";
 import {
   ICON_SVG,
   WEB_MANIFEST,
@@ -77,7 +79,25 @@ export default {
         },
       });
     }
-    if (url.pathname === "/app" || url.pathname === "/app/") {
+    // /app and /welcome are the two browser entry points. No identity → the
+    // 32b.io magic-link login (on baby.llera.eu, Access intercepts first, so
+    // this redirect only ever fires on baby.32b.io or in dev). Identity
+    // without a household → /welcome (accept an invite or create one).
+    if (
+      url.pathname === "/app" ||
+      url.pathname === "/app/" ||
+      url.pathname === "/welcome" ||
+      url.pathname === "/welcome/"
+    ) {
+      const email = await getIdentityEmail(request, env);
+      if (!email) return loginRedirect(url);
+      if (url.pathname === "/welcome" || url.pathname === "/welcome/") {
+        return handleWelcome(request, env, url, email);
+      }
+      const tenant = await resolveTenant(env.DB, email);
+      if (!tenant) {
+        return new Response(null, { status: 303, headers: { Location: "/welcome" } });
+      }
       return handleAppHome(request);
     }
     if (url.pathname.startsWith("/api/")) {
