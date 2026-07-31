@@ -5,8 +5,15 @@ export type Env = {
   // forwarded Access JWT against these and reads its email claim.
   TEAM_DOMAIN: string;
   POLICY_AUD: string;
-  // HMAC key for the 32b.io `sess` cookie (same value as the www.32b.io
-  // Pages secret). Optional: absent, the sess-cookie auth path is disabled.
+  // Public verification key for auth.32b.io's Ed25519 session cookies, as a
+  // JWK. A var, not a secret: it can only verify, never mint. Absent, the new
+  // cookie format is not accepted.
+  SESSION_PUBLIC_JWK?: string;
+  // Who must have signed that cookie. Defaults to https://auth.32b.io.
+  ISSUER?: string;
+  // HMAC key for the legacy 32b.io `sess` cookie (same value as the www.32b.io
+  // Pages secret). Optional: absent, the legacy cookie path is disabled. Goes
+  // away once nobody is still carrying a pre-cutover cookie.
   SESSION_SECRET?: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;

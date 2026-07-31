@@ -3,8 +3,9 @@
 // transition:
 //   1. Cloudflare Access JWT — baby.llera.eu, stamped by the Access app
 //      (still fronts MCP and the legacy origin until the OAuth AS lands).
-//   2. The 32b.io `sess` cookie — baby.32b.io, minted by the www.32b.io
-//      magic-link login (a completed login is email-ownership proof).
+//   2. The 32b.io `sess` cookie — baby.32b.io. Ed25519, minted by auth.32b.io;
+//      the legacy HMAC cookie from www.32b.io is still accepted during the
+//      cutover (a completed login is email-ownership proof either way).
 // Dev fallback: DEV_USER_EMAIL (.dev.vars only — never a production var) so
 // `wrangler dev` works with neither in front.
 // -----------------------------------------------------------------------------
@@ -24,10 +25,10 @@ export async function getIdentityEmail(
       return payload.email.toLowerCase();
     }
   }
-  if (env.SESSION_SECRET) {
-    const email = await getSessionEmail(request, env.SESSION_SECRET);
-    if (email) return email;
-  }
+  // getSessionEmail answers null when neither format is configured, so there is
+  // nothing to guard on here.
+  const email = await getSessionEmail(request, env);
+  if (email) return email;
   // Dev fallback only answers on wrangler dev's local origin — a stray
   // DEV_USER_EMAIL in production must never authenticate anybody.
   if (env.DEV_USER_EMAIL) {

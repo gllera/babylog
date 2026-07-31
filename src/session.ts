@@ -1,11 +1,24 @@
 // -----------------------------------------------------------------------------
-// 32b.io session verification. www.32b.io's magic-link login (see ~/ws/32b)
-// mints HMAC-SHA256 tokens `b64u(JSON payload) + "." + b64u(signature)` and
-// sets them as a `sess` cookie with Domain=32b.io — so baby.32b.io receives
-// them on every request. Payload: { t: 'sess', e: <email>, x?: <expiry ms> }.
-// Today's tokens omit `x` (they never expire); `x` is honored when present so
-// the planned session-expiry hardening needs no verifier change here.
+// 32b.io session verification, in two formats.
+//
+// auth.32b.io mints Ed25519 JWTs (`typ: sess+jwt`, `t: "sess"`) carrying `sub` —
+// the account id — with the email as a display claim. That is the format to
+// build on.
+//
+// www.32b.io used to mint HMAC-SHA256 tokens `b64u(JSON payload) + "." +
+// b64u(signature)` with payload { t: 'sess', e: <email>, x?: <expiry ms> }.
+// Those are still accepted so the cutover to auth.32b.io signs nobody out. This
+// Worker cannot re-mint one in the new format — minting needs the private key,
+// which only auth-32b holds — so a legacy cookie simply keeps working until its
+// owner next signs in. Delete the branch, and SESSION_SECRET, once nobody is
+// still carrying one; see docs/cutover-phase1.md in gllera/auth-32b.
+//
+// Both formats arrive in the same `sess` cookie, scoped Domain=32b.io, so
+// baby.32b.io receives whichever one the browser holds on every request.
 // -----------------------------------------------------------------------------
+
+import { importJWK, jwtVerify, type CryptoKey, type JWK } from "jose";
+import type { Env } from "./types";
 
 const enc = new TextEncoder();
 
@@ -81,15 +94,69 @@ export function getSessionToken(cookieHeader: string | null): string | null {
   return m ? m[1] : null;
 }
 
-// The lowercased email behind the request's sess cookie, or null.
-export async function getSessionEmail(
+export type Identity = { sub: string | null; email: string };
+
+// Imports are a pure function of the JWK text, so caching by that text saves an
+// import per gated request in a warm isolate. A rejection is evicted so a fixed
+// var can recover without a redeploy.
+const keyCache = new Map<string, Promise<CryptoKey>>();
+const pubKey = (json: string): Promise<CryptoKey> => {
+  let hit = keyCache.get(json);
+  if (!hit) {
+    hit = importJWK(JSON.parse(json) as JWK, "EdDSA")
+      .then((k) => k as CryptoKey)
+      .catch((e) => {
+        keyCache.delete(json);
+        throw e;
+      });
+    keyCache.set(json, hit);
+  }
+  return hit;
+};
+
+// The identity behind the request's sess cookie, or null. Never throws.
+//
+// `sub` is the account id, and is null for a legacy cookie — callers must
+// tolerate that until the legacy branch is gone. Tenancy still keys on email;
+// re-keying it onto `sub` is phase 2.
+export async function getSessionIdentity(
   request: Request,
-  secret: string
-): Promise<string | null> {
+  env: Pick<Env, "SESSION_PUBLIC_JWK" | "SESSION_SECRET" | "ISSUER">
+): Promise<Identity | null> {
   const token = getSessionToken(request.headers.get("Cookie"));
   if (!token) return null;
-  const payload = await readToken(secret, token, "sess");
-  return typeof payload?.e === "string" && payload.e
-    ? payload.e.toLowerCase()
-    : null;
+
+  if (env.SESSION_PUBLIC_JWK) {
+    try {
+      const { payload } = await jwtVerify(token, await pubKey(env.SESSION_PUBLIC_JWK), {
+        algorithms: ["EdDSA"],
+        issuer: env.ISSUER ?? "https://auth.32b.io",
+        typ: "sess+jwt",
+        // `sub` is required: a session cookie with no account id behind it is
+        // not something this Worker should act on.
+        requiredClaims: ["iss", "iat", "sub"],
+      });
+      if (payload.t === "sess" && typeof payload.email === "string" && payload.email) {
+        return { sub: String(payload.sub), email: payload.email.toLowerCase() };
+      }
+    } catch {
+      /* fall through to the legacy branch */
+    }
+  }
+
+  if (env.SESSION_SECRET) {
+    const p = await readToken(env.SESSION_SECRET, token, "sess");
+    if (typeof p?.e === "string" && p.e) return { sub: null, email: p.e.toLowerCase() };
+  }
+  return null;
+}
+
+// The lowercased email behind the request's sess cookie, or null. A wrapper, so
+// that callers which do not care about the account id did not all have to change
+// when the second format arrived.
+export async function getSessionEmail(
+  request: Request,
+  env: Pick<Env, "SESSION_PUBLIC_JWK" | "SESSION_SECRET" | "ISSUER">
+): Promise<string | null> {
+  return (await getSessionIdentity(request, env))?.email ?? null;
 }
