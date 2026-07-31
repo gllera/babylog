@@ -6,15 +6,13 @@ export type Env = {
   TEAM_DOMAIN: string;
   POLICY_AUD: string;
   // Public verification key for auth.32b.io's Ed25519 session cookies, as a
-  // JWK. A var, not a secret: it can only verify, never mint. Absent, the new
-  // cookie format is not accepted.
+  // JWK. A var, not a secret: it can only verify, never mint. Optional in the
+  // type because a Worker can run without it — but with the legacy HMAC fallback
+  // gone, absent means NO session cookie verifies at all, so it is mandatory in
+  // practice for baby.32b.io. src/session.ts logs by name when it is missing.
   SESSION_PUBLIC_JWK?: string;
   // Who must have signed that cookie. Defaults to https://auth.32b.io.
   ISSUER?: string;
-  // HMAC key for the legacy 32b.io `sess` cookie (same value as the www.32b.io
-  // Pages secret). Optional: absent, the legacy cookie path is disabled. Goes
-  // away once nobody is still carrying a pre-cutover cookie.
-  SESSION_SECRET?: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
   // Household that Alexa-logged events belong to (default "1").

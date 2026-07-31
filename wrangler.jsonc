@@ -7,7 +7,8 @@
 
   // Two hostnames, two auth gates: baby.llera.eu is fronted by Cloudflare
   // Access, baby.32b.io verifies the shared 32b.io `sess` cookie in-Worker
-  // (SESSION_SECRET). Both are attached as Worker *custom domains* out of
+  // (Ed25519, against SESSION_PUBLIC_JWK). Both are attached as Worker
+  // *custom domains* out of
   // band (see docs/setup.md) rather than declared here — the CI token is
   // account-scoped (Workers Scripts + D1) and cannot touch zone routes.
   // Keep the *.workers.dev origin disabled: no Access in front of it, and the
@@ -60,10 +61,17 @@
     // never mint, and it must live in this file rather than the dashboard: a
     // `wrangler deploy` overwrites dashboard-set plain vars with what is here.
     //
-    // Deliberately absent until then. Its absence is exactly the pre-cutover
-    // state — Ed25519 cookies are not accepted yet, legacy HMAC ones are — and a
-    // placeholder string would only invite someone to believe a key was
-    // configured when none was.
+    // Still deliberately absent, and still no placeholder — a placeholder string
+    // would only invite someone to believe a key was configured when none was,
+    // and it would fail *silently* (an unparseable JWK is caught and discarded),
+    // where absence is logged by name in src/session.ts.
+    //
+    // What changed: absence is no longer the benign pre-cutover state. The legacy
+    // HMAC branch that used to carry sessions without this var is gone, so until
+    // this is filled in, **no session cookie verifies and baby.32b.io admits
+    // nobody** (baby.llera.eu still works — Cloudflare Access fronts it and that
+    // path is untouched). Setting it is therefore a prerequisite of the next
+    // deploy, not a follow-up to it.
   },
 
   "observability": {

@@ -3,9 +3,10 @@
 // transition:
 //   1. Cloudflare Access JWT — baby.llera.eu, stamped by the Access app
 //      (still fronts MCP and the legacy origin until the OAuth AS lands).
-//   2. The 32b.io `sess` cookie — baby.32b.io. Ed25519, minted by auth.32b.io;
-//      the legacy HMAC cookie from www.32b.io is still accepted during the
-//      cutover (a completed login is email-ownership proof either way).
+//   2. The 32b.io `sess` cookie — baby.32b.io. Ed25519, minted by auth.32b.io,
+//      and nothing else: the legacy HMAC cookie from www.32b.io was accepted
+//      through the cutover and is now refused (www mints none, and the shared
+//      secret it was signed with is gone from this repo).
 // Dev fallback: DEV_USER_EMAIL (.dev.vars only — never a production var) so
 // `wrangler dev` works with neither in front.
 // -----------------------------------------------------------------------------
