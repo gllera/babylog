@@ -6,18 +6,29 @@
 // one format plus the standing proof that the retired one stays retired.
 import { describe, expect, it } from "vitest";
 import { SignJWT } from "jose";
-import { getSessionEmail, getSessionIdentity, getSessionToken } from "../src/session";
+import { getSessionEmail, getSessionIdentity, getSessionTokens } from "../src/session";
 import type { Env } from "../src/types";
 import { ISS, cookieReq as req, keys, mintLegacy, mintSess } from "./sess-helpers";
 
 const SECRET = "test-secret";
 
-describe("getSessionToken", () => {
-  it("extracts the sess cookie among other cookies", () => {
-    expect(getSessionToken("a=1; sess=tok.sig; b=2")).toBe("tok.sig");
-    expect(getSessionToken("sess=solo")).toBe("solo");
-    expect(getSessionToken("nosess=1")).toBeNull();
-    expect(getSessionToken(null)).toBeNull();
+describe("getSessionTokens", () => {
+  it("extracts the sess cookies among other cookies", () => {
+    expect(getSessionTokens("a=1; sess=tok.sig; b=2")).toEqual(["tok.sig"]);
+    expect(getSessionTokens("sess=solo")).toEqual(["solo"]);
+    expect(getSessionTokens("nosess=1")).toEqual([]);
+    expect(getSessionTokens(null)).toEqual([]);
+  });
+
+  // The reason this is plural. `sess=` appearing inside another cookie's value
+  // must not count, and the order the browser sent them is preserved because
+  // specificity — which is what a planted cookie exploits — is expressed as order.
+  it("returns every sess cookie, in order, and nothing that merely looks like one", () => {
+    expect(getSessionTokens("sess=one; other=x; sess=two; nosess=three")).toEqual([
+      "one",
+      "two",
+    ]);
+    expect(getSessionTokens("presess=x; sessx=y")).toEqual([]);
   });
 });
 
@@ -106,6 +117,40 @@ describe("getSessionIdentity", () => {
     const legacy = await mintLegacy(SECRET, { t: "sess", e: "old@b.com" });
     expect(await getSessionIdentity(req(modern), env)).toEqual({ sub: "u_1", email: "new@b.com" });
     expect(await getSessionIdentity(req(legacy), env)).toBeNull();
+  });
+
+  // A browser can carry several `sess` cookies: the cookie is Domain=32b.io, so
+  // any estate host can set one, and a host-only cookie planted by another host
+  // sorts AHEAD of the real one. Reading only the first lets that host decide
+  // which cookie is even considered — a junk plant becomes a lockout.
+  it("does not let an unverifiable plant shadow the real session", async () => {
+    const ours = await keys();
+    const attacker = await keys();
+    const env = { SESSION_PUBLIC_JWK: ours.pub, ISSUER: ISS } as Env;
+    const real = await mintSess(ours.privateKey, { sub: "u_REAL", email: "real@b.com" });
+    const plant = await mintSess(attacker.privateKey, {
+      sub: "u_ATTACKER",
+      email: "a@evil.example",
+    });
+    const both = new Request("https://baby.32b.io/", {
+      headers: { Cookie: `sess=${plant}; sess=${real}` },
+    });
+    expect(await getSessionIdentity(both, env)).toEqual({ sub: "u_REAL", email: "real@b.com" });
+  });
+
+  // And the limit of that, asserted so nobody budgets for more: a plant that
+  // VERIFIES is a session by every check available here, and it wins if it sorts
+  // first. Only a `__Host-` cookie no other host can write closes that, which is
+  // stage 3 in 32b-auth's roadmap.
+  it("cannot tell a validly-signed plant from the browser's own session", async () => {
+    const ours = await keys();
+    const env = { SESSION_PUBLIC_JWK: ours.pub, ISSUER: ISS } as Env;
+    const real = await mintSess(ours.privateKey, { sub: "u_REAL", email: "real@b.com" });
+    const plant = await mintSess(ours.privateKey, { sub: "u_OTHER", email: "other@b.com" });
+    const both = new Request("https://baby.32b.io/", {
+      headers: { Cookie: `sess=${plant}; sess=${real}` },
+    });
+    expect(await getSessionIdentity(both, env)).toEqual({ sub: "u_OTHER", email: "other@b.com" });
   });
 
   it("is null with no cookie, and with no verification key configured", async () => {

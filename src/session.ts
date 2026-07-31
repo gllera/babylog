@@ -23,10 +23,37 @@
 import { importJWK, jwtVerify, type CryptoKey, type JWK } from "jose";
 import type { Env } from "./types";
 
-export function getSessionToken(cookieHeader: string | null): string | null {
-  const m = (cookieHeader || "").match(/(?:^|;\s*)sess=([^;]+)/);
-  return m ? m[1] : null;
+// EVERY `sess` cookie the browser sent, not just the first.
+//
+// The cookie is Domain=32b.io so one login covers every subdomain, and the cost of
+// that scope is that any estate host can set one — and a host-only cookie planted
+// by another host sorts AHEAD of the real one on specificity. Reading only the
+// first (which this did) lets that host decide which cookie is even considered, so
+// a junk plant became a lockout. It is also the likelier accident: a stale
+// host-only cookie sitting beside the Domain one.
+//
+// What trying all of them does NOT buy, so nobody budgets for it: a plant that
+// verifies is a session by every check available here, and it wins if it sorts
+// first. Only `sess` becoming a `__Host-` cookie no other host may write closes
+// that — stage 3 of 32b-auth's roadmap, which is deliberate about not pretending
+// anything earlier fixes it.
+//
+// Same shape as getSessionTokens in 32b-auth's consumer/session.js, which is the
+// reference for this rule.
+export function getSessionTokens(cookieHeader: string | null): string[] {
+  const out: string[] = [];
+  for (const part of (cookieHeader ?? "").split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === "sess") out.push(part.slice(eq + 1).trim());
+  }
+  return out;
 }
+
+// Trying a few DISTINCT candidates is what stops a plant from shadowing the real
+// session; stopping at a few is what stops a hand-built header from buying an
+// Ed25519 verify per copy.
+const MAX_CANDIDATES = 3;
 
 // `sub` is never null now. It was, for legacy cookies, which carried an email and
 // no account id; with that format gone every session has the account behind it —
@@ -59,8 +86,11 @@ export async function getSessionIdentity(
   request: Request,
   env: Pick<Env, "SESSION_PUBLIC_JWK" | "ISSUER">
 ): Promise<Identity | null> {
-  const token = getSessionToken(request.headers.get("Cookie"));
-  if (!token) return null;
+  const tokens = [...new Set(getSessionTokens(request.headers.get("Cookie")))].slice(
+    0,
+    MAX_CANDIDATES
+  );
+  if (tokens.length === 0) return null;
 
   if (!env.SESSION_PUBLIC_JWK) {
     // There is no second format behind this any more, so an unset var is not a
@@ -70,20 +100,24 @@ export async function getSessionIdentity(
     return null;
   }
 
-  try {
-    const { payload } = await jwtVerify(token, await pubKey(env.SESSION_PUBLIC_JWK), {
-      algorithms: ["EdDSA"],
-      issuer: env.ISSUER ?? "https://auth.32b.io",
-      typ: "sess+jwt",
-      // `sub` is required: a session cookie with no account id behind it is
-      // not something this Worker should act on.
-      requiredClaims: ["iss", "iat", "sub"],
-    });
-    if (payload.t === "sess" && typeof payload.email === "string" && payload.email) {
-      return { sub: String(payload.sub), email: payload.email.toLowerCase() };
+  // First candidate that verifies wins. A cookie that does not verify is skipped
+  // rather than fatal, which is the whole point of reading more than one.
+  for (const token of tokens) {
+    try {
+      const { payload } = await jwtVerify(token, await pubKey(env.SESSION_PUBLIC_JWK), {
+        algorithms: ["EdDSA"],
+        issuer: env.ISSUER ?? "https://auth.32b.io",
+        typ: "sess+jwt",
+        // `sub` is required: a session cookie with no account id behind it is
+        // not something this Worker should act on.
+        requiredClaims: ["iss", "iat", "sub"],
+      });
+      if (payload.t === "sess" && typeof payload.email === "string" && payload.email) {
+        return { sub: String(payload.sub), email: payload.email.toLowerCase() };
+      }
+    } catch {
+      /* an unverifiable cookie is simply not a session — try the next one */
     }
-  } catch {
-    /* an unverifiable cookie is simply not a session */
   }
   return null;
 }
