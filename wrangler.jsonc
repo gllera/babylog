@@ -53,25 +53,30 @@
     "POLICY_AUD": "46469599b9997439c39c5a7b85f78c42cab415ab09e6ae87ff39636d632da5d2",
 
     // Who must have signed a `sess` cookie for this Worker to trust it.
-    "ISSUER": "https://auth.32b.io"
+    "ISSUER": "https://auth.32b.io",
 
-    // "SESSION_PUBLIC_JWK" goes here at the phase 1 cutover, with the value of
-    // 32b-auth's SESSION_PUBLIC_JWK var — see docs/cutover-phase1.md in
-    // gllera/32b-auth. It is a var and not a secret because it can only verify,
-    // never mint, and it must live in this file rather than the dashboard: a
-    // `wrangler deploy` overwrites dashboard-set plain vars with what is here.
+    // auth.32b.io's public session key — filled in at the phase 1 cutover,
+    // 2026-07-31. Verify only: it can never mint, which is why it is a var and
+    // not a secret.
     //
-    // Still deliberately absent, and still no placeholder — a placeholder string
-    // would only invite someone to believe a key was configured when none was,
-    // and it would fail *silently* (an unparseable JWK is caught and discarded),
-    // where absence is logged by name in src/session.ts.
+    // It must live in THIS FILE and not the dashboard: `wrangler deploy` uploads
+    // these vars over whatever the dashboard holds, so a dashboard-only value
+    // would vanish on the next deploy and take every session with it.
     //
-    // What changed: absence is no longer the benign pre-cutover state. The legacy
-    // HMAC branch that used to carry sessions without this var is gone, so until
-    // this is filled in, **no session cookie verifies and baby.32b.io admits
-    // nobody** (baby.llera.eu still works — Cloudflare Access fronts it and that
-    // path is untouched). Setting it is therefore a prerequisite of the next
-    // deploy, not a follow-up to it.
+    // With the legacy HMAC branch gone there is nothing behind this: if it is
+    // wrong or missing, baby.32b.io admits nobody (baby.llera.eu is unaffected —
+    // Cloudflare Access fronts it). src/session.ts logs its absence by name so
+    // that failure does not read as a mysterious estate-wide sign-out.
+    //
+    // Identical to 32b-auth's own SESSION_PUBLIC_JWK var and to the single key at
+    // https://auth.32b.io/.well-known/jwks.json minus its kid/alg/use members.
+    // Thumbprint: S2HM3LyPSCyr6Sb1_IwtgAHxeU5UC0KG7o7lPG5xPaY
+    //
+    // Note for a future rotation: pubKey() in src/session.ts does a single
+    // JSON.parse, so this holds ONE key. 32b-auth's consumer/session.js accepts a
+    // newline-separated list; this does not, so a rotation overlap needs a code
+    // change here first.
+    "SESSION_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"mALwZTbphxuOljph1tnRzXmzXZHps1zImCn9mObtpro\"}"
   },
 
   "observability": {
