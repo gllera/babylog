@@ -55,8 +55,8 @@
     "ISSUER": "https://auth.32b.io"
 
     // "SESSION_PUBLIC_JWK" goes here at the phase 1 cutover, with the value of
-    // auth-32b's SESSION_PUBLIC_JWK var — see docs/cutover-phase1.md in
-    // gllera/auth-32b. It is a var and not a secret because it can only verify,
+    // 32b-auth's SESSION_PUBLIC_JWK var — see docs/cutover-phase1.md in
+    // gllera/32b-auth. It is a var and not a secret because it can only verify,
     // never mint, and it must live in this file rather than the dashboard: a
     // `wrangler deploy` overwrites dashboard-set plain vars with what is here.
     //

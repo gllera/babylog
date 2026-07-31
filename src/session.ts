@@ -9,9 +9,9 @@
 // b64u(signature)` with payload { t: 'sess', e: <email>, x?: <expiry ms> }.
 // Those are still accepted so the cutover to auth.32b.io signs nobody out. This
 // Worker cannot re-mint one in the new format — minting needs the private key,
-// which only auth-32b holds — so a legacy cookie simply keeps working until its
+// which only 32b-auth holds — so a legacy cookie simply keeps working until its
 // owner next signs in. Delete the branch, and SESSION_SECRET, once nobody is
-// still carrying one; see docs/cutover-phase1.md in gllera/auth-32b.
+// still carrying one; see docs/cutover-phase1.md in gllera/32b-auth.
 //
 // Both formats arrive in the same `sess` cookie, scoped Domain=32b.io, so
 // baby.32b.io receives whichever one the browser holds on every request.
