@@ -2007,7 +2007,7 @@ export class BabyFeedingMCP extends McpAgent<Env, unknown, McpProps> {
       "add_caregiver",
       {
         description:
-          "Invite another caregiver's email into the caller's household so they see and record the same data. The invite is pending until that person logs in at www.32b.io and accepts it on the welcome screen (their login proves they own the email). If the email already belongs to another household, the invite stays dormant unless they leave it.",
+          "Invite another caregiver's email into the caller's household so they see and record the same data. The invite is pending until that person signs in at auth.32b.io — the 32b.io login, which baby.32b.io redirects them to — and accepts it on the welcome screen (their login proves they own the email). If the email already belongs to another household, the invite stays dormant unless they leave it.",
         inputSchema: {
           email: z
             .string()

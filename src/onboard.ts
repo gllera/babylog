@@ -16,11 +16,14 @@ import {
   type InviteRow,
 } from "./users";
 
-const LOGIN_URL = "https://www.32b.io/login";
+// auth.32b.io owns identity for the whole estate. This pointed at www.32b.io
+// while www ran the login; www serves no login any more, so pointing here is not
+// a preference — it is the only host that answers.
+const LOGIN_URL = "https://auth.32b.io/login";
 
-// 302 to the 32b.io magic-link login, returning here afterwards (`next` is
-// validated to *.32b.io by www's safeNext, so this survives open-redirect
-// scrutiny on both ends).
+// 302 to the estate's magic-link login, returning here afterwards (`next` is
+// validated to https://*.32b.io by auth's safeNext, so this survives
+// open-redirect scrutiny on both ends). test/onboard.test.ts pins both halves.
 export function loginRedirect(url: URL): Response {
   return new Response(null, {
     status: 302,
