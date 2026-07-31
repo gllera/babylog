@@ -15,8 +15,27 @@ bilingual mode) to reach the English side. Routines are stored under their
 canonical English names regardless of the spoken language, so web, MCP and
 both Alexa languages stay consistent.
 
-The skill uses an **HTTPS endpoint** (your Worker's URL + `/alexa`) — no AWS
-Lambda needed.
+> ⚠ **How production is actually wired (verified against the live Lambda,
+> 2026-07-31).** The skill's endpoint is the **`ha-alexa-smart-home` AWS Lambda**
+> (eu-west-1), which routes by `applicationId` through its
+> `ALEXA_CUSTOM_ENDPOINTS` map and forwards the envelope to
+> `https://baby.32b.io/alexa` with the `alexa-lambda` Cloudflare Access service
+> token attached. Two consequences:
+>
+> - **Amazon does not sign Lambda invocations**, so no `Signature` headers reach
+>   the Worker and `ALEXA_SKIP_SIGNATURE=true` in production is correct rather
+>   than a shortcut. The gate is the service token, enforced at the edge by the
+>   `baby-alexa` Access app.
+> - The setup steps below describe the **original direct-HTTPS wiring**. Keep them
+>   for local development, but they no longer describe production.
+>
+> This note exists because the line it replaced — "an HTTPS endpoint … no AWS
+> Lambda needed" — outlived the change, and was later trusted over the live
+> configuration. That produced a wrong diagnosis and a brief outage. See
+> `docs/architecture.md` for the current topology.
+
+Originally the skill used an **HTTPS endpoint** (the Worker's URL + `/alexa`) with
+no AWS Lambda; that is still how a local development endpoint is wired.
 
 ## Patrones de invocación
 

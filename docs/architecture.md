@@ -31,9 +31,32 @@ var) supplies identity for `wrangler dev` — but only when the request's host
 is `localhost`/`127.0.0.1`, so a stray `DEV_USER_EMAIL` can never authenticate
 anyone in production.
 
-The Alexa endpoint has no Access identity (it is reached through an AWS Lambda,
+The Alexa endpoint has no Access *identity* (it is reached through an AWS Lambda,
 not a browser). Its events are attributed to a fixed `alexa` identity and go to
 the household in `ALEXA_HOUSEHOLD_ID` (default `1`).
+
+It does, however, have Access *authentication*, and as of **2026-07-31** that is
+the only thing guarding it. The path is Echo → Amazon → the
+`ha-alexa-smart-home` Lambda (eu-west-1) → `https://baby.32b.io/alexa`, and the
+Lambda forwards the envelope with `CF-Access-Client-Id` / `CF-Access-Client-Secret`
+for the `alexa-lambda` service token. `ALEXA_SKIP_SIGNATURE=true` is **correct
+here, not a shortcut**: Amazon signs only HTTPS skill endpoints, and this skill's
+endpoint is the Lambda, so no `Signature` headers ever arrive. The same flag also
+disables the `applicationId` check.
+
+Which means the service token is the whole gate — and the Access app enforcing it
+covered only `baby.llera.eu` until 2026-07-31. Once `baby.32b.io` became the live
+hostname, the Lambda's credentials arrived at a host with no app to evaluate them
+and `/alexa` accepted anonymous reads and writes into household `1`. The fix was
+the missing app: **`baby-alexa`** (id `4818d550-d1e7-46ed-ac5b-573b34c16585`),
+path-scoped to `baby.32b.io/alexa`, one `non_identity` policy admitting only that
+service token. Verified both ways — the Lambda gets through, an anonymous POST
+carrying the correct `applicationId` gets 403, and `/`, `/app` and `/mcp` are
+untouched.
+
+Treat `/alexa` as unauthenticated *at the Worker*: everything protecting it lives
+in Cloudflare. Reasoning about its security from this repo alone will reach the
+wrong conclusion, which is exactly the mistake that let the hole persist.
 
 ## Multi-user model
 
