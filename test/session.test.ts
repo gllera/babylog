@@ -1,165 +1,140 @@
-// The `sess` cookie verifier: Ed25519 from auth.32b.io, and nothing else.
+// babylog's OWN session cookie, minted after the OIDC code exchange.
 //
-// The suite used to be half about an HMAC codec this Worker carried — makeToken /
-// readToken, signed with a SESSION_SECRET shared with www.32b.io. Both are gone
-// (www serves no login and mints no token), so what is left is verification of
-// one format plus the standing proof that the retired one stays retired.
-import { describe, expect, it } from "vitest";
+// The suite this replaced tested the opposite thing: verifying auth.32b.io's
+// estate-wide `sess` cookie (Ed25519, Domain=32b.io). babylog is an OIDC client
+// now and mints its own host-only session instead, which is the whole point —
+// the estate's `__Host-` flip cannot happen while any product still reads the
+// shared cookie, so "the shared cookie buys nothing here" is the load-bearing
+// assertion in this file rather than an afterthought.
+
+import { describe, expect, it, vi } from "vitest";
 import { SignJWT } from "jose";
-import { getSessionEmail, getSessionIdentity, getSessionTokens } from "../src/session";
+import {
+  SESSION_COOKIE,
+  clearSessionCookie,
+  mintSession,
+  readSession,
+  sessionCookie,
+} from "../src/session";
 import type { Env } from "../src/types";
-import { ISS, cookieReq as req, keys, mintLegacy, mintSess } from "./sess-helpers";
 
-const SECRET = "test-secret";
+const SECRET = "test-secret-at-least-32-bytes-long!!";
+const env = { SESSION_SECRET: SECRET } as unknown as Env;
 
-describe("getSessionTokens", () => {
-  it("extracts the sess cookies among other cookies", () => {
-    expect(getSessionTokens("a=1; sess=tok.sig; b=2")).toEqual(["tok.sig"]);
-    expect(getSessionTokens("sess=solo")).toEqual(["solo"]);
-    expect(getSessionTokens("nosess=1")).toEqual([]);
-    expect(getSessionTokens(null)).toEqual([]);
+const withCookie = (raw: string): Request =>
+  new Request("https://baby.32b.io/app", { headers: { Cookie: raw } });
+
+const req = async (e: Env = env, claims = { sub: "u_1", email: "ana@example.com" }) =>
+  withCookie(`${SESSION_COOKIE}=${await mintSession(e, claims)}`);
+
+describe("mint and read", () => {
+  it("round-trips the account id and the email", async () => {
+    expect(await readSession(await req(), env)).toEqual({
+      sub: "u_1",
+      email: "ana@example.com",
+    });
   });
 
-  // The reason this is plural. `sess=` appearing inside another cookie's value
-  // must not count, and the order the browser sent them is preserved because
-  // specificity — which is what a planted cookie exploits — is expressed as order.
-  it("returns every sess cookie, in order, and nothing that merely looks like one", () => {
-    expect(getSessionTokens("sess=one; other=x; sess=two; nosess=three")).toEqual([
-      "one",
-      "two",
-    ]);
-    expect(getSessionTokens("presess=x; sessx=y")).toEqual([]);
-  });
-});
-
-describe("getSessionEmail", () => {
-  it("reads the request cookie and lowercases", async () => {
-    const { privateKey, pub } = await keys();
-    const env = { SESSION_PUBLIC_JWK: pub, ISSUER: ISS } as Env;
-    const t = await mintSess(privateKey, { sub: "u_1", email: "Ana@Example.com" });
-    expect(await getSessionEmail(req(t), env)).toBe("ana@example.com");
-    expect(await getSessionEmail(new Request("https://baby.32b.io/app"), env)).toBeNull();
+  it("lowercases the email on the way out", async () => {
+    const r = await req(env, { sub: "u_1", email: "Ana@Example.COM" });
+    expect((await readSession(r, env))?.email).toBe("ana@example.com");
   });
 
-  it("returns null for a validly-signed token carrying no email", async () => {
-    const { privateKey, pub } = await keys();
-    const env = { SESSION_PUBLIC_JWK: pub, ISSUER: ISS } as Env;
-    const t = await mintSess(privateKey, { sub: "u_1" });
-    expect(await getSessionEmail(req(t), env)).toBeNull();
+  it("answers null with no cookie at all", async () => {
+    expect(await readSession(new Request("https://baby.32b.io/app"), env)).toBeNull();
   });
 });
 
-describe("getSessionIdentity", () => {
-  it("reads an Ed25519 cookie from auth.32b.io", async () => {
-    const { privateKey, pub } = await keys();
-    const t = await mintSess(privateKey, { sub: "u_1", email: "A@B.com" });
-    const env = { SESSION_PUBLIC_JWK: pub, ISSUER: ISS } as Env;
-    expect(await getSessionIdentity(req(t), env)).toEqual({ sub: "u_1", email: "a@b.com" });
+describe("what it refuses", () => {
+  it("refuses a token signed with another secret", async () => {
+    const other = { SESSION_SECRET: "a-completely-different-secret-value!!" } as unknown as Env;
+    expect(await readSession(await req(other), env)).toBeNull();
   });
 
-  it("refuses an Ed25519 cookie from another issuer", async () => {
-    const { privateKey, pub } = await keys();
-    const t = await mintSess(privateKey, { sub: "u_1", email: "a@b.com" }, "https://evil.example");
-    const env = { SESSION_PUBLIC_JWK: pub, ISSUER: ISS } as Env;
-    expect(await getSessionIdentity(req(t), env)).toBeNull();
+  it("refuses a tampered payload", async () => {
+    const tok = await mintSession(env, { sub: "u_1", email: "ana@example.com" });
+    const [h, , s] = tok.split(".");
+    const forged = btoa(JSON.stringify({ sub: "u_ADMIN", email: "evil@example.com" }))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(await readSession(withCookie(`${SESSION_COOKIE}=${h}.${forged}.${s}`), env)).toBeNull();
   });
 
-  it("refuses an Ed25519 cookie signed by another key", async () => {
-    const mine = await keys();
-    const theirs = await keys();
-    const t = await mintSess(theirs.privateKey, { sub: "u_1", email: "a@b.com" });
-    const env = { SESSION_PUBLIC_JWK: mine.pub, ISSUER: ISS } as Env;
-    expect(await getSessionIdentity(req(t), env)).toBeNull();
+  it("refuses an expired token", async () => {
+    const key = new TextEncoder().encode(SECRET);
+    const now = Math.floor(Date.now() / 1000);
+    const stale = await new SignJWT({ t: "sess", sub: "u_1", email: "ana@example.com" })
+      .setProtectedHeader({ alg: "HS256", typ: "bsess+jwt" })
+      .setIssuer("https://baby.32b.io")
+      .setIssuedAt(now - 7200)
+      .setExpirationTime(now - 60)
+      .sign(key);
+    expect(await readSession(withCookie(`${SESSION_COOKIE}=${stale}`), env)).toBeNull();
   });
 
-  // The type check is the only thing between a magic link and a session cookie,
-  // and both are signed by the same key.
-  it("refuses a magic-link token presented as a session", async () => {
-    const { privateKey, pub } = await keys();
-    const t = await new SignJWT({ t: "login", sub: "u_1", email: "a@b.com" })
-      .setProtectedHeader({ alg: "EdDSA", typ: "login+jwt" })
-      .setIssuer(ISS)
+  // A token minted for a different relying party is not a session here, even
+  // when it verifies: one HMAC secret is only a boundary if the issuer is
+  // checked too.
+  it("refuses a token from another issuer", async () => {
+    const key = new TextEncoder().encode(SECRET);
+    const foreign = await new SignJWT({ t: "sess", sub: "u_1", email: "ana@example.com" })
+      .setProtectedHeader({ alg: "HS256", typ: "bsess+jwt" })
+      .setIssuer("https://evil.example")
       .setIssuedAt()
-      .setExpirationTime("15m")
-      .sign(privateKey);
-    const env = { SESSION_PUBLIC_JWK: pub, ISSUER: ISS } as Env;
-    expect(await getSessionIdentity(req(t), env)).toBeNull();
+      .setExpirationTime("30d")
+      .sign(key);
+    expect(await readSession(withCookie(`${SESSION_COOKIE}=${foreign}`), env)).toBeNull();
   });
 
-  it("requires sub, so a cookie without an account id is not a session", async () => {
-    const { privateKey, pub } = await keys();
-    const t = await mintSess(privateKey, { email: "a@b.com" });
-    const env = { SESSION_PUBLIC_JWK: pub, ISSUER: ISS } as Env;
-    expect(await getSessionIdentity(req(t), env)).toBeNull();
+  it("refuses everything when the secret is unset, and says so by name", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const r = await req();
+    expect(await readSession(r, {} as Env)).toBeNull();
+    expect(log.mock.calls.flat().join(" ")).toContain("SESSION_SECRET");
+    log.mockRestore();
+  });
+});
+
+// The reason this repo changed at all. auth.32b.io's shared cookie is still in
+// flight on 32b.io while the other products convert, so it will keep arriving
+// here — and it must now buy exactly nothing. Deleting the verifier is what makes
+// that true; this pins it, so a future "compatibility" branch cannot quietly
+// reopen the dependency the `__Host-` flip is waiting on.
+describe("the estate's shared cookie", () => {
+  it("is ignored, even when it is present and well-formed", async () => {
+    const shared = await new SignJWT({ t: "sess", sub: "u_1", email: "ana@example.com" })
+      .setProtectedHeader({ alg: "HS256", typ: "sess+jwt" })
+      .setIssuer("https://auth.32b.io")
+      .setIssuedAt()
+      .setExpirationTime("30d")
+      .sign(new TextEncoder().encode(SECRET));
+    expect(await readSession(withCookie(`sess=${shared}`), env)).toBeNull();
   });
 
-  // The retired format. Both of these assert the same property from opposite
-  // sides, and the second is the one that matters: "we stopped configuring the
-  // secret" is a deploy away from being undone, while "no code path reads it"
-  // is not.
-  it("refuses a legacy HMAC cookie when no secret is configured", async () => {
-    const { pub } = await keys();
-    const t = await mintLegacy(SECRET, { t: "sess", e: "a@b.com" });
-    const env = { SESSION_PUBLIC_JWK: pub, ISSUER: ISS } as Env;
-    expect(await getSessionIdentity(req(t), env)).toBeNull();
+  it("does not shadow babylog's own cookie when both are sent", async () => {
+    const mine = await mintSession(env, { sub: "u_REAL", email: "real@example.com" });
+    const both = withCookie(`sess=planted; ${SESSION_COOKIE}=${mine}; sess=another`);
+    expect(await readSession(both, env)).toEqual({ sub: "u_REAL", email: "real@example.com" });
+  });
+});
+
+describe("the cookie attributes", () => {
+  it("is __Host- prefixed, so no other 32b.io host can write it", () => {
+    expect(SESSION_COOKIE.startsWith("__Host-")).toBe(true);
+    const c = sessionCookie("tok");
+    expect(c).toContain("Path=/");
+    expect(c).toContain("Secure");
+    expect(c).toContain("HttpOnly");
+    expect(c).toContain("SameSite=Lax");
+    // __Host- forbids it, and that prohibition IS the property being bought.
+    expect(c).not.toContain("Domain=");
   });
 
-  it("refuses a legacy HMAC cookie even with SESSION_SECRET still in the env", async () => {
-    const { privateKey, pub } = await keys();
-    // SESSION_SECRET is not in Env any more; cast past it deliberately, because
-    // the point is that a leftover value in the environment changes nothing.
-    const env = {
-      SESSION_PUBLIC_JWK: pub,
-      ISSUER: ISS,
-      SESSION_SECRET: SECRET,
-    } as unknown as Env;
-    const modern = await mintSess(privateKey, { sub: "u_1", email: "new@b.com" });
-    const legacy = await mintLegacy(SECRET, { t: "sess", e: "old@b.com" });
-    expect(await getSessionIdentity(req(modern), env)).toEqual({ sub: "u_1", email: "new@b.com" });
-    expect(await getSessionIdentity(req(legacy), env)).toBeNull();
-  });
-
-  // A browser can carry several `sess` cookies: the cookie is Domain=32b.io, so
-  // any estate host can set one, and a host-only cookie planted by another host
-  // sorts AHEAD of the real one. Reading only the first lets that host decide
-  // which cookie is even considered — a junk plant becomes a lockout.
-  it("does not let an unverifiable plant shadow the real session", async () => {
-    const ours = await keys();
-    const attacker = await keys();
-    const env = { SESSION_PUBLIC_JWK: ours.pub, ISSUER: ISS } as Env;
-    const real = await mintSess(ours.privateKey, { sub: "u_REAL", email: "real@b.com" });
-    const plant = await mintSess(attacker.privateKey, {
-      sub: "u_ATTACKER",
-      email: "a@evil.example",
-    });
-    const both = new Request("https://baby.32b.io/", {
-      headers: { Cookie: `sess=${plant}; sess=${real}` },
-    });
-    expect(await getSessionIdentity(both, env)).toEqual({ sub: "u_REAL", email: "real@b.com" });
-  });
-
-  // And the limit of that, asserted so nobody budgets for more: a plant that
-  // VERIFIES is a session by every check available here, and it wins if it sorts
-  // first. Only a `__Host-` cookie no other host can write closes that, which is
-  // stage 3 in 32b-auth's roadmap.
-  it("cannot tell a validly-signed plant from the browser's own session", async () => {
-    const ours = await keys();
-    const env = { SESSION_PUBLIC_JWK: ours.pub, ISSUER: ISS } as Env;
-    const real = await mintSess(ours.privateKey, { sub: "u_REAL", email: "real@b.com" });
-    const plant = await mintSess(ours.privateKey, { sub: "u_OTHER", email: "other@b.com" });
-    const both = new Request("https://baby.32b.io/", {
-      headers: { Cookie: `sess=${plant}; sess=${real}` },
-    });
-    expect(await getSessionIdentity(both, env)).toEqual({ sub: "u_OTHER", email: "other@b.com" });
-  });
-
-  it("is null with no cookie, and with no verification key configured", async () => {
-    const { privateKey, pub } = await keys();
-    const env = { SESSION_PUBLIC_JWK: pub, ISSUER: ISS } as Env;
-    expect(await getSessionIdentity(new Request("https://baby.32b.io/"), env)).toBeNull();
-    // A real cookie, no key to check it with: refused, and src/session.ts says so
-    // in the log rather than leaving it to look like an estate-wide sign-out.
-    const t = await mintSess(privateKey, { sub: "u_1", email: "a@b.com" });
-    expect(await getSessionIdentity(req(t), {} as Env)).toBeNull();
+  it("clears with the same attributes and a zero Max-Age", () => {
+    const c = clearSessionCookie();
+    expect(c).toContain("Max-Age=0");
+    expect(c).toContain("Path=/");
+    expect(c).not.toContain("Domain=");
   });
 });

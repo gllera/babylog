@@ -1,133 +1,118 @@
 // -----------------------------------------------------------------------------
-// 32b.io session verification.
+// babylog's own session cookie.
 //
-// auth.32b.io mints Ed25519 JWTs (`typ: sess+jwt`, `t: "sess"`) carrying `sub` —
-// the account id — with the email as a display claim. That is the only format
-// this Worker reads, and the cookie is scoped Domain=32b.io, so baby.32b.io
-// receives it from a login that happened anywhere on the estate.
+// Until 2026-08-01 this file verified auth.32b.io's estate-wide `sess` cookie:
+// Ed25519, `typ: sess+jwt`, scoped Domain=32b.io so one login covered every
+// subdomain. babylog is an OIDC client now (src/oidc.ts) — it exchanges an
+// authorization code once and mints the session below — and that verifier is
+// gone rather than kept alongside.
 //
-// www.32b.io used to mint HMAC-SHA256 tokens (`b64u(payload).b64u(sig)`, payload
-// `{t:'sess', e:<email>, x?:<expiry ms>}`) and those were accepted here through
-// the cutover so it signed nobody out. That branch is gone, along with
-// makeToken/readToken and `SESSION_SECRET`: www serves no login and mints no
-// token any more, so the fallback protected nothing and the shared secret was a
-// forging key with no remaining purpose. Anyone still carrying a legacy cookie is
-// signed out and logs in again at auth.32b.io.
+// Deleting it is the entire point, not a tidy-up. auth.32b.io cannot move its
+// session cookie to a `__Host-` prefix while any estate product still reads the
+// Domain=32b.io one, and that prefix is what closes the planted-cookie fixation
+// hole: today any 32b.io host can set a `sess` cookie that sorts ahead of the
+// real one. babylog was one of three holdouts. test/session.test.ts pins the
+// shared cookie buying nothing here, so the dependency cannot be reopened by
+// accident.
 //
-// test/session.test.ts keeps a local HMAC minter for one reason: to present a
-// validly signed legacy cookie and assert it is refused *even when
-// SESSION_SECRET is still in the environment*. The proof has to outlive the code
-// it disproves.
+// The secret is a per-Worker HMAC key, which is a different animal from the
+// estate-wide `SESSION_SECRET` this repo retired in the cutover: that one was
+// shared with www.32b.io and could forge a session for anybody, anywhere on
+// 32b.io. This one forges baby.32b.io sessions and nothing else, and the cookie
+// it signs is `__Host-` so no sibling host can even deliver a forgery here.
 // -----------------------------------------------------------------------------
 
-import { importJWK, jwtVerify, type CryptoKey, type JWK } from "jose";
+import { SignJWT, jwtVerify } from "jose";
 import type { Env } from "./types";
 
-// EVERY `sess` cookie the browser sent, not just the first.
-//
-// The cookie is Domain=32b.io so one login covers every subdomain, and the cost of
-// that scope is that any estate host can set one — and a host-only cookie planted
-// by another host sorts AHEAD of the real one on specificity. Reading only the
-// first (which this did) lets that host decide which cookie is even considered, so
-// a junk plant became a lockout. It is also the likelier accident: a stale
-// host-only cookie sitting beside the Domain one.
-//
-// What trying all of them does NOT buy, so nobody budgets for it: a plant that
-// verifies is a session by every check available here, and it wins if it sorts
-// first. Only `sess` becoming a `__Host-` cookie no other host may write closes
-// that — stage 3 of 32b-auth's roadmap, which is deliberate about not pretending
-// anything earlier fixes it.
-//
-// Same shape as getSessionTokens in 32b-auth's consumer/session.js, which is the
-// reference for this rule.
-export function getSessionTokens(cookieHeader: string | null): string[] {
-  const out: string[] = [];
-  for (const part of (cookieHeader ?? "").split(";")) {
-    const eq = part.indexOf("=");
-    if (eq === -1) continue;
-    if (part.slice(0, eq).trim() === "sess") out.push(part.slice(eq + 1).trim());
-  }
-  return out;
-}
+// `__Host-` forbids Domain and pins Path=/, so the browser will only ever send
+// this to the exact host that set it. That is the property; the name is just a
+// name, chosen distinct from `sess` so that a cookie jar carrying both during
+// the estate's transition is unambiguous in a log.
+export const SESSION_COOKIE = "__Host-bsess";
 
-// Trying a few DISTINCT candidates is what stops a plant from shadowing the real
-// session; stopping at a few is what stops a hand-built header from buying an
-// Ed25519 verify per copy.
-const MAX_CANDIDATES = 3;
+// Who signed it. Checked on the way in, because one HMAC key is only a boundary
+// if the issuer is checked too.
+const ISSUER = "https://baby.32b.io";
 
-// `sub` is never null now. It was, for legacy cookies, which carried an email and
-// no account id; with that format gone every session has the account behind it —
-// which is what tenancy will key on when it moves off email (phase 2).
+// Matches the IdP's own session length. A client is entitled to its own answer
+// here — nothing re-checks with auth.32b.io until this expires, which is exactly
+// what "confidential client, does not talk to the IdP again" means — so the
+// number is a deliberate statement about how long a stale sign-out can last.
+const MAX_AGE_S = 30 * 24 * 60 * 60;
+
 export type Identity = { sub: string; email: string };
 
-// Imports are a pure function of the JWK text, so caching by that text saves an
-// import per gated request in a warm isolate. A rejection is evicted so a fixed
-// var can recover without a redeploy.
-const keyCache = new Map<string, Promise<CryptoKey>>();
-const pubKey = (json: string): Promise<CryptoKey> => {
-  let hit = keyCache.get(json);
-  if (!hit) {
-    hit = importJWK(JSON.parse(json) as JWK, "EdDSA")
-      .then((k) => k as CryptoKey)
-      .catch((e) => {
-        keyCache.delete(json);
-        throw e;
-      });
-    keyCache.set(json, hit);
+const keyOf = (secret: string): Uint8Array => new TextEncoder().encode(secret);
+
+export async function mintSession(
+  env: Pick<Env, "SESSION_SECRET">,
+  { sub, email }: Identity
+): Promise<string> {
+  return new SignJWT({ t: "sess", sub, email })
+    .setProtectedHeader({ alg: "HS256", typ: "bsess+jwt" })
+    .setIssuer(ISSUER)
+    .setIssuedAt()
+    .setExpirationTime(`${MAX_AGE_S}s`)
+    .sign(keyOf(env.SESSION_SECRET!));
+}
+
+export const sessionCookie = (token: string): string =>
+  `${SESSION_COOKIE}=${token}; Max-Age=${MAX_AGE_S}; Path=/; HttpOnly; Secure; SameSite=Lax`;
+
+export const clearSessionCookie = (): string =>
+  `${SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`;
+
+// Only ONE candidate is read, unlike the estate verifier this replaced. That
+// function tried every `sess` cookie because a host-only plant sorts ahead of
+// the Domain one and reading the first was a lockout; `__Host-` means no other
+// host can write this name at all, so there is no second candidate to defend
+// against and no reason to spend an HMAC verify per copy.
+const cookieValue = (header: string | null, name: string): string | null => {
+  for (const part of (header ?? "").split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
   }
-  return hit;
+  return null;
 };
 
-// The identity behind the request's sess cookie, or null. Never throws.
-//
-// Tenancy still keys on email; re-keying it onto `sub` is phase 2, and `sub` is
-// carried here so that work has something to key on.
-export async function getSessionIdentity(
+// The identity behind the request's session cookie, or null. Never throws.
+export async function readSession(
   request: Request,
-  env: Pick<Env, "SESSION_PUBLIC_JWK" | "ISSUER">
+  env: Pick<Env, "SESSION_SECRET">
 ): Promise<Identity | null> {
-  const tokens = [...new Set(getSessionTokens(request.headers.get("Cookie")))].slice(
-    0,
-    MAX_CANDIDATES
-  );
-  if (tokens.length === 0) return null;
+  const token = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
+  if (!token) return null;
 
-  if (!env.SESSION_PUBLIC_JWK) {
-    // There is no second format behind this any more, so an unset var is not a
-    // degraded mode: it refuses every session on the Worker. Name it, or the
-    // symptom reads as an estate-wide sign-out with no cause.
-    console.log("SESSION_PUBLIC_JWK is not set — no session cookie can be verified");
+  if (!env.SESSION_SECRET) {
+    // Nothing is behind this: an unset secret refuses every session on the
+    // Worker. Name it, or the symptom reads as a mysterious sign-out.
+    console.log("SESSION_SECRET is not set — no session cookie can be verified");
     return null;
   }
 
-  // First candidate that verifies wins. A cookie that does not verify is skipped
-  // rather than fatal, which is the whole point of reading more than one.
-  for (const token of tokens) {
-    try {
-      const { payload } = await jwtVerify(token, await pubKey(env.SESSION_PUBLIC_JWK), {
-        algorithms: ["EdDSA"],
-        issuer: env.ISSUER ?? "https://auth.32b.io",
-        typ: "sess+jwt",
-        // `sub` is required: a session cookie with no account id behind it is
-        // not something this Worker should act on.
-        requiredClaims: ["iss", "iat", "sub"],
-      });
-      if (payload.t === "sess" && typeof payload.email === "string" && payload.email) {
-        return { sub: String(payload.sub), email: payload.email.toLowerCase() };
-      }
-    } catch {
-      /* an unverifiable cookie is simply not a session — try the next one */
+  try {
+    const { payload } = await jwtVerify(token, keyOf(env.SESSION_SECRET), {
+      algorithms: ["HS256"],
+      issuer: ISSUER,
+      typ: "bsess+jwt",
+      requiredClaims: ["iss", "iat", "exp", "sub"],
+    });
+    if (payload.t === "sess" && typeof payload.email === "string" && payload.email) {
+      return { sub: String(payload.sub), email: payload.email.toLowerCase() };
     }
+  } catch {
+    /* an unverifiable cookie is simply not a session */
   }
   return null;
 }
 
-// The lowercased email behind the request's sess cookie, or null. A wrapper, so
-// that callers which do not care about the account id did not all have to change
-// when the second format arrived.
+// The lowercased email behind the request's session cookie, or null. A wrapper,
+// kept because most callers only ever wanted the email.
 export async function getSessionEmail(
   request: Request,
-  env: Pick<Env, "SESSION_PUBLIC_JWK" | "ISSUER">
+  env: Pick<Env, "SESSION_SECRET">
 ): Promise<string | null> {
-  return (await getSessionIdentity(request, env))?.email ?? null;
+  return (await readSession(request, env))?.email ?? null;
 }

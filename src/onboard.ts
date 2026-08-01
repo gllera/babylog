@@ -16,19 +16,25 @@ import {
   type InviteRow,
 } from "./users";
 
-// auth.32b.io owns identity for the whole estate. This pointed at www.32b.io
-// while www ran the login; www serves no login any more, so pointing here is not
-// a preference — it is the only host that answers.
-const LOGIN_URL = "https://auth.32b.io/login";
-
-// 302 to the estate's magic-link login, returning here afterwards (`next` is
-// validated to https://*.32b.io by auth's safeNext, so this survives
-// open-redirect scrutiny on both ends). test/onboard.test.ts pins both halves.
+// Login starts HERE now, not at auth.32b.io.
+//
+// This used to send the browser straight to the estate's magic-link page and
+// rely on the shared `sess` cookie coming back set. babylog is an OIDC client
+// now: /auth/login builds an authorization request — state, nonce, PKCE — and
+// only src/oidc.ts knows the IdP's address. Pointing at auth.32b.io from here
+// would skip all of that and land on a login whose cookie this Worker no longer
+// reads.
+//
+// `next` is a same-origin PATH rather than an absolute URL, because that is what
+// safeNext accepts and what the callback will redirect to. test/onboard.test.ts
+// pins both halves.
 export function loginRedirect(url: URL): Response {
+  const next = url.pathname + url.search;
   return new Response(null, {
     status: 302,
     headers: {
-      Location: `${LOGIN_URL}?next=${encodeURIComponent(url.toString())}`,
+      Location: `/auth/login?next=${encodeURIComponent(next)}`,
+      "Cache-Control": "no-store",
     },
   });
 }

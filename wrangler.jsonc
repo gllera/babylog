@@ -6,15 +6,16 @@
   "compatibility_flags": ["nodejs_compat"],
 
   // Two hostnames, two auth gates: baby.llera.eu is fronted by Cloudflare
-  // Access, baby.32b.io verifies the shared 32b.io `sess` cookie in-Worker
-  // (Ed25519, against SESSION_PUBLIC_JWK). Both are attached as Worker
-  // *custom domains* out of
+  // Access, baby.32b.io runs the OIDC code+PKCE flow against auth.32b.io and
+  // mints its own `__Host-bsess` cookie (src/oidc.ts, src/session.ts). Both are
+  // attached as Worker *custom domains* out of
   // band (see docs/setup.md) rather than declared here — the CI token is
   // account-scoped (Workers Scripts + D1) and cannot touch zone routes.
   // Keep the *.workers.dev origin disabled: no Access in front of it, and the
-  // sess cookie is Domain=32b.io so it never reaches a workers.dev origin —
-  // leaving it on would just be a third, weaker door. Pinned here so a deploy
-  // can't silently re-enable it.
+  // registered redirect_uri names baby.32b.io exactly, so a login started on a
+  // workers.dev origin is refused by the IdP rather than half-working — leaving
+  // it on would just be a third, weaker door. Pinned here so a deploy can't
+  // silently re-enable it.
   "workers_dev": false,
 
   // Import .html files as plain strings (the web app shell in src/app.html).
@@ -52,31 +53,35 @@
     "TEAM_DOMAIN": "https://llera.cloudflareaccess.com",
     "POLICY_AUD": "46469599b9997439c39c5a7b85f78c42cab415ab09e6ae87ff39636d632da5d2",
 
-    // Who must have signed a `sess` cookie for this Worker to trust it.
-    "ISSUER": "https://auth.32b.io",
+    // --- OIDC client registration at auth.32b.io ----------------------------
+    //
+    // These two replaced SESSION_PUBLIC_JWK, which held auth.32b.io's Ed25519
+    // public key so this Worker could verify the estate's shared `sess` cookie.
+    // It is gone along with the verifier: babylog exchanges an authorization
+    // code and mints its own session now, and the whole reason to do that was to
+    // stop reading a cookie scoped Domain=32b.io. See src/session.ts.
+    //
+    // The pinned key went with it, and good riddance — a client holding its own
+    // copy of the signing key is exactly what cannot notice a rotation. Keys now
+    // come from the IdP's published jwks_uri, read out of the discovery document
+    // beneath the issuer below, on every cold isolate.
+    //
+    // Both must live in THIS FILE rather than the dashboard: `wrangler deploy`
+    // uploads these vars over whatever the dashboard holds, so a dashboard-only
+    // value would vanish on the next deploy and take every login with it.
+    //
+    // The tenant segment is load-bearing: `t_32b` is the estate's own tenant,
+    // whose subject_type is `public` — so `sub` in an id_token is the same
+    // `u_<ULID>` account id the shared cookie used to carry, and no data in this
+    // repo had to move. A pairwise tenant would have handed us different
+    // subjects for the same people.
+    "OIDC_ISSUER": "https://auth.32b.io/t/t_32b",
+    "OIDC_CLIENT_ID": "babylog"
 
-    // auth.32b.io's public session key — filled in at the phase 1 cutover,
-    // 2026-07-31. Verify only: it can never mint, which is why it is a var and
-    // not a secret.
-    //
-    // It must live in THIS FILE and not the dashboard: `wrangler deploy` uploads
-    // these vars over whatever the dashboard holds, so a dashboard-only value
-    // would vanish on the next deploy and take every session with it.
-    //
-    // With the legacy HMAC branch gone there is nothing behind this: if it is
-    // wrong or missing, baby.32b.io admits nobody (baby.llera.eu is unaffected —
-    // Cloudflare Access fronts it). src/session.ts logs its absence by name so
-    // that failure does not read as a mysterious estate-wide sign-out.
-    //
-    // Identical to 32b-auth's own SESSION_PUBLIC_JWK var and to the single key at
-    // https://auth.32b.io/.well-known/jwks.json minus its kid/alg/use members.
-    // Thumbprint: S2HM3LyPSCyr6Sb1_IwtgAHxeU5UC0KG7o7lPG5xPaY
-    //
-    // Note for a future rotation: pubKey() in src/session.ts does a single
-    // JSON.parse, so this holds ONE key. 32b-auth's consumer/session.js accepts a
-    // newline-separated list; this does not, so a rotation overlap needs a code
-    // change here first.
-    "SESSION_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"mALwZTbphxuOljph1tnRzXmzXZHps1zImCn9mObtpro\"}"
+    // Not here, deliberately, and set with `wrangler secret put`:
+    //   OIDC_CLIENT_SECRET — authenticates this Worker at /token.
+    //   SESSION_SECRET     — HMAC key for babylog's own session cookie.
+    // Both can mint, which is the whole difference from the var they replaced.
   },
 
   "observability": {

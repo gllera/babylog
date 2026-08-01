@@ -21,10 +21,43 @@ in order — during the llera.eu → 32b.io transition both stay live at once:
    `Cf-Access-Jwt-Assertion` header Access stamps (team JWKS + issuer + AUD,
    `src/access.ts`) — `workers_dev: false` keeps the unfronted
    `*.workers.dev` origin closed — and reads the JWT's `email` claim.
-2. **32b.io `sess` cookie** — `baby.32b.io`. Verified in-Worker
-   (`src/session.ts`, HMAC-SHA256, `SESSION_SECRET` shared with the
-   www.32b.io Pages deploy that mints it on magic-link login). A completed
-   login is taken as email-ownership proof.
+2. **babylog's own session cookie** — `baby.32b.io`. `__Host-bsess`, HS256,
+   minted by this Worker (`src/session.ts`) after it completes an OpenID
+   Connect authorization-code flow against `auth.32b.io` (`src/oidc.ts`). A
+   completed login is taken as email-ownership proof.
+
+### The OIDC client (2026-08-01)
+
+babylog is a **confidential client** of `https://auth.32b.io/t/t_32b`: code +
+PKCE (S256), exchanged server-side once, after which this Worker mints the
+session above and does not talk to the IdP again until it expires. There are no
+refresh tokens and no token store — that is the client shape stage 3 of
+32b-auth's roadmap scoped to, and it is why nothing here has to be stored.
+
+- `GET /auth/login` — builds the authorization request (state, nonce, PKCE
+  verifier) into a short-lived `__Host-blogin` cookie and redirects to the IdP.
+- `GET /auth/callback` — checks `state`, exchanges the code with
+  `client_secret_basic`, verifies the id_token against the keys published at the
+  IdP's `jwks_uri`, checks `nonce`, mints the session.
+- `GET|POST /auth/logout` — clears babylog's session. Local only: the IdP
+  advertises no `end_session` endpoint, so this says nothing about the estate's
+  session.
+
+**Only the issuer is pinned.** Every endpoint and every key is read from the
+discovery document beneath it, cached per isolate. A client holding its own copy
+of the signing key is precisely what cannot notice a rotation, which is why the
+old `SESSION_PUBLIC_JWK` var is gone rather than repurposed.
+
+**Why this replaced the shared cookie rather than joining it.** The estate's
+`sess` cookie is scoped `Domain=32b.io`, so any 32b.io host can set one — and a
+host-only plant sorts ahead of the real one. `auth.32b.io` cannot move it to a
+`__Host-` prefix, which is what closes that hole, until no product reads the
+shared cookie. babylog was one of three. So the assertion that a well-formed
+`sess` cookie now buys *nothing* here is a test rather than a remark
+(`test/session.test.ts`, `test/identity.test.ts`).
+
+Tenant `t_32b` has `subject_type: public`, so the `sub` in an id_token is the
+same `u_<ULID>` account id the shared cookie carried. No data moved.
 
 If neither is present, `DEV_USER_EMAIL` (`.dev.vars` only, never a production
 var) supplies identity for `wrangler dev` — but only when the request's host
@@ -98,9 +131,10 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 .
 ├── src/
 │   ├── index.ts                    # Router; resolves identity, threads it, /app + /welcome gating
-│   ├── identity.ts                 # getIdentityEmail(): Access JWT → sess cookie → DEV_USER_EMAIL
+│   ├── identity.ts                 # getIdentityEmail(): Access JWT → own session → DEV_USER_EMAIL
 │   ├── access.ts                   # Access JWT verification
-│   ├── session.ts                  # 32b.io sess-cookie codec (HMAC-SHA256, mint/verify)
+│   ├── oidc.ts                     # OIDC client: /auth/login, /auth/callback, /auth/logout
+│   ├── session.ts                  # babylog's own session cookie (__Host-bsess, HS256)
 │   ├── onboard.ts                  # /welcome: accept/decline invite, create household
 │   ├── users.ts                    # Tenancy: users → households → babies; invites
 │   ├── tools.ts                    # McpAgent (Durable Object) + MCP tools
@@ -118,7 +152,8 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 │   ├── lib.test.ts                 # Unit tests for the pure helpers
 │   ├── users.test.ts               # Unit tests for baby selection (pickBaby)
 │   ├── identity.test.ts            # Unit tests for getIdentityEmail()
-│   ├── session.test.ts             # Unit tests for the sess-cookie codec
+│   ├── session.test.ts             # Unit tests for the session cookie
+│   ├── oidc.test.ts                # The code+PKCE flow against a stubbed IdP
 │   ├── growth.test.ts              # Unit tests for growth-based targets
 │   ├── app-i18n.test.ts            # Cross-checks app.html's i18n keys against the ES dictionary
 │   ├── belly-calib.test.ts         # Unit tests for the belly ring's calibration backtest

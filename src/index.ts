@@ -6,6 +6,7 @@ import { PNG_ICONS } from "./icons";
 import { getIdentityEmail } from "./identity";
 import { resolveTenant } from "./users";
 import { handleWelcome, loginRedirect } from "./onboard";
+import { beginLogin, handleCallback, logout } from "./oidc";
 import {
   ICON_SVG,
   WEB_MANIFEST,
@@ -15,6 +16,9 @@ import {
 
 // The Durable Object class must be exported from the Worker entry module.
 export { BabyFeedingMCP };
+
+const methodNotAllowed = (allow: string): Response =>
+  new Response("Method not allowed", { status: 405, headers: { Allow: allow } });
 
 // The MCP transport handler. Authorization is handled upstream by Cloudflare
 // Access (Managed OAuth) + the Access-JWT check below, not by the Worker.
@@ -43,6 +47,29 @@ export default {
       // reads props from the execution context, so assign through a cast.
       (ctx as { props?: Record<string, unknown> }).props = { email };
       return MCP_HANDLER.fetch(request, env, ctx);
+    }
+
+    // The OIDC client's two legs plus logout. These are the only routes that
+    // talk to auth.32b.io, and they are deliberately ahead of everything that
+    // resolves an identity: /auth/callback is where an identity comes FROM, so
+    // gating it on having one already would be a loop.
+    //
+    // GET only. The IdP's response_mode is `query`, so the callback is a
+    // top-level navigation; logout is a GET because it takes no argument and
+    // ends a session that is already the browser's own.
+    if (url.pathname === "/auth/login") {
+      if (request.method !== "GET") return methodNotAllowed("GET");
+      return beginLogin(request, env);
+    }
+    if (url.pathname === "/auth/callback") {
+      if (request.method !== "GET") return methodNotAllowed("GET");
+      return handleCallback(request, env);
+    }
+    if (url.pathname === "/auth/logout") {
+      if (request.method !== "GET" && request.method !== "POST") {
+        return methodNotAllowed("GET, POST");
+      }
+      return logout();
     }
 
     if (url.pathname === "/icon.svg") {

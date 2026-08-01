@@ -1,12 +1,14 @@
 // -----------------------------------------------------------------------------
-// Request identity. Two production auth paths during the llera.eu → 32b.io
-// transition:
-//   1. Cloudflare Access JWT — baby.llera.eu, stamped by the Access app
-//      (still fronts MCP and the legacy origin until the OAuth AS lands).
-//   2. The 32b.io `sess` cookie — baby.32b.io. Ed25519, minted by auth.32b.io,
-//      and nothing else: the legacy HMAC cookie from www.32b.io was accepted
-//      through the cutover and is now refused (www mints none, and the shared
-//      secret it was signed with is gone from this repo).
+// Request identity. Two production auth paths, on two hostnames:
+//   1. Cloudflare Access JWT — baby.llera.eu, stamped by the Access app, which
+//      still fronts /mcp and the legacy origin.
+//   2. babylog's own session cookie — baby.32b.io. Minted by this Worker after
+//      the OIDC code exchange against auth.32b.io (src/oidc.ts), replacing the
+//      estate-wide `sess` cookie this file used to read.
+//
+// The order matters and did not change: Access is the outer gate on the host it
+// fronts, so its assertion wins where it exists.
+//
 // Dev fallback: DEV_USER_EMAIL (.dev.vars only — never a production var) so
 // `wrangler dev` works with neither in front.
 // -----------------------------------------------------------------------------
@@ -26,7 +28,7 @@ export async function getIdentityEmail(
       return payload.email.toLowerCase();
     }
   }
-  // getSessionEmail answers null when neither format is configured, so there is
+  // getSessionEmail answers null when the secret is unconfigured, so there is
   // nothing to guard on here.
   const email = await getSessionEmail(request, env);
   if (email) return email;
