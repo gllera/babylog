@@ -5,14 +5,21 @@ export type Env = {
   // forwarded Access JWT against these and reads its email claim.
   TEAM_DOMAIN: string;
   POLICY_AUD: string;
-  // Public verification key for auth.32b.io's Ed25519 session cookies, as a
-  // JWK. A var, not a secret: it can only verify, never mint. Optional in the
-  // type because a Worker can run without it — but with the legacy HMAC fallback
-  // gone, absent means NO session cookie verifies at all, so it is mandatory in
-  // practice for baby.32b.io. src/session.ts logs by name when it is missing.
-  SESSION_PUBLIC_JWK?: string;
-  // Who must have signed that cookie. Defaults to https://auth.32b.io.
-  ISSUER?: string;
+  // --- OIDC client credentials for auth.32b.io (src/oidc.ts) ---------------
+  // The ONE URL this client pins. Every endpoint is read from the discovery
+  // document beneath it, so the IdP can move an endpoint without a deploy here.
+  OIDC_ISSUER?: string;
+  // What this application is called in the IdP's registry, and what a token's
+  // `aud` must name. Public by nature — it travels in the browser's address bar.
+  OIDC_CLIENT_ID?: string;
+  // A secret: it authenticates this Worker at /token. Set with `wrangler secret
+  // put`, never a var — a var lives in wrangler.jsonc, which is in git.
+  OIDC_CLIENT_SECRET?: string;
+  // The HMAC key babylog signs its OWN session cookie with (src/session.ts).
+  // Also a secret, and unrelated to the estate-wide SESSION_SECRET this repo
+  // retired at the cutover: that one could forge a session anywhere on 32b.io,
+  // this one only forges baby.32b.io's.
+  SESSION_SECRET?: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
   // Household that Alexa-logged events belong to (default "1").
