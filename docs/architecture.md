@@ -39,9 +39,28 @@ refresh tokens and no token store — that is the client shape stage 3 of
 - `GET /auth/callback` — checks `state`, exchanges the code with
   `client_secret_basic`, verifies the id_token against the keys published at the
   IdP's `jwks_uri`, checks `nonce`, mints the session.
-- `GET|POST /auth/logout` — clears babylog's session. Local only: the IdP
-  advertises no `end_session` endpoint, so this says nothing about the estate's
+- `GET|POST /auth/logout` — clears babylog's session, plants `__Host-bbye`, and
+  hands the browser to the IdP's `/logout` page, whose button ends the estate
   session.
+
+**Logging out is two halves, and only one of them is babylog's.** This route used
+to be "local only" — clear the cookie, land on `/app`, say nothing to the IdP —
+on the grounds that there is no `end_session` endpoint. True premise, wrong
+conclusion: the estate session then survived every sign-out, so the next
+`/auth/login` reached `/authorize` with a live session and was handed a code for
+**the account that had just signed out**. No form, no email, no prompt, and no
+way to reach a different person, because the IdP refuses `select_account` on
+purpose (*"there is one session and no account picker"*, `32b-auth/docs/oidc.md`).
+
+babylog cannot end that session itself — `POST /auth/logout` at the IdP is
+same-origin-checked so that no other site can sign a visitor out — so it links to
+the page whose button does. And because that press is a human action that may
+never happen, the same response plants `__Host-bbye`: the next `/auth/login`
+turns that marker (1 h), or an explicit `?switch=1`, into **`prompt=login`**, and
+the IdP re-authenticates whoever is at the browser. The marker survives an
+abandoned attempt and is spent by a login that completes. `prompt=login` is
+**not** sent on an ordinary sign-in — it costs a login ceremony every time, and a
+visitor arriving with a live estate session is entitled to SSO.
 
 **Only the issuer is pinned.** Every endpoint and every key is read from the
 discovery document beneath it, cached per isolate. A client holding its own copy

@@ -98,8 +98,17 @@ const flowOf = (res: Response): { cookie: string; state: string } => {
   return { cookie: `__Host-blogin=${value}`, state: parsed.state };
 };
 
-const start = async (idp: Idp, next = "/app") => {
-  const res = await beginLogin(new Request(`${ORIGIN}/auth/login?next=${encodeURIComponent(next)}`), idp.env);
+const start = async (
+  idp: Idp,
+  next = "/app",
+  { query = "", cookie = "" }: { query?: string; cookie?: string } = {}
+) => {
+  const res = await beginLogin(
+    new Request(`${ORIGIN}/auth/login?next=${encodeURIComponent(next)}${query}`, {
+      headers: cookie ? { Cookie: cookie } : {},
+    }),
+    idp.env
+  );
   return { res, ...flowOf(res), params: new URL(res.headers.get("Location")!).searchParams };
 };
 
@@ -352,12 +361,99 @@ describe("what the callback refuses", () => {
   });
 });
 
+// -----------------------------------------------------------------------------
+// Signing out, and signing in as somebody else.
+//
+// THE BUG THESE PIN. logout() used to clear this session, land on /app, and say
+// nothing to the IdP — so the estate session at auth.32b.io survived every time.
+// The next /auth/login reached /authorize with a live session and was handed a
+// code for the account that had just signed out: no form, no email, no prompt,
+// and no way to reach anybody else, because the IdP refuses `select_account` on
+// purpose. Sign out, sign in, same person, always.
+//
+// Reproduced end to end against the real IdP routes in gllera/32b-auth
+// (test/account-switch.test.ts), which walks a cookie jar through the whole
+// thing and shows the second person coming back as the first.
+// -----------------------------------------------------------------------------
 describe("logout", () => {
-  it("clears the session cookie and lands somewhere harmless", () => {
-    const res = logout();
+  const bye = (idp: Idp) =>
+    logout(new Request(`${ORIGIN}/auth/logout`), idp.env);
+
+  it("clears the session cookie", async () => {
+    const res = bye(await stubIdp());
     expect(res.status).toBe(302);
     expect(
       res.headers.getSetCookie().some((c) => new RegExp(`^${SESSION_COOKIE}=;.*Max-Age=0`).test(c))
     ).toBe(true);
+  });
+
+  // The half babylog cannot do itself, offered rather than performed: the IdP's
+  // POST /auth/logout is same-origin-checked, so this is a link to the page
+  // whose button ends the estate session.
+  it("hands the browser to the IdP's logout page, and comes back here", async () => {
+    const idp = await stubIdp();
+    const to = new URL(bye(idp).headers.get("Location")!);
+    expect(to.origin).toBe(new URL(idp.issuer).origin);
+    // The ROOT /logout, not the tenant-scoped issuer path — that is where the
+    // page lives.
+    expect(to.pathname).toBe("/logout");
+    expect(to.searchParams.get("next")).toBe(`${ORIGIN}/app`);
+  });
+
+  // ...and because that button is a human action that may never be pressed.
+  it("plants a host-only marker so the next sign-in can ask again", async () => {
+    const set = bye(await stubIdp()).headers.getSetCookie();
+    const marker = set.find((c) => c.startsWith("__Host-bbye="));
+    expect(marker).toBeDefined();
+    expect(marker).toContain("HttpOnly");
+    expect(marker).toContain("Secure");
+    expect(marker).toContain("Path=/");
+    // `__Host-` is the point: no other estate host may write this, so its
+    // presence really does mean somebody signed out HERE.
+    expect(marker).not.toContain("Domain");
+    // And the session clear is not lost to it.
+    expect(set.some((c) => c.startsWith(`${SESSION_COOKIE}=;`))).toBe(true);
+  });
+});
+
+describe("asking the IdP to re-authenticate", () => {
+  it("asks for nothing on an ordinary sign-in, so estate SSO survives", async () => {
+    const { params } = await start(await stubIdp());
+    expect(params.get("prompt")).toBeNull();
+  });
+
+  it("demands a fresh login after a sign-out here", async () => {
+    const { params } = await start(await stubIdp(), "/app", { cookie: "__Host-bbye=1" });
+    expect(params.get("prompt")).toBe("login");
+  });
+
+  it("demands one for an explicit switch, with no marker and no clock", async () => {
+    const { params } = await start(await stubIdp(), "/app", { query: "&switch=1" });
+    expect(params.get("prompt")).toBe("login");
+  });
+
+  it("takes only switch=1 — a truthy-looking value is not a demand", async () => {
+    const { params } = await start(await stubIdp(), "/app", { query: "&switch=yes" });
+    expect(params.get("prompt")).toBeNull();
+  });
+
+  it("keeps the demand across an abandoned attempt and spends it on a real one", async () => {
+    const idp = await stubIdp();
+
+    // Asking does not clear it: somebody who bounced off the login form and came
+    // back still means what they said when they signed out.
+    const abandoned = await start(idp, "/app", { cookie: "__Host-bbye=1" });
+    expect(
+      abandoned.res.headers.getSetCookie().some((c) => c.startsWith("__Host-bbye=;"))
+    ).toBe(false);
+    const retry = await start(idp, "/app", { cookie: "__Host-bbye=1" });
+    expect(retry.params.get("prompt")).toBe("login");
+
+    // Completing one does clear it, or every later visit would pay for a
+    // re-authentication that has already happened.
+    const done = await callback(idp, `${retry.cookie}; __Host-bbye=1`, `code=abc&state=${retry.state}`);
+    expect(done.status).toBe(302);
+    const cleared = done.headers.getSetCookie().find((c) => c.startsWith("__Host-bbye="));
+    expect(cleared).toContain("Max-Age=0");
   });
 });

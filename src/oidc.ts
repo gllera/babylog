@@ -34,6 +34,56 @@ const FLOW_COOKIE = "__Host-blogin";
 // that an abandoned one does not sit in the jar for a day.
 const FLOW_MAX_AGE_S = 15 * 60;
 
+// -----------------------------------------------------------------------------
+// The "somebody just signed out here" marker.
+//
+// THE BUG IT EXISTS FOR. babylog's logout used to clear this session and land on
+// /app, and say nothing to the IdP at all — the comment below it called that
+// "local only" and treated it as a limitation of the stage-3 cut. It was not a
+// limitation, it was a defect with a user-visible shape: the estate session at
+// auth.32b.io survived every time, so the next /auth/login reached /authorize
+// with a live session and got an authorization code for THE ACCOUNT THAT HAD
+// JUST SIGNED OUT — no form, no email, no prompt. Signing out and back in
+// silently returned the same person, and there was no way to reach a different
+// one, because the IdP refuses `select_account` on purpose ("there is one
+// session and no account picker", 32b-auth docs/oidc.md).
+//
+// Two halves fix it, because neither is sufficient alone:
+//
+//   - logout() now hands the browser to the IdP's own /logout page, which is
+//     where the estate session can actually be ended. babylog cannot do that
+//     itself: POST /auth/logout there is same-origin-checked precisely so no
+//     other site can sign a visitor out, and babylog is another site. So it is
+//     a link to a page with a button, and the button is a human action.
+//   - Which is why the marker exists: that press CAN simply not happen. A user
+//     who sees babylog's own signed-out screen and closes the tab has ended half
+//     of it. The marker is babylog remembering the intent, so the next sign-in
+//     sends `prompt=login` and the IdP re-authenticates whoever is at the
+//     browser — which is where a different address gets typed.
+//
+// An hour: it covers "sign out, then sign in as somebody else" without turning
+// every later visit into a forced email send for someone who has meanwhile
+// signed in elsewhere on the estate and would rightly expect SSO. `?switch=1`
+// is the same demand with no clock on it.
+const BYE_COOKIE = "__Host-bbye";
+const BYE_MAX_AGE_S = 60 * 60;
+
+const byeCookie = (): string =>
+  `${BYE_COOKIE}=1; Max-Age=${BYE_MAX_AGE_S}; Path=/; HttpOnly; Secure; SameSite=Lax`;
+
+const clearByeCookie = (): string =>
+  `${BYE_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`;
+
+// Presence only — the marker carries no value worth reading, and `__Host-` means
+// no other estate host can have written it.
+const hasCookie = (request: Request, name: string): boolean => {
+  for (const part of (request.headers.get("Cookie") ?? "").split(";")) {
+    const eq = part.indexOf("=");
+    if (eq !== -1 && part.slice(0, eq).trim() === name) return true;
+  }
+  return false;
+};
+
 const b64u = (bytes: Uint8Array): string =>
   btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
@@ -154,6 +204,17 @@ export async function beginLogin(request: Request, env: Env): Promise<Response> 
     next: safeNext(url.searchParams.get("next")),
   };
 
+  // Two ways to demand a fresh authentication, and the difference is only who
+  // asked: the marker is babylog remembering that this browser signed out here,
+  // `switch=1` is the user saying so out loud from a link that still works after
+  // the marker has expired.
+  //
+  // NOT sent on an ordinary sign-in, deliberately: `prompt=login` costs a whole
+  // login ceremony — an email send on the magic-link path — every single time,
+  // and a visitor arriving from another 32b.io product with a live estate
+  // session is entitled to the SSO that estate exists to provide.
+  const reauth = url.searchParams.get("switch") === "1" || hasCookie(request, BYE_COOKIE);
+
   const doc = await discover(env.OIDC_ISSUER!);
   const authorize = new URL(doc.authorization_endpoint);
   authorize.searchParams.set("response_type", "code");
@@ -164,7 +225,13 @@ export async function beginLogin(request: Request, env: Env): Promise<Response> 
   authorize.searchParams.set("nonce", flow.nonce);
   authorize.searchParams.set("code_challenge", await s256(flow.verifier));
   authorize.searchParams.set("code_challenge_method", "S256");
+  if (reauth) authorize.searchParams.set("prompt", "login");
 
+  // The marker is NOT cleared here. It is spent by a login that COMPLETES (see
+  // handleCallback), so a demand the user abandoned halfway is still a demand
+  // the next attempt makes — the same discipline the IdP applies to its own
+  // re-authentication marker, which it clears when it issues a code rather than
+  // when it asks.
   return new Response(null, {
     status: 302,
     headers: {
@@ -280,22 +347,48 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
   const headers = new Headers({ Location: flow.next, "Cache-Control": "no-store" });
   headers.append("Set-Cookie", sessionCookie(session));
   headers.append("Set-Cookie", clearFlowCookie());
+  // The sign-out has been answered by a sign-in, so the demand it planted must
+  // not outlive it and force a re-authentication on the next visit too.
+  headers.append("Set-Cookie", clearByeCookie());
   return new Response(null, { status: 302, headers });
 }
 
 // ---------------------------------------------------------------- logout ----
 
-// Local only. The IdP advertises no end_session endpoint — RP-initiated logout
-// is not in the stage-3 cut — so this ends babylog's session and says nothing
-// about the estate's. Signing out of auth.32b.io itself is done at its own
-// account portal.
-export function logout(): Response {
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: "/app",
-      "Set-Cookie": clearSessionCookie(),
-      "Cache-Control": "no-store",
-    },
+// Ends babylog's session, then OFFERS to end the estate's.
+//
+// This used to be "local only", landing on /app and saying nothing to the IdP —
+// described as a consequence of there being no end_session endpoint. That was
+// the wrong conclusion from a true premise. There is no RP-initiated logout, so
+// this cannot be one hop; but the IdP does have a /logout PAGE whose button ends
+// the estate session, and linking to it is the whole difference between a logout
+// that means something and one that leaves a live session behind for the next
+// sign-in to walk straight back into. See the note on BYE_COOKIE above.
+//
+// It cannot be done without the redirect: that POST is same-origin-checked at
+// the IdP so that no other site can sign a visitor out, and babylog is another
+// site. And it cannot be done without the marker either, because the button is
+// a human action that may never be pressed.
+//
+// The IdP's ORIGIN, not its issuer: `/logout` is served at the root, while
+// OIDC_ISSUER carries a tenant path (`https://auth.32b.io/t/{tenant}`). Derived
+// rather than hardcoded, for the same reason every endpoint here comes from
+// discovery — although this one is not in the discovery document, since it is a
+// page and not a protocol endpoint.
+//
+// `next` is validated at the IdP by its own safeNext, which bounds it to
+// https://*.32b.io.
+export function logout(request: Request, env: Env): Response {
+  const origin = new URL(request.url).origin;
+  const idp = new URL(env.OIDC_ISSUER!).origin;
+  const headers = new Headers({
+    Location: `${idp}/logout?next=${encodeURIComponent(`${origin}/app`)}`,
+    "Cache-Control": "no-store",
   });
+  // Appended, never a single "Set-Cookie" key in an object literal: the second
+  // would silently replace the first, and the one that loses is the one nobody
+  // notices.
+  headers.append("Set-Cookie", clearSessionCookie());
+  headers.append("Set-Cookie", byeCookie());
+  return new Response(null, { status: 302, headers });
 }

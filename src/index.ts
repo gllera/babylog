@@ -56,7 +56,10 @@ export default {
     //
     // GET only. The IdP's response_mode is `query`, so the callback is a
     // top-level navigation; logout is a GET because it takes no argument and
-    // ends a session that is already the browser's own.
+    // ends a session that is already the browser's own — and then hands the
+    // browser on to the IdP's own logout page, which is the only place the
+    // ESTATE session can be ended. See the note on BYE_COOKIE in src/oidc.ts
+    // for why that redirect is not enough on its own.
     if (url.pathname === "/auth/login") {
       if (request.method !== "GET") return methodNotAllowed("GET");
       return beginLogin(request, env);
@@ -69,7 +72,7 @@ export default {
       if (request.method !== "GET" && request.method !== "POST") {
         return methodNotAllowed("GET, POST");
       }
-      return logout();
+      return logout(request, env);
     }
 
     if (url.pathname === "/icon.svg") {
