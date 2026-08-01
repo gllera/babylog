@@ -20,6 +20,11 @@
 // shared with www.32b.io and could forge a session for anybody, anywhere on
 // 32b.io. This one forges baby.32b.io sessions and nothing else, and the cookie
 // it signs is `__Host-` so no sibling host can even deliver a forgery here.
+//
+// It is named SESSION_HMAC_SECRET and not SESSION_SECRET precisely so those two
+// cannot be confused. The old name means "an estate-wide forging key that should
+// no longer exist anywhere", and reusing it for an ordinary per-Worker key would
+// make that alarm useless in both directions.
 // -----------------------------------------------------------------------------
 
 import { SignJWT, jwtVerify } from "jose";
@@ -46,7 +51,7 @@ export type Identity = { sub: string; email: string };
 const keyOf = (secret: string): Uint8Array => new TextEncoder().encode(secret);
 
 export async function mintSession(
-  env: Pick<Env, "SESSION_SECRET">,
+  env: Pick<Env, "SESSION_HMAC_SECRET">,
   { sub, email }: Identity
 ): Promise<string> {
   return new SignJWT({ t: "sess", sub, email })
@@ -54,7 +59,7 @@ export async function mintSession(
     .setIssuer(ISSUER)
     .setIssuedAt()
     .setExpirationTime(`${MAX_AGE_S}s`)
-    .sign(keyOf(env.SESSION_SECRET!));
+    .sign(keyOf(env.SESSION_HMAC_SECRET!));
 }
 
 export const sessionCookie = (token: string): string =>
@@ -80,20 +85,20 @@ const cookieValue = (header: string | null, name: string): string | null => {
 // The identity behind the request's session cookie, or null. Never throws.
 export async function readSession(
   request: Request,
-  env: Pick<Env, "SESSION_SECRET">
+  env: Pick<Env, "SESSION_HMAC_SECRET">
 ): Promise<Identity | null> {
   const token = cookieValue(request.headers.get("Cookie"), SESSION_COOKIE);
   if (!token) return null;
 
-  if (!env.SESSION_SECRET) {
+  if (!env.SESSION_HMAC_SECRET) {
     // Nothing is behind this: an unset secret refuses every session on the
     // Worker. Name it, or the symptom reads as a mysterious sign-out.
-    console.log("SESSION_SECRET is not set — no session cookie can be verified");
+    console.log("SESSION_HMAC_SECRET is not set — no session cookie can be verified");
     return null;
   }
 
   try {
-    const { payload } = await jwtVerify(token, keyOf(env.SESSION_SECRET), {
+    const { payload } = await jwtVerify(token, keyOf(env.SESSION_HMAC_SECRET), {
       algorithms: ["HS256"],
       issuer: ISSUER,
       typ: "bsess+jwt",
@@ -112,7 +117,7 @@ export async function readSession(
 // kept because most callers only ever wanted the email.
 export async function getSessionEmail(
   request: Request,
-  env: Pick<Env, "SESSION_SECRET">
+  env: Pick<Env, "SESSION_HMAC_SECRET">
 ): Promise<string | null> {
   return (await readSession(request, env))?.email ?? null;
 }

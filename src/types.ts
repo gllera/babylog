@@ -16,10 +16,10 @@ export type Env = {
   // put`, never a var — a var lives in wrangler.jsonc, which is in git.
   OIDC_CLIENT_SECRET?: string;
   // The HMAC key babylog signs its OWN session cookie with (src/session.ts).
-  // Also a secret, and unrelated to the estate-wide SESSION_SECRET this repo
+  // Also a secret, and unrelated to the estate-wide SESSION_HMAC_SECRET this repo
   // retired at the cutover: that one could forge a session anywhere on 32b.io,
   // this one only forges baby.32b.io's.
-  SESSION_SECRET?: string;
+  SESSION_HMAC_SECRET?: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
   // Household that Alexa-logged events belong to (default "1").

@@ -80,7 +80,7 @@
 
     // Not here, deliberately, and set with `wrangler secret put`:
     //   OIDC_CLIENT_SECRET — authenticates this Worker at /token.
-    //   SESSION_SECRET     — HMAC key for babylog's own session cookie.
+    //   SESSION_HMAC_SECRET     — HMAC key for babylog's own session cookie.
     // Both can mint, which is the whole difference from the var they replaced.
   },
 

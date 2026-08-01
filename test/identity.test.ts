@@ -18,7 +18,7 @@ const baseEnv = {
   POLICY_AUD: "aud",
 };
 
-const env = { ...baseEnv, SESSION_SECRET: SECRET } as unknown as Env;
+const env = { ...baseEnv, SESSION_HMAC_SECRET: SECRET } as unknown as Env;
 
 const cookie = (raw: string, extra: Record<string, string> = {}) =>
   new Request("https://baby.32b.io/app", { headers: { Cookie: raw, ...extra } });
@@ -36,13 +36,13 @@ describe("getIdentityEmail precedence", () => {
     expect(await getIdentityEmail(req, env)).toBe("ana@example.com");
   });
 
-  it("a valid cookie but an env without SESSION_SECRET resolves to null", async () => {
+  it("a valid cookie but an env without SESSION_HMAC_SECRET resolves to null", async () => {
     const raw = await session();
     expect(await getIdentityEmail(cookie(raw), { ...baseEnv } as unknown as Env)).toBeNull();
   });
 
   it("a cookie signed with another secret resolves to null", async () => {
-    const theirs = { SESSION_SECRET: "a-completely-different-secret-value!!" } as unknown as Env;
+    const theirs = { SESSION_HMAC_SECRET: "a-completely-different-secret-value!!" } as unknown as Env;
     expect(await getIdentityEmail(cookie(await session(undefined, theirs)), env)).toBeNull();
   });
 

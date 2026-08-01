@@ -16,7 +16,7 @@ const ORIGIN = "https://baby.32b.io";
 const REDIRECT = `${ORIGIN}/auth/callback`;
 const CLIENT_ID = "babylog";
 const CLIENT_SECRET = "s3cr3t-from-the-csprng";
-const SESSION_SECRET = "test-secret-at-least-32-bytes-long!!";
+const SESSION_HMAC_SECRET = "test-secret-at-least-32-bytes-long!!";
 
 let seq = 0;
 
@@ -41,7 +41,7 @@ async function stubIdp(): Promise<Idp> {
       OIDC_ISSUER: issuer,
       OIDC_CLIENT_ID: CLIENT_ID,
       OIDC_CLIENT_SECRET: CLIENT_SECRET,
-      SESSION_SECRET,
+      SESSION_HMAC_SECRET,
     } as unknown as Env,
     idToken: (claims = {}) =>
       new SignJWT({ email: "ana@example.com", email_verified: true, ...claims })

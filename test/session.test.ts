@@ -19,7 +19,7 @@ import {
 import type { Env } from "../src/types";
 
 const SECRET = "test-secret-at-least-32-bytes-long!!";
-const env = { SESSION_SECRET: SECRET } as unknown as Env;
+const env = { SESSION_HMAC_SECRET: SECRET } as unknown as Env;
 
 const withCookie = (raw: string): Request =>
   new Request("https://baby.32b.io/app", { headers: { Cookie: raw } });
@@ -47,7 +47,7 @@ describe("mint and read", () => {
 
 describe("what it refuses", () => {
   it("refuses a token signed with another secret", async () => {
-    const other = { SESSION_SECRET: "a-completely-different-secret-value!!" } as unknown as Env;
+    const other = { SESSION_HMAC_SECRET: "a-completely-different-secret-value!!" } as unknown as Env;
     expect(await readSession(await req(other), env)).toBeNull();
   });
 
@@ -91,7 +91,7 @@ describe("what it refuses", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const r = await req();
     expect(await readSession(r, {} as Env)).toBeNull();
-    expect(log.mock.calls.flat().join(" ")).toContain("SESSION_SECRET");
+    expect(log.mock.calls.flat().join(" ")).toContain("SESSION_HMAC_SECRET");
     log.mockRestore();
   });
 });
