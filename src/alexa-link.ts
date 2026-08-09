@@ -16,9 +16,20 @@
 // -----------------------------------------------------------------------------
 
 import { SignJWT, jwtVerify } from "jose";
+import { readSession } from "./session";
 import type { Env } from "./types";
 
 const ISSUER = "https://baby.32b.io";
+
+type LinkEnv = Pick<
+  Env,
+  | "DB"
+  | "SESSION_HMAC_SECRET"
+  | "ALEXA_OAUTH_HMAC_SECRET"
+  | "ALEXA_LINK_CLIENT_ID"
+  | "ALEXA_LINK_CLIENT_SECRET"
+  | "ALEXA_LINK_REDIRECTS"
+>;
 
 export const CODE_TYP = "alexacode+jwt";
 export const ACCESS_TYP = "alexatk+jwt";
@@ -83,4 +94,58 @@ export async function verifyLinkToken(
   } catch {
     return null;
   }
+}
+
+// --------------------------------------------------------------- authorize --
+
+const registeredRedirects = (env: LinkEnv): string[] =>
+  (env.ALEXA_LINK_REDIRECTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+// GET /auth/alexa/authorize — Amazon sends the user's browser here to link.
+// Client and redirect_uri are validated FIRST, against exact strings, and a
+// failure is a 400 with no Location header: redirecting an unvalidated URI is
+// the open-redirect OAuth forbids (RFC 6749 §4.1.2.1). After that, errors go
+// back to Amazon as OAuth error codes. No consent page on purpose: the AS and
+// the product are the same thing, and the IdP's own consent already governed
+// releasing the email to babylog.
+export async function handleAlexaAuthorize(
+  request: Request,
+  env: LinkEnv
+): Promise<Response> {
+  const url = new URL(request.url);
+  const q = url.searchParams;
+
+  if (
+    q.get("client_id") !== env.ALEXA_LINK_CLIENT_ID ||
+    !env.ALEXA_LINK_CLIENT_ID ||
+    !registeredRedirects(env).includes(q.get("redirect_uri") ?? "")
+  ) {
+    return new Response("Unknown client or redirect_uri.", { status: 400 });
+  }
+  const redirectUri = q.get("redirect_uri")!;
+  const state = q.get("state") ?? "";
+
+  const errorBack = (error: string): Response => {
+    const to = new URL(redirectUri);
+    to.searchParams.set("error", error);
+    if (state) to.searchParams.set("state", state);
+    return Response.redirect(to.toString(), 302);
+  };
+
+  if (q.get("response_type") !== "code") return errorBack("unsupported_response_type");
+
+  const session = await readSession(request, env);
+  if (!session) {
+    const next = encodeURIComponent(url.pathname + url.search);
+    return Response.redirect(`${url.origin}/auth/login?next=${next}`, 302);
+  }
+
+  const code = await mintLinkToken(env, CODE_TYP, session, CODE_TTL_S, {
+    redirect_uri: redirectUri,
+    jti: crypto.randomUUID(),
+  });
+  const to = new URL(redirectUri);
+  to.searchParams.set("code", code);
+  if (state) to.searchParams.set("state", state);
+  return Response.redirect(to.toString(), 302);
 }

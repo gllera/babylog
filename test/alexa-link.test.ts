@@ -6,6 +6,7 @@ import { SignJWT } from "jose";
 import {
   mintLinkToken,
   verifyLinkToken,
+  handleAlexaAuthorize,
   CODE_TYP,
   ACCESS_TYP,
   REFRESH_TYP,
@@ -76,5 +77,81 @@ describe("link tokens", () => {
     const got = await verifyLinkToken(env, tok, CODE_TYP);
     expect(got?.redirect_uri).toBe("https://layla.amazon.com/api/skill/link/V123");
     expect(got?.jti).toBe("j1");
+  });
+});
+
+const REDIRECT = "https://layla.amazon.com/api/skill/link/V123";
+const authorizeEnv = {
+  SESSION_HMAC_SECRET: "session-secret-32-bytes-long!!!!!!!!",
+  ALEXA_OAUTH_HMAC_SECRET: SECRET,
+  ALEXA_LINK_CLIENT_ID: "alexa",
+  ALEXA_LINK_REDIRECTS: `https://pitangui.amazon.com/api/skill/link/V123,${REDIRECT}`,
+} as never;
+
+const authorizeUrl = (over: Record<string, string> = {}) => {
+  const u = new URL("https://baby.32b.io/auth/alexa/authorize");
+  const params = {
+    response_type: "code",
+    client_id: "alexa",
+    redirect_uri: REDIRECT,
+    state: "st-1",
+    ...over,
+  };
+  for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, v);
+  return u.toString();
+};
+
+describe("handleAlexaAuthorize", () => {
+  it("400 with no Location for an unknown client or unregistered redirect", async () => {
+    for (const bad of [
+      authorizeUrl({ client_id: "evil" }),
+      authorizeUrl({ redirect_uri: "https://evil.example/cb" }),
+      authorizeUrl({ redirect_uri: REDIRECT + "/" }), // exact match only
+    ]) {
+      const res = await handleAlexaAuthorize(new Request(bad), authorizeEnv);
+      expect(res.status).toBe(400);
+      expect(res.headers.get("Location")).toBeNull();
+    }
+  });
+
+  it("redirects a wrong response_type back to Amazon as an OAuth error", async () => {
+    const res = await handleAlexaAuthorize(
+      new Request(authorizeUrl({ response_type: "token" })),
+      authorizeEnv
+    );
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("Location")!);
+    expect(loc.origin + loc.pathname).toBe(REDIRECT);
+    expect(loc.searchParams.get("error")).toBe("unsupported_response_type");
+    expect(loc.searchParams.get("state")).toBe("st-1");
+  });
+
+  it("bounces a sessionless browser through /auth/login with next", async () => {
+    const res = await handleAlexaAuthorize(new Request(authorizeUrl()), authorizeEnv);
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("Location")!, "https://baby.32b.io");
+    expect(loc.pathname).toBe("/auth/login");
+    const next = loc.searchParams.get("next")!;
+    expect(next.startsWith("/auth/alexa/authorize?")).toBe(true);
+    expect(new URL("https://baby.32b.io" + next).searchParams.get("state")).toBe("st-1");
+  });
+
+  it("auto-approves a live session: 302 to Amazon with a redeemable code", async () => {
+    const sess = await mintSession(
+      { SESSION_HMAC_SECRET: (authorizeEnv as { SESSION_HMAC_SECRET: string }).SESSION_HMAC_SECRET },
+      ID
+    );
+    const res = await handleAlexaAuthorize(
+      new Request(authorizeUrl(), { headers: { Cookie: `${SESSION_COOKIE}=${sess}` } }),
+      authorizeEnv
+    );
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("Location")!);
+    expect(loc.origin + loc.pathname).toBe(REDIRECT);
+    expect(loc.searchParams.get("state")).toBe("st-1");
+    const code = loc.searchParams.get("code")!;
+    const claims = await verifyLinkToken(authorizeEnv, code, CODE_TYP);
+    expect(claims).toMatchObject({ ...ID, redirect_uri: REDIRECT });
+    expect(claims?.jti).toBeTruthy();
   });
 });
