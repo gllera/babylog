@@ -22,8 +22,6 @@ export type Env = {
   SESSION_HMAC_SECRET?: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
-  // Household that Alexa-logged events belong to (default "1").
-  ALEXA_HOUSEHOLD_ID?: string;
   // Local dev only (.dev.vars): identity assumed when no Access JWT is
   // present. Never set in production.
   DEV_USER_EMAIL?: string;

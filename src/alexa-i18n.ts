@@ -38,6 +38,8 @@ export interface Voice {
 
   // ---- launch / meta strings ----
   launchPrompt: string;
+  linkAccount: string;
+  notInHousehold: string;
   launchReprompt: string;
   notUnderstood: string;
   help: string;
@@ -147,6 +149,8 @@ export const voiceEs: Voice = {
   },
 
   launchPrompt: "Sí, ¿cuántos mililitros?",
+  linkAccount: "Para usar la skill, vincula tu cuenta de 32b punto io en la app de Alexa.",
+  notInHousehold: "Tu cuenta aún no está en ningún hogar. Acepta tu invitación en baby punto 32b punto io.",
   launchReprompt:
     'Dime los mililitros, o di "hizo caca", "le di vitamina D", "cómo vamos".',
   notUnderstood: "Lo siento, no he entendido.",
@@ -281,6 +285,8 @@ export const voiceEn: Voice = {
   },
 
   launchPrompt: "Yes, how many milliliters?",
+  linkAccount: "To use this skill, link your account in the Alexa app.",
+  notInHousehold: "Your account isn't in a household yet. Accept your invite at baby dot 32b dot io.",
   launchReprompt:
     'Tell me the milliliters, or say "did a poop", "gave vitamin D", "how are we doing".',
   notUnderstood: "Sorry, I didn't understand.",

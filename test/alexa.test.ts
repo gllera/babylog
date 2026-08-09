@@ -227,3 +227,102 @@ describe("voiceEs", () => {
     expect(v.lastFeedingAt("20:10")).toBe("Última toma a las 20:10.");
   });
 });
+
+import { handleAlexa } from "../src/alexa";
+import { mintLinkToken, ACCESS_TYP } from "../src/alexa-link";
+
+const OAUTH_SECRET = "alexa-oauth-secret-32-bytes-long!!!!";
+
+const strictEnv = (db: unknown) =>
+  ({
+    DB: db,
+    ALEXA_SKIP_SIGNATURE: "true",
+    ALEXA_OAUTH_HMAC_SECRET: OAUTH_SECRET,
+  }) as never;
+
+const envelope = (over: Record<string, unknown> = {}) => ({
+  version: "1.0",
+  context: {
+    System: {
+      application: { applicationId: "amzn1.ask.skill.test" },
+      user: { userId: "u1", ...over },
+    },
+  },
+  request: {
+    type: "LaunchRequest",
+    requestId: "r1",
+    timestamp: new Date().toISOString(),
+    locale: "en-US",
+  },
+});
+
+const post = (body: unknown) =>
+  new Request("https://baby.32b.io/alexa", { method: "POST", body: JSON.stringify(body) });
+
+describe("strict account linking", () => {
+  it("no token → LinkAccount card, localized speech, session ends", async () => {
+    const res = await handleAlexa(post(envelope()), strictEnv({}));
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as {
+      response: { card?: { type: string }; outputSpeech?: { text?: string }; shouldEndSession: boolean };
+    };
+    expect(out.response.card?.type).toBe("LinkAccount");
+    expect(out.response.outputSpeech?.text).toContain("link your account");
+    expect(out.response.shouldEndSession).toBe(true);
+  });
+
+  it("an invalid/expired token behaves like no token", async () => {
+    const stale = await mintLinkToken(
+      { ALEXA_OAUTH_HMAC_SECRET: OAUTH_SECRET }, ACCESS_TYP,
+      { sub: "u_1", email: "ana@example.com" }, -1
+    );
+    const res = await handleAlexa(post(envelope({ accessToken: stale })), strictEnv({}));
+    const out = (await res.json()) as { response: { card?: { type: string } } };
+    expect(out.response.card?.type).toBe("LinkAccount");
+  });
+
+  it("a linked email with no users row gets the invite line, not a crash", async () => {
+    const tok = await mintLinkToken(
+      { ALEXA_OAUTH_HMAC_SECRET: OAUTH_SECRET }, ACCESS_TYP,
+      { sub: "u_1", email: "nobody@example.com" }, 60
+    );
+    const db = { prepare: () => ({ bind: () => ({ first: async () => null }) }) };
+    const res = await handleAlexa(post(envelope({ accessToken: tok })), strictEnv(db));
+    const out = (await res.json()) as {
+      response: { card?: { type: string }; outputSpeech?: { text?: string } };
+    };
+    expect(out.response.card).toBeUndefined();
+    expect(out.response.outputSpeech?.text).toContain("isn't in a household");
+  });
+
+  it("a linked user with a household passes the gate (launch prompt, no card)", async () => {
+    const tok = await mintLinkToken(
+      { ALEXA_OAUTH_HMAC_SECRET: OAUTH_SECRET }, ACCESS_TYP,
+      { sub: "u_1", email: "ana@example.com" }, 60
+    );
+    const linkedDb = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => ({ id: 1, email: "ana@example.com", household_id: 7 }),
+          all: async () => ({
+            results: [{ id: 3, household_id: 7, name: "Baby", sex: null, date_of_birth: null, is_default: 1 }],
+          }),
+        }),
+      }),
+    };
+    const res = await handleAlexa(post(envelope({ accessToken: tok })), strictEnv(linkedDb));
+    const out = (await res.json()) as {
+      response: { card?: unknown; shouldEndSession: boolean };
+    };
+    expect(out.response.card).toBeUndefined();
+    expect(out.response.shouldEndSession).toBe(false); // launch keeps the session open
+  });
+
+  it("the Spanish voice localizes the link prompt", async () => {
+    const body = envelope();
+    (body.request as { locale: string }).locale = "es-ES";
+    const res = await handleAlexa(post(body), strictEnv({}));
+    const out = (await res.json()) as { response: { outputSpeech?: { text?: string } } };
+    expect(out.response.outputSpeech?.text).toContain("vincula tu cuenta");
+  });
+});
