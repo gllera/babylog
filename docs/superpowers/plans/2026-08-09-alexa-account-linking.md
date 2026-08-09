@@ -935,8 +935,13 @@ and add, directly after the `/auth/logout` block (staying inside the
     // The Alexa account-linking mini-AS (src/alexa-link.ts). Public on
     // purpose: /authorize is where the linking browser lands, /token is
     // Amazon server-to-server — neither may ever sit behind Access.
+    // /authorize takes GET (render the confirmation) and POST (the user
+    // confirmed — mint the code); the POST-to-mint is the account-linking
+    // CSRF defence, see src/alexa-link.ts.
     if (url.pathname === "/auth/alexa/authorize") {
-      if (request.method !== "GET") return methodNotAllowed("GET");
+      if (request.method !== "GET" && request.method !== "POST") {
+        return methodNotAllowed("GET, POST");
+      }
       return handleAlexaAuthorize(request, env);
     }
     if (url.pathname === "/auth/alexa/token") {

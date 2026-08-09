@@ -27,10 +27,11 @@ app gates the `/alexa` path only (verified: unsigned POST to
 must reach `/auth/alexa/token` server-to-server, so neither endpoint may ever
 move behind Access.
 
-### `GET /auth/alexa/authorize`
+### `GET|POST /auth/alexa/authorize`
 
 Params: `response_type=code`, `client_id`, `redirect_uri`, `state`
-(`scope` accepted and ignored).
+(`scope` accepted and ignored). On GET they come from the query; on POST (the
+confirmation submit) from the form body.
 
 1. `client_id` must equal `ALEXA_LINK_CLIENT_ID` (a `wrangler.jsonc` var —
    client ids are not secrets) and `redirect_uri` must exact-string-match one
@@ -40,13 +41,36 @@ Params: `response_type=code`, `client_id`, `redirect_uri`, `state`
    `https://alexa.amazon.co.jp/api/skill/link/…` URLs shown in the skill
    console). Unknown client or unregistered redirect → **400, no `Location`
    header** (RFC 6749 §4.1.2.1 — never redirect an unvalidated URI; same
-   discipline as auth.32b.io).
+   discipline as auth.32b.io). Validated on **every** request, GET and the
+   minting POST alike.
 2. No `__Host-bsess` session → 302 to
-   `/auth/login?next=<urlencoded full authorize URL>`. `safeNext` already
-   admits any same-host path, so the round trip needs no login changes.
-3. With a session: **auto-approve** — the AS and the product are the same
-   thing, and the IdP's consent already governed the email release. Mint a
-   code, 302 to `redirect_uri` with `code` + the caller's `state`.
+   `/auth/login?next=<urlencoded canonical authorize URL>`. `safeNext` already
+   admits any same-host path, so the round trip needs no login changes. A
+   sessionless POST (expired mid-link) bounces the same way — nothing is minted
+   without a session.
+3. **A code is minted only by the confirming POST, never by a GET.** This is a
+   deliberate departure from an earlier "auto-approve on GET" design, which was
+   an account-linking CSRF: `__Host-bsess` is `SameSite=Lax`, and Lax cookies
+   *are* sent on a cross-site top-level GET navigation — so an attacker who
+   begins linking on their own Alexa device (obtaining a valid authorize URL
+   with a registered `redirect_uri` and their own `state`) could send that link
+   to a logged-in victim and have the victim's household silently bound to the
+   attacker's device for the refresh token's life. The IdP's consent governs
+   *scope* (releasing the email to babylog); it does not prove the *grant
+   decision* was intentional. So a GET with a live session renders a minimal
+   same-origin confirmation page ("Link your 32b.io account to Alexa?" naming
+   the session email) whose form POSTs back to the same path. A forged
+   cross-site POST does not carry a Lax cookie (Lax's navigation exception is
+   for safe methods only), so the click proves intent with no extra CSRF-token
+   machinery. On that POST — re-validated per (1), live session required — mint
+   a code and 302 to `redirect_uri` with `code` + the caller's `state`.
+
+All 302s (error-back, login bounce, the code-bearing redirect) and the
+confirmation page and the 400 carry `Cache-Control: no-store`; the page and 400
+also carry `X-Robots-Tag: noindex`. This matches `src/oidc.ts`, which no-stores
+every sensitive redirect — a one-time code sitting in a cacheable `Location` is
+a leak vector (this estate has already been bitten by Cloudflare caching a
+response that sent no `Cache-Control`).
 
 ### `POST /auth/alexa/token`
 
