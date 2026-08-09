@@ -364,6 +364,7 @@ describe("handleAlexaToken", () => {
     const tok = (await res.json()) as { access_token: string; refresh_token: string };
     expect(await verifyLinkToken(env, tok.access_token, ACCESS_TYP)).toMatchObject(ID);
     expect(await verifyLinkToken(env, tok.refresh_token, REFRESH_TYP)).toMatchObject(ID);
+    expect(tok.refresh_token).not.toBe(refresh);
   });
 
   it("unsupported_grant_type for anything else", async () => {
@@ -373,5 +374,31 @@ describe("handleAlexaToken", () => {
     );
     expect(res.status).toBe(400);
     expect((await res.json() as { error: string }).error).toBe("unsupported_grant_type");
+  });
+
+  it("a transient DB failure on the marker insert is a 500, not invalid_grant", async () => {
+    const failingDb = {
+      prepare: () => ({
+        bind: () => ({ run: async () => { throw new Error("D1_ERROR: network hiccup"); } }),
+      }),
+    };
+    const res = await handleAlexaToken(
+      tokenReq(
+        { grant_type: "authorization_code", code: await mintCode(), redirect_uri: REDIRECT },
+        basic("alexa", CLIENT_SECRET)
+      ),
+      { ...(tokenEnv() as object), DB: failingDb } as never
+    );
+    expect(res.status).toBe(500);
+    expect((await res.json() as { error: string }).error).toBe("server_error");
+  });
+
+  it("a malformed Basic header is invalid_client, not a crash", async () => {
+    const res = await handleAlexaToken(
+      tokenReq({ grant_type: "authorization_code" }, "Basic @@@not-base64@@@"),
+      tokenEnv()
+    );
+    expect(res.status).toBe(401);
+    expect((await res.json() as { error: string }).error).toBe("invalid_client");
   });
 });

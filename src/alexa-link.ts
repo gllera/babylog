@@ -284,18 +284,32 @@ export async function handleAlexaToken(request: Request, env: LinkEnv): Promise<
     if (claims.redirect_uri !== form.get("redirect_uri")) {
       return oauthError("invalid_grant", 400);
     }
-    // Single use: first redemption INSERTs the jti, a replay hits UNIQUE.
+    // Single use: first redemption INSERTs the jti, a replay hits UNIQUE. Only
+    // a genuine constraint violation is a replay (invalid_grant); any other D1
+    // error is transient — the code was NOT recorded used, so surface it as
+    // server_error and let Amazon retry rather than burning the user's consent
+    // on a blip.
     try {
-      await env.DB!.prepare(
+      await env.DB.prepare(
         "INSERT INTO alexa_link_codes (jti, used_at) VALUES (?, ?)"
       ).bind(claims.jti, Date.now()).run();
-    } catch {
-      return oauthError("invalid_grant", 400);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/UNIQUE constraint failed/i.test(msg)) return oauthError("invalid_grant", 400);
+      console.log(`alexa /token: marker insert failed (not a replay): ${msg}`);
+      return oauthError("server_error", 500);
     }
     // Opportunistic purge; codes live 60s, so a day-old marker defends nothing.
-    await env.DB!.prepare("DELETE FROM alexa_link_codes WHERE used_at < ?")
-      .bind(Date.now() - 86_400_000)
-      .run();
+    // Never let its failure sink a redemption that already succeeded.
+    try {
+      await env.DB.prepare("DELETE FROM alexa_link_codes WHERE used_at < ?")
+        .bind(Date.now() - 86_400_000)
+        .run();
+    } catch (e) {
+      console.log(
+        `alexa /token: opportunistic purge failed: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
     return tokenPair(env, claims);
   }
 
