@@ -326,6 +326,54 @@ describe("strict account linking", () => {
     expect(out.response.outputSpeech?.text).toContain("vincula tu cuenta");
   });
 
+  it("a linked user's write lands in THEIR household and is attributed to THEIR email", async () => {
+    // A capturing D1: records every bind() so we can assert the diaper INSERT
+    // used the resolved baby id and the linked email — the tenant-isolation
+    // guarantee, not just that the gate opened.
+    const capturingDb = (email: string, householdId: number, babyId: number) => {
+      const binds: { sql: string; args: unknown[] }[] = [];
+      const stmt = (sql: string) => ({
+        sql,
+        bind(...args: unknown[]) {
+          binds.push({ sql, args });
+          return this;
+        },
+        first: async () =>
+          sql.includes("FROM users") ? { id: 1, email, household_id: householdId } : null,
+        all: async () => ({
+          results: sql.includes("FROM babies")
+            ? [{ id: babyId, household_id: householdId, name: "Baby", sex: null, date_of_birth: null, is_default: 1 }]
+            : [],
+        }),
+      });
+      return {
+        binds,
+        prepare: (sql: string) => stmt(sql),
+        batch: async (stmts: Array<{ sql: string }>) =>
+          stmts.map((s) => ({ results: s.sql.startsWith("INSERT") ? [{ id: 99 }] : [] })),
+      };
+    };
+
+    const tok = await mintLinkToken(
+      { ALEXA_OAUTH_HMAC_SECRET: OAUTH_SECRET }, ACCESS_TYP,
+      { sub: "u_1", email: "ana@example.com" }, 60
+    );
+    const db = capturingDb("ana@example.com", 7, 3);
+    const diaper = envelope({ accessToken: tok });
+    (diaper.request as Record<string, unknown>).type = "IntentRequest";
+    (diaper.request as Record<string, unknown>).intent = {
+      name: "RecordDiaperIntent",
+      slots: { kind: { name: "kind", value: "poop" } },
+    };
+    await handleAlexa(post(diaper), strictEnv(db));
+
+    const insert = db.binds.find((b) => b.sql.startsWith("INSERT INTO diapers"));
+    expect(insert).toBeTruthy();
+    // INSERT INTO diapers (ts, kind, baby_id, created_by) VALUES (?, ?, ?, ?)
+    expect(insert!.args[2]).toBe(3); // the linked household's default baby
+    expect(insert!.args[3]).toBe("ana@example.com"); // attributed to the linked user
+  });
+
   it("a linked user whose household has zero babies gets a graceful spoken error, not a crash", async () => {
     const tok = await mintLinkToken(
       { ALEXA_OAUTH_HMAC_SECRET: OAUTH_SECRET }, ACCESS_TYP,

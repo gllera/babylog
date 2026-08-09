@@ -494,19 +494,22 @@ export async function handleAlexa(
       },
     });
   }
-  const tenant = await resolveTenant(env.DB, linked.email);
-  if (!tenant) {
-    // No silent provisioning — same invariant as the web and MCP.
-    return jsonResponse(speak(v.notInHousehold));
-  }
+  // Everything below touches D1 and can throw on a transient error — resolving
+  // the tenant, pickBaby (which throws on a zero-baby household, a reachable
+  // state: removeBaby has no last-baby floor), and the intent's own writes. All
+  // of it lives inside one try so any throw becomes the graceful spoken error,
+  // never an uncaught Worker exception (index.ts's fetch has no outer catch).
+  // The one non-throwing branch — resolveTenant returning null for an unknown
+  // email — is the deliberate "no silent provisioning" refusal, not an error.
   let reply: AlexaResponseEnvelope;
   try {
-    // pickBaby throws if the household has zero babies (a reachable state —
-    // removeBaby has no last-baby floor). Build ident INSIDE the try so that
-    // throw becomes the graceful spoken error, as it did when this call lived
-    // in the intent handlers, not an uncaught Worker exception.
-    const ident: AlexaIdentity = { babyId: pickBaby(tenant.babies).id, user: tenant.email };
-    reply = await route(envelope, env, lang, ident);
+    const tenant = await resolveTenant(env.DB, linked.email);
+    if (!tenant) {
+      reply = speak(v.notInHousehold);
+    } else {
+      const ident: AlexaIdentity = { babyId: pickBaby(tenant.babies).id, user: tenant.email };
+      reply = await route(envelope, env, lang, ident);
+    }
   } catch (e) {
     // Log the detail server-side; never speak raw exception/SQL text back.
     console.error("alexa route error:", e);
