@@ -7,6 +7,7 @@ import {
   mintLinkToken,
   verifyLinkToken,
   handleAlexaAuthorize,
+  handleAlexaToken,
   CODE_TYP,
   ACCESS_TYP,
   REFRESH_TYP,
@@ -234,5 +235,143 @@ describe("handleAlexaAuthorize", () => {
     const html = await res.text();
     expect(html).not.toContain("<script>x");
     expect(html).toContain("&quot;&gt;&lt;script&gt;x");
+  });
+});
+
+// A D1 stand-in for the single-use marker table: INSERT throws on a repeated
+// jti (UNIQUE), DELETE (the opportunistic purge) is a no-op.
+function fakeCodesDb() {
+  const seen = new Set<string>();
+  return {
+    prepare(sql: string) {
+      return {
+        bind(...args: unknown[]) {
+          return {
+            async run() {
+              if (sql.startsWith("INSERT")) {
+                const jti = String(args[0]);
+                if (seen.has(jti)) throw new Error("UNIQUE constraint failed");
+                seen.add(jti);
+              }
+              return {};
+            },
+          };
+        },
+      };
+    },
+  } as never;
+}
+
+const CLIENT_SECRET = "amazon-client-secret-32-bytes!!!!!!!";
+const tokenEnv = () =>
+  ({
+    ...(authorizeEnv as object),
+    ALEXA_LINK_CLIENT_SECRET: CLIENT_SECRET,
+    DB: fakeCodesDb(),
+  }) as never;
+
+const basic = (id: string, secret: string) =>
+  "Basic " + Buffer.from(`${id}:${secret}`).toString("base64");
+
+const tokenReq = (body: Record<string, string>, auth?: string) =>
+  new Request("https://baby.32b.io/auth/alexa/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      ...(auth ? { Authorization: auth } : {}),
+    },
+    body: new URLSearchParams(body).toString(),
+  });
+
+const mintCode = (over: Record<string, string> = {}) =>
+  mintLinkToken(env, CODE_TYP, ID, 60, {
+    redirect_uri: REDIRECT,
+    jti: crypto.randomUUID(),
+    ...over,
+  });
+
+describe("handleAlexaToken", () => {
+  it("401 invalid_client with WWW-Authenticate on a wrong secret", async () => {
+    const res = await handleAlexaToken(
+      tokenReq({ grant_type: "authorization_code", code: await mintCode(), redirect_uri: REDIRECT }, basic("alexa", "wrong")),
+      tokenEnv()
+    );
+    expect(res.status).toBe(401);
+    expect(res.headers.get("WWW-Authenticate")).toContain("Basic");
+    expect((await res.json() as { error: string }).error).toBe("invalid_client");
+  });
+
+  it("exchanges a code for a verifiable pair — Basic and body auth both work", async () => {
+    for (const useBasic of [true, false]) {
+      const body: Record<string, string> = {
+        grant_type: "authorization_code",
+        code: await mintCode(),
+        redirect_uri: REDIRECT,
+        ...(useBasic ? {} : { client_id: "alexa", client_secret: CLIENT_SECRET }),
+      };
+      const res = await handleAlexaToken(
+        tokenReq(body, useBasic ? basic("alexa", CLIENT_SECRET) : undefined),
+        tokenEnv()
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      const tok = (await res.json()) as {
+        access_token: string; token_type: string; expires_in: number; refresh_token: string;
+      };
+      expect(tok.token_type).toBe("Bearer");
+      expect(tok.expires_in).toBe(24 * 60 * 60);
+      expect(await verifyLinkToken(env, tok.access_token, ACCESS_TYP)).toMatchObject(ID);
+      expect(await verifyLinkToken(env, tok.refresh_token, REFRESH_TYP)).toMatchObject(ID);
+    }
+  });
+
+  it("invalid_grant on replay, redirect_uri mismatch, and an expired code", async () => {
+    const environment = tokenEnv();
+    const code = await mintCode();
+    const good = () =>
+      tokenReq({ grant_type: "authorization_code", code, redirect_uri: REDIRECT }, basic("alexa", CLIENT_SECRET));
+    expect((await handleAlexaToken(good(), environment)).status).toBe(200);
+    const replay = await handleAlexaToken(good(), environment);
+    expect(replay.status).toBe(400);
+    expect((await replay.json() as { error: string }).error).toBe("invalid_grant");
+
+    const mismatch = await handleAlexaToken(
+      tokenReq(
+        { grant_type: "authorization_code", code: await mintCode(), redirect_uri: "https://pitangui.amazon.com/api/skill/link/V123" },
+        basic("alexa", CLIENT_SECRET)
+      ),
+      tokenEnv()
+    );
+    expect((await mismatch.json() as { error: string }).error).toBe("invalid_grant");
+
+    const expired = await handleAlexaToken(
+      tokenReq(
+        { grant_type: "authorization_code", code: await mintLinkToken(env, CODE_TYP, ID, -1, { redirect_uri: REDIRECT, jti: "x" }), redirect_uri: REDIRECT },
+        basic("alexa", CLIENT_SECRET)
+      ),
+      tokenEnv()
+    );
+    expect((await expired.json() as { error: string }).error).toBe("invalid_grant");
+  });
+
+  it("rotates on refresh: a new pair, and the old access token's claims carry over", async () => {
+    const refresh = await mintLinkToken(env, REFRESH_TYP, ID, 60);
+    const res = await handleAlexaToken(
+      tokenReq({ grant_type: "refresh_token", refresh_token: refresh }, basic("alexa", CLIENT_SECRET)),
+      tokenEnv()
+    );
+    expect(res.status).toBe(200);
+    const tok = (await res.json()) as { access_token: string; refresh_token: string };
+    expect(await verifyLinkToken(env, tok.access_token, ACCESS_TYP)).toMatchObject(ID);
+    expect(await verifyLinkToken(env, tok.refresh_token, REFRESH_TYP)).toMatchObject(ID);
+  });
+
+  it("unsupported_grant_type for anything else", async () => {
+    const res = await handleAlexaToken(
+      tokenReq({ grant_type: "password" }, basic("alexa", CLIENT_SECRET)),
+      tokenEnv()
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: string }).error).toBe("unsupported_grant_type");
   });
 });

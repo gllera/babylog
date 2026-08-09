@@ -210,3 +210,117 @@ export async function handleAlexaAuthorize(request: Request, env: LinkEnv): Prom
   if (state) to.searchParams.set("state", state);
   return seeOther(to.toString());
 }
+
+// ------------------------------------------------------------------- token --
+
+// Constant-time comparison. crypto.subtle.timingSafeEqual is a Workers
+// extension vitest's Node runtime lacks, so XOR the bytes by hand; the length
+// check short-circuits, which leaks only the length.
+function secretsEqual(a: string, b: string): boolean {
+  const ab = new TextEncoder().encode(a);
+  const bb = new TextEncoder().encode(b);
+  if (ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= ab[i] ^ bb[i];
+  return diff === 0;
+}
+
+const oauthError = (
+  error: string,
+  status: number,
+  extraHeaders: Record<string, string> = {}
+): Response =>
+  new Response(JSON.stringify({ error }), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      ...extraHeaders,
+    },
+  });
+
+// The client's credentials, from HTTP Basic or the form body — the Alexa
+// console offers both schemes, so both are accepted.
+function clientAuth(request: Request, form: URLSearchParams): { id: string; secret: string } | null {
+  const header = request.headers.get("Authorization");
+  if (header?.startsWith("Basic ")) {
+    try {
+      const [id, ...rest] = atob(header.slice(6)).split(":");
+      return { id, secret: rest.join(":") };
+    } catch {
+      return null;
+    }
+  }
+  const id = form.get("client_id");
+  const secret = form.get("client_secret");
+  return id && secret ? { id, secret } : null;
+}
+
+// POST /auth/alexa/token — Amazon redeems codes and refreshes tokens here,
+// server-to-server. Every response is JSON with Cache-Control: no-store
+// (RFC 6749 §5.1/§5.2).
+export async function handleAlexaToken(request: Request, env: LinkEnv): Promise<Response> {
+  const form = new URLSearchParams(await request.text());
+
+  const creds = clientAuth(request, form);
+  if (
+    !creds ||
+    !env.ALEXA_LINK_CLIENT_SECRET ||
+    creds.id !== env.ALEXA_LINK_CLIENT_ID ||
+    !secretsEqual(creds.secret, env.ALEXA_LINK_CLIENT_SECRET)
+  ) {
+    return oauthError("invalid_client", 401, {
+      "WWW-Authenticate": 'Basic realm="https://baby.32b.io/auth/alexa/token"',
+    });
+  }
+
+  const grant = form.get("grant_type");
+
+  if (grant === "authorization_code") {
+    const claims = await verifyLinkToken(env, form.get("code") ?? "", CODE_TYP);
+    if (!claims || !claims.jti) return oauthError("invalid_grant", 400);
+    // §4.1.3 substitution defence: the redemption names the same redirect_uri
+    // the code was issued for.
+    if (claims.redirect_uri !== form.get("redirect_uri")) {
+      return oauthError("invalid_grant", 400);
+    }
+    // Single use: first redemption INSERTs the jti, a replay hits UNIQUE.
+    try {
+      await env.DB!.prepare(
+        "INSERT INTO alexa_link_codes (jti, used_at) VALUES (?, ?)"
+      ).bind(claims.jti, Date.now()).run();
+    } catch {
+      return oauthError("invalid_grant", 400);
+    }
+    // Opportunistic purge; codes live 60s, so a day-old marker defends nothing.
+    await env.DB!.prepare("DELETE FROM alexa_link_codes WHERE used_at < ?")
+      .bind(Date.now() - 86_400_000)
+      .run();
+    return tokenPair(env, claims);
+  }
+
+  if (grant === "refresh_token") {
+    const claims = await verifyLinkToken(env, form.get("refresh_token") ?? "", REFRESH_TYP);
+    if (!claims) return oauthError("invalid_grant", 400);
+    // Rotation: a fresh pair every time. The old refresh token simply ages out
+    // via its own exp — no reuse-detection state for a single confidential
+    // client (the spec's explicit v1 scope).
+    return tokenPair(env, claims);
+  }
+
+  return oauthError("unsupported_grant_type", 400);
+}
+
+async function tokenPair(env: LinkEnv, id: { sub: string; email: string }): Promise<Response> {
+  return new Response(
+    JSON.stringify({
+      access_token: await mintLinkToken(env, ACCESS_TYP, id, ACCESS_TTL_S),
+      token_type: "Bearer",
+      expires_in: ACCESS_TTL_S,
+      refresh_token: await mintLinkToken(env, REFRESH_TYP, id, REFRESH_TTL_S),
+    }),
+    {
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    }
+  );
+}
