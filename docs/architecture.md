@@ -178,7 +178,8 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 │   ├── web.ts                      # App shell serving + PWA assets
 │   ├── app.html                    # Browser app shell (served at /app)
 │   ├── icons.ts                    # PNG app icons (base64) for iOS/Android
-│   ├── alexa.ts                    # /alexa endpoint for the Alexa skill
+│   ├── alexa.ts                    # /alexa endpoint for the Alexa skill (strict linking)
+│   ├── alexa-link.ts               # Alexa account-linking mini-AS: /auth/alexa/{authorize,token}
 │   ├── alexa-i18n.ts               # Alexa localization (es-ES / en voices)
 │   ├── lib.ts                      # Pure helpers (timezone, gaps, ages)
 │   ├── growth.ts                   # Growth-based targets (weight/age → target); pure, tested
@@ -195,7 +196,8 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 │   ├── belly-calib.test.ts         # Unit tests for the belly ring's calibration backtest
 │   ├── belly-kernel.test.ts        # Unit tests for the belly ring's hunger-curve kernel
 │   ├── belly-ring.dom.test.ts      # DOM tests for the belly ring (jsdom)
-│   └── alexa.test.ts               # Unit tests for the Alexa voices
+│   ├── alexa.test.ts               # Unit tests for the Alexa voices + strict linking gate
+│   └── alexa-link.test.ts          # Unit tests for the account-linking mini-AS
 ├── alexa-skill/
 │   ├── interaction-model.es-ES.json  # Spanish voice model to upload to Alexa
 │   ├── interaction-model.en.json     # English voice model (en-US + en-GB)
