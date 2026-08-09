@@ -77,12 +77,30 @@
     // repo had to move. A pairwise tenant would have handed us different
     // subjects for the same people.
     "OIDC_ISSUER": "https://auth.32b.io/t/32b",
-    "OIDC_CLIENT_ID": "babylog"
+    "OIDC_CLIENT_ID": "babylog",
+
+    // --- Alexa account linking (src/alexa-link.ts) --------------------------
+    //
+    // The mini authorization server babylog fronts for Amazon's Alexa
+    // account-linking client. Non-secret halves live here for the same reason
+    // as the OIDC pair above: `wrangler deploy` overwrites dashboard vars.
+    //
+    // ALEXA_LINK_REDIRECTS is the exact-match allowlist of Amazon's linking
+    // redirect URLs; the trailing segment is this Amazon vendor id
+    // (MJH478DMH786M). ALEXA_LINK_CLIENT_ID is what Amazon sends to /authorize
+    // and /token; it must match the client id configured in the skill's
+    // Account Linking settings (see alexa-skill/README.md).
+    "ALEXA_LINK_CLIENT_ID": "alexa",
+    "ALEXA_LINK_REDIRECTS": "https://pitangui.amazon.com/api/skill/link/MJH478DMH786M,https://layla.amazon.com/api/skill/link/MJH478DMH786M,https://alexa.amazon.co.jp/api/skill/link/MJH478DMH786M"
 
     // Not here, deliberately, and set with `wrangler secret put`:
-    //   OIDC_CLIENT_SECRET — authenticates this Worker at /token.
-    //   SESSION_HMAC_SECRET     — HMAC key for babylog's own session cookie.
-    // Both can mint, which is the whole difference from the var they replaced.
+    //   OIDC_CLIENT_SECRET — authenticates this Worker at auth.32b.io's /token.
+    //   SESSION_HMAC_SECRET — HMAC key for babylog's own web session cookie.
+    //   ALEXA_OAUTH_HMAC_SECRET — signs babylog's Alexa link tokens (distinct
+    //     from the web session key: rotating one must not disturb the other).
+    //   ALEXA_LINK_CLIENT_SECRET — the secret Amazon presents at /token; must
+    //     match the skill's Account Linking config.
+    // All can mint, which is the whole difference from the vars they sit beside.
   },
 
   "observability": {

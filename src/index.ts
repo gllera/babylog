@@ -7,6 +7,7 @@ import { getIdentityEmail } from "./identity";
 import { resolveTenant } from "./users";
 import { handleWelcome, loginRedirect } from "./onboard";
 import { beginLogin, handleCallback, logout } from "./oidc";
+import { handleAlexaAuthorize, handleAlexaToken } from "./alexa-link";
 import {
   ICON_SVG,
   WEB_MANIFEST,
@@ -73,6 +74,22 @@ export default {
         return methodNotAllowed("GET, POST");
       }
       return logout(request, env);
+    }
+
+    // The Alexa account-linking mini-AS (src/alexa-link.ts). Public on
+    // purpose: /authorize is where the linking browser lands, /token is
+    // Amazon server-to-server — neither may ever sit behind Access.
+    // /authorize takes GET (render the confirmation) and POST (the user
+    // confirmed — mint the code); the POST-to-mint is the CSRF defence.
+    if (url.pathname === "/auth/alexa/authorize") {
+      if (request.method !== "GET" && request.method !== "POST") {
+        return methodNotAllowed("GET, POST");
+      }
+      return handleAlexaAuthorize(request, env);
+    }
+    if (url.pathname === "/auth/alexa/token") {
+      if (request.method !== "POST") return methodNotAllowed("POST");
+      return handleAlexaToken(request, env);
     }
 
     if (url.pathname === "/icon.svg") {

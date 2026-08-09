@@ -22,11 +22,17 @@ export type Env = {
   SESSION_HMAC_SECRET?: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
-  // Household that Alexa-logged events belong to (default "1").
-  ALEXA_HOUSEHOLD_ID?: string;
   // Local dev only (.dev.vars): identity assumed when no Access JWT is
   // present. Never set in production.
   DEV_USER_EMAIL?: string;
+  // Alexa account linking (src/alexa-link.ts): the mini-AS babylog fronts for
+  // Amazon. The HMAC secret is deliberately NOT SESSION_HMAC_SECRET — rotating
+  // web sessions must never unlink every Echo, and vice versa.
+  ALEXA_OAUTH_HMAC_SECRET?: string;
+  ALEXA_LINK_CLIENT_ID?: string;
+  ALEXA_LINK_CLIENT_SECRET?: string;
+  // Comma-separated exact-match redirect_uri allowlist (Amazon's vendor URLs).
+  ALEXA_LINK_REDIRECTS?: string;
 };
 
 export type FeedingRow = {

@@ -101,6 +101,20 @@ retired; nothing here reads them. Setup, in order:
    baby.32b.io sessions. It is deliberately **not** named `SESSION_SECRET`:
    that name means the retired estate-wide forging key, and the two must
    never be confusable (`src/session.ts` explains).
+
+   Alexa account linking (`src/alexa-link.ts`) adds two more secrets, set the
+   same way — see `alexa-skill/README.md` for the full flow:
+
+   ```bash
+   npx wrangler secret put ALEXA_OAUTH_HMAC_SECRET   # signs Alexa link tokens; distinct from SESSION_HMAC_SECRET
+   npx wrangler secret put ALEXA_LINK_CLIENT_SECRET  # must equal the skill's Account Linking client secret
+   ```
+
+   plus the account-linking config pushed once via
+   `ask-cli smapi update-account-linking-info` (Auth Code Grant, HTTP Basic,
+   the `/auth/alexa/{authorize,token}` URLs) — **not** in CI, since it embeds
+   the client secret and never changes; CI's `alexa-model` job pushes only the
+   interaction models, a different SMAPI resource.
 3. Deployed the code, then attached `baby.32b.io` as a Worker **custom
    domain** — *not* a `routes` entry in `wrangler.jsonc`:
 

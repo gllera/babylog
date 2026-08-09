@@ -25,28 +25,19 @@ import {
   recordFeeding,
 } from "./lib";
 import type { DiaperKind } from "./types";
-import { getBabies, pickBaby } from "./users";
+import { pickBaby, resolveTenant } from "./users";
 import { langOf, VOICES, type Lang } from "./alexa-i18n";
+import { verifyLinkToken, ACCESS_TYP } from "./alexa-link";
 
 export type AlexaEnv = {
   DB: D1Database;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
-  ALEXA_HOUSEHOLD_ID?: string;
+  ALEXA_OAUTH_HMAC_SECRET?: string;
 };
 
 const MAX_TIMESTAMP_SKEW_MS = 150_000;
 const CERT_CACHE_TTL_S = 86_400;
-
-// Alexa has no Cloudflare Access identity (its Access app uses a service
-// token via the Lambda bridge): events are attributed to 'alexa' and pinned
-// to ALEXA_HOUSEHOLD_ID's default baby.
-const ALEXA_USER = "alexa";
-
-async function alexaBabyId(env: AlexaEnv): Promise<number> {
-  const householdId = parseInt(env.ALEXA_HOUSEHOLD_ID ?? "1", 10) || 1;
-  return pickBaby(await getBabies(env.DB, householdId)).id;
-}
 
 // ---- Alexa request / response types ----------------------------------------
 
@@ -127,15 +118,18 @@ interface AlexaResponseEnvelope {
   sessionAttributes?: Record<string, unknown>;
   response: {
     outputSpeech?: AlexaOutputSpeech;
-    card?: {
-      type: "Simple";
-      title: string;
-      content: string;
-    };
+    card?:
+      | { type: "Simple"; title: string; content: string }
+      | { type: "LinkAccount" };
     reprompt?: { outputSpeech: AlexaOutputSpeech };
     shouldEndSession: boolean;
   };
 }
+
+// The identity a request has been resolved to after the account-linking
+// gate in handleAlexa: which baby its writes/reads target, and whose email
+// they're attributed to.
+type AlexaIdentity = { babyId: number; user: string };
 
 // ---- Tiny helpers ----------------------------------------------------------
 
@@ -475,10 +469,47 @@ export async function handleAlexa(
   }
 
   const lang = langOf(envelope.request.locale);
+  const v = VOICES[lang];
 
+  // SessionEndedRequest carries no intent and Alexa ignores the response —
+  // answer empty without touching identity or the DB.
+  if (envelope.request.type === "SessionEndedRequest") {
+    return jsonResponse(speak(""));
+  }
+
+  // Strict account linking: every request must carry a valid babylog access
+  // token minted by the linking mini-AS (src/alexa-link.ts). No network hop —
+  // verify locally, so voice latency is unchanged.
+  const accessToken =
+    envelope.context?.System.user.accessToken ?? envelope.session?.user.accessToken;
+  const linked = accessToken ? await verifyLinkToken(env, accessToken, ACCESS_TYP) : null;
+  if (!linked) {
+    // The LinkAccount card puts the link button in the user's Alexa app.
+    return jsonResponse({
+      version: "1.0",
+      response: {
+        outputSpeech: { type: "PlainText", text: v.linkAccount },
+        card: { type: "LinkAccount" },
+        shouldEndSession: true,
+      },
+    });
+  }
+  // Everything below touches D1 and can throw on a transient error — resolving
+  // the tenant, pickBaby (which throws on a zero-baby household, a reachable
+  // state: removeBaby has no last-baby floor), and the intent's own writes. All
+  // of it lives inside one try so any throw becomes the graceful spoken error,
+  // never an uncaught Worker exception (index.ts's fetch has no outer catch).
+  // The one non-throwing branch — resolveTenant returning null for an unknown
+  // email — is the deliberate "no silent provisioning" refusal, not an error.
   let reply: AlexaResponseEnvelope;
   try {
-    reply = await route(envelope, env, lang);
+    const tenant = await resolveTenant(env.DB, linked.email);
+    if (!tenant) {
+      reply = speak(v.notInHousehold);
+    } else {
+      const ident: AlexaIdentity = { babyId: pickBaby(tenant.babies).id, user: tenant.email };
+      reply = await route(envelope, env, lang, ident);
+    }
   } catch (e) {
     // Log the detail server-side; never speak raw exception/SQL text back.
     console.error("alexa route error:", e);
@@ -490,15 +521,15 @@ export async function handleAlexa(
 async function route(
   envelope: AlexaRequestEnvelope,
   env: AlexaEnv,
-  lang: Lang
+  lang: Lang,
+  ident: AlexaIdentity
 ): Promise<AlexaResponseEnvelope> {
   const r = envelope.request;
   if (r.type === "LaunchRequest") return handleLaunch(lang);
-  if (r.type === "SessionEndedRequest") return speak("");
   if (r.type !== "IntentRequest" || !r.intent) {
     return speak(VOICES[lang].notUnderstood);
   }
-  return dispatchIntent(r.intent, env, lang);
+  return dispatchIntent(r.intent, env, lang, ident);
 }
 
 function handleLaunch(lang: Lang): AlexaResponseEnvelope {
@@ -512,20 +543,21 @@ function handleLaunch(lang: Lang): AlexaResponseEnvelope {
 async function dispatchIntent(
   intent: AlexaIntent,
   env: AlexaEnv,
-  lang: Lang
+  lang: Lang,
+  ident: AlexaIdentity
 ): Promise<AlexaResponseEnvelope> {
   const v = VOICES[lang];
   switch (intent.name) {
     case "RecordFeedingIntent":
-      return handleRecordFeeding(intent, env, lang);
+      return handleRecordFeeding(intent, env, lang, ident);
     case "RecordDiaperIntent":
-      return handleRecordDiaper(intent, env, lang);
+      return handleRecordDiaper(intent, env, lang, ident);
     case "RecordRoutineIntent":
-      return handleRecordRoutine(intent, env, lang);
+      return handleRecordRoutine(intent, env, lang, ident);
     case "GetStatsIntent":
-      return handleGetStats(env, lang);
+      return handleGetStats(env, lang, ident);
     case "LastFeedingIntent":
-      return handleLastFeeding(env, lang);
+      return handleLastFeeding(env, lang, ident);
     case "AMAZON.HelpIntent":
       return speak(v.help, { endSession: false, reprompt: v.helpReprompt });
     case "AMAZON.CancelIntent":
@@ -547,7 +579,8 @@ async function dispatchIntent(
 async function handleRecordFeeding(
   intent: AlexaIntent,
   env: AlexaEnv,
-  lang: Lang
+  lang: Lang,
+  ident: AlexaIdentity
 ): Promise<AlexaResponseEnvelope> {
   const v = VOICES[lang];
   const amount = slotNumber(intent.slots?.amount);
@@ -558,10 +591,10 @@ async function handleRecordFeeding(
     });
   }
   const amountMl = Math.round(amount);
-  const babyId = await alexaBabyId(env);
+  const { babyId, user } = ident;
   const now = Date.now();
   const ts = new Date(now).toISOString();
-  const row = await recordFeeding(env.DB, babyId, ALEXA_USER, ts, amountMl);
+  const row = await recordFeeding(env.DB, babyId, user, ts, amountMl);
   // Alexa always records "now", so a merge target is a feeding from the last
   // few minutes — speak the top-up, not a gap since "the previous feeding"
   // (which would be the very entry that absorbed the amount).
@@ -612,7 +645,8 @@ export function classifyDiaperKind(raw: string): DiaperKind | null {
 async function handleRecordDiaper(
   intent: AlexaIntent,
   env: AlexaEnv,
-  lang: Lang
+  lang: Lang,
+  ident: AlexaIdentity
 ): Promise<AlexaResponseEnvelope> {
   const v = VOICES[lang];
   const id = slotResolvedId(intent.slots?.kind);
@@ -631,7 +665,7 @@ async function handleRecordDiaper(
       reprompt: v.askDiaperReprompt,
     });
   }
-  const babyId = await alexaBabyId(env);
+  const { babyId, user } = ident;
   const now = Date.now();
   const ts = new Date(now).toISOString();
   const { prev } = await insertAndLookupPrev<{ ts: string }>(
@@ -641,7 +675,7 @@ async function handleRecordDiaper(
     ).bind(babyId, ts),
     env.DB.prepare(
       "INSERT INTO diapers (ts, kind, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-    ).bind(ts, kind, babyId, ALEXA_USER)
+    ).bind(ts, kind, babyId, user)
   );
 
   const tail = v.gapTail(prev, now, "diaper");
@@ -653,7 +687,8 @@ async function handleRecordDiaper(
 async function handleRecordRoutine(
   intent: AlexaIntent,
   env: AlexaEnv,
-  lang: Lang
+  lang: Lang,
+  ident: AlexaIdentity
 ): Promise<AlexaResponseEnvelope> {
   const v = VOICES[lang];
   // Alexa auto-generates an opaque `id` hash for every slot value when the
@@ -672,7 +707,7 @@ async function handleRecordRoutine(
     });
   }
   const name = canonicalRoutineName(raw);
-  const babyId = await alexaBabyId(env);
+  const { babyId, user } = ident;
   const now = Date.now();
   const ts = new Date(now).toISOString();
   const { prev } = await insertAndLookupPrev<{ ts: string }>(
@@ -682,7 +717,7 @@ async function handleRecordRoutine(
     ).bind(babyId, ts, name),
     env.DB.prepare(
       "INSERT INTO routines (ts, name, baby_id, created_by) VALUES (?, ?, ?, ?) RETURNING id"
-    ).bind(ts, name, babyId, ALEXA_USER)
+    ).bind(ts, name, babyId, user)
   );
 
   const tail = v.gapTail(prev, now, "routine");
@@ -693,14 +728,15 @@ async function handleRecordRoutine(
 
 async function handleGetStats(
   env: AlexaEnv,
-  lang: Lang
+  lang: Lang,
+  ident: AlexaIdentity
 ): Promise<AlexaResponseEnvelope> {
   const v = VOICES[lang];
   // Window: "today" in Madrid local — same day boundary as check_indications.
   const now = new Date();
   const startIso = madridMidnightUtc(madridDateOf(now)).toISOString();
   const endIso = now.toISOString();
-  const babyId = await alexaBabyId(env);
+  const babyId = ident.babyId;
 
   const [feedAgg, diaperAgg, routineAgg] = await env.DB.batch([
     env.DB.prepare(
@@ -759,10 +795,11 @@ async function handleGetStats(
 
 async function handleLastFeeding(
   env: AlexaEnv,
-  lang: Lang
+  lang: Lang,
+  ident: AlexaIdentity
 ): Promise<AlexaResponseEnvelope> {
   const v = VOICES[lang];
-  const babyId = await alexaBabyId(env);
+  const babyId = ident.babyId;
   const row = await env.DB.prepare(
     "SELECT ts, amount_ml FROM feedings WHERE baby_id = ? ORDER BY ts DESC LIMIT 1"
   )
