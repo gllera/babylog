@@ -2,6 +2,7 @@
 // client. The typ header is the wall between token kinds — every verify pins
 // it, so a session cookie can never act as an Alexa token or vice versa.
 import { describe, expect, it } from "vitest";
+import { SignJWT } from "jose";
 import {
   mintLinkToken,
   verifyLinkToken,
@@ -27,6 +28,17 @@ describe("link tokens", () => {
     const access = await mintLinkToken(env, ACCESS_TYP, ID, 60);
     expect(await verifyLinkToken(env, access, REFRESH_TYP)).toBeNull();
     expect(await verifyLinkToken(env, access, CODE_TYP)).toBeNull();
+  });
+
+  it("refuses a token from another issuer", async () => {
+    const forged = await new SignJWT({ email: ID.email })
+      .setProtectedHeader({ alg: "HS256", typ: ACCESS_TYP })
+      .setSubject(ID.sub)
+      .setIssuer("https://evil.example")
+      .setIssuedAt()
+      .setExpirationTime("60s")
+      .sign(new TextEncoder().encode(SECRET));
+    expect(await verifyLinkToken(env, forged, ACCESS_TYP)).toBeNull();
   });
 
   it("rejects a web session cookie as an Alexa token", async () => {

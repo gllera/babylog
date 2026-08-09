@@ -24,6 +24,8 @@ export const CODE_TYP = "alexacode+jwt";
 export const ACCESS_TYP = "alexatk+jwt";
 export const REFRESH_TYP = "alexart+jwt";
 
+export type LinkTyp = typeof CODE_TYP | typeof ACCESS_TYP | typeof REFRESH_TYP;
+
 export const CODE_TTL_S = 60;
 export const ACCESS_TTL_S = 24 * 60 * 60;
 // Amazon re-links only when refresh fails; make that a rare event.
@@ -40,7 +42,7 @@ const keyOf = (secret: string): Uint8Array => new TextEncoder().encode(secret);
 
 export async function mintLinkToken(
   env: Pick<Env, "ALEXA_OAUTH_HMAC_SECRET">,
-  typ: string,
+  typ: LinkTyp,
   id: { sub: string; email: string },
   ttlSeconds: number,
   extra: Record<string, string> = {}
@@ -57,9 +59,12 @@ export async function mintLinkToken(
 export async function verifyLinkToken(
   env: Pick<Env, "ALEXA_OAUTH_HMAC_SECRET">,
   token: string,
-  typ: string
+  typ: LinkTyp
 ): Promise<LinkClaims | null> {
-  if (!env.ALEXA_OAUTH_HMAC_SECRET) return null;
+  if (!env.ALEXA_OAUTH_HMAC_SECRET) {
+    console.log("ALEXA_OAUTH_HMAC_SECRET is not set — no Alexa link token can be verified");
+    return null;
+  }
   try {
     const { payload } = await jwtVerify(token, keyOf(env.ALEXA_OAUTH_HMAC_SECRET), {
       algorithms: ["HS256"],
