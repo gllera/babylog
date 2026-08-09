@@ -70,12 +70,13 @@
     // uploads these vars over whatever the dashboard holds, so a dashboard-only
     // value would vanish on the next deploy and take every login with it.
     //
-    // The tenant segment is load-bearing: `t_32b` is the estate's own tenant,
+    // The tenant segment is load-bearing: `32b` is the estate's own tenant (id
+    // `t_32b` until auth's migration 0010 renamed it, 2026-08-09),
     // whose subject_type is `public` — so `sub` in an id_token is the same
     // `u_<ULID>` account id the shared cookie used to carry, and no data in this
     // repo had to move. A pairwise tenant would have handed us different
     // subjects for the same people.
-    "OIDC_ISSUER": "https://auth.32b.io/t/t_32b",
+    "OIDC_ISSUER": "https://auth.32b.io/t/32b",
     "OIDC_CLIENT_ID": "babylog"
 
     // Not here, deliberately, and set with `wrangler secret put`:
