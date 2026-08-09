@@ -37,6 +37,41 @@ both Alexa languages stay consistent.
 Originally the skill used an **HTTPS endpoint** (the Worker's URL + `/alexa`) with
 no AWS Lambda; that is still how a local development endpoint is wired.
 
+## Account linking (required since 2026-08-09)
+
+The skill is **strict**: it answers nothing until the Amazon account is linked
+to a 32b.io account. An unlinked request gets a spoken "link your account" reply
+and a **Link Account** card in the Alexa app; entries are attributed to the
+linked user's email and land in *their* household (there is no longer a fixed
+`ALEXA_HOUSEHOLD_ID`).
+
+Linking uses a small OAuth authorization server babylog fronts for Amazon, at
+`/auth/alexa/authorize` and `/auth/alexa/token` on `baby.32b.io` — identity
+comes from the same `auth.32b.io` OpenID Connect login the web app uses
+(`src/alexa-link.ts`). Amazon's access tokens live 10 minutes and it issues no
+refresh tokens, so the skill cannot point at `auth.32b.io` directly; babylog
+re-wraps that identity in tokens it can verify locally on every utterance, with
+no network hop.
+
+**To link (per Amazon account):** Alexa app → the skill → **Settings** →
+**Link Account** → sign in at `auth.32b.io` → confirm the link. The
+authorize step shows a one-click confirmation page (its POST is what mints the
+code — a deliberate CSRF defence, since a plain GET with a live session would
+otherwise be forgeable).
+
+**Config (operator, one-time):**
+- `wrangler.jsonc` vars: `ALEXA_LINK_CLIENT_ID` (what Amazon sends; must match
+  the skill's Account Linking client id) and `ALEXA_LINK_REDIRECTS` (the exact
+  redirect-URL allowlist, ending in this Amazon vendor id).
+- `wrangler secret put ALEXA_OAUTH_HMAC_SECRET` (signs the link tokens) and
+  `ALEXA_LINK_CLIENT_SECRET` (the secret Amazon presents at `/token`; must equal
+  the skill's Account Linking client secret).
+- In the skill's **Account Linking** page (or via
+  `ask-cli smapi update-account-linking-info`): Auth Code Grant,
+  Authorization URI `https://baby.32b.io/auth/alexa/authorize`, Access Token URI
+  `https://baby.32b.io/auth/alexa/token`, the matching client id/secret, and
+  client-auth scheme **HTTP Basic**.
+
 ## Patrones de invocación
 
 ### 🚀 Lo más rápido: Alexa Routines (1 utterance por toma)

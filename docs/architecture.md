@@ -26,6 +26,19 @@ in order — during the llera.eu → 32b.io transition both stay live at once:
    Connect authorization-code flow against `auth.32b.io` (`src/oidc.ts`). A
    completed login is taken as email-ownership proof.
 
+The Alexa endpoint has its own third identity source, handled in `src/alexa.ts`
+rather than through `getIdentityEmail()`:
+
+3. **Alexa link token** — `/alexa` only. A babylog-minted HS256 JWT
+   (`typ: alexatk+jwt`) that the Echo carries in every request's
+   `accessToken`, verified locally (`verifyLinkToken`, `src/alexa-link.ts`) —
+   no network hop, so voice latency is unchanged. The token is issued by
+   babylog's Alexa account-linking mini-AS (`/auth/alexa/{authorize,token}`),
+   whose own identity comes from the same `auth.32b.io` OIDC login as source 2.
+   Since 2026-08-09 Alexa is **strict**: a request without a valid link token
+   is answered with a LinkAccount card, and there is no fixed-household
+   fallback.
+
 ### The OIDC client (2026-08-01)
 
 babylog is a **confidential client** of `https://auth.32b.io/t/t_32b`: code +
@@ -84,8 +97,12 @@ is `localhost`/`127.0.0.1`, so a stray `DEV_USER_EMAIL` can never authenticate
 anyone in production.
 
 The Alexa endpoint has no Access *identity* (it is reached through an AWS Lambda,
-not a browser). Its events are attributed to a fixed `alexa` identity and go to
-the household in `ALEXA_HOUSEHOLD_ID` (default `1`).
+not a browser). Since **2026-08-09** it derives a per-user identity from the link
+token each request carries (identity source 3 above): the token's email resolves
+to a household via `resolveTenant`, and events are attributed to that email and
+land in that household. A request without a valid token gets a LinkAccount card —
+there is no longer a fixed `alexa` identity or an `ALEXA_HOUSEHOLD_ID` fallback
+(both were deleted with the strict-linking change).
 
 It does, however, have Access *authentication*, and as of **2026-07-31** that is
 the only thing guarding it. The path is Echo → Amazon → the
