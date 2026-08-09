@@ -74,18 +74,34 @@ Manual deploy still works:
 npm run db:migrate:remote && npm run deploy
 ```
 
-## 32b.io session auth
+## 32b.io OIDC auth
 
-**Live since 2026-07-30.** `baby.32b.io` fronts the Worker with the shared
-32b.io magic-link session (self-service onboarding), alongside the existing
-`baby.llera.eu` + Access path. What was done, in this order:
+**Hostname live since 2026-07-30; OIDC client since 2026-08-01.**
+`baby.32b.io` runs an OpenID Connect authorization-code + PKCE flow against
+`https://auth.32b.io/t/t_32b` (`src/oidc.ts`) and mints its own
+`__Host-bsess` session cookie (`src/session.ts`). The estate's shared
+`Domain=32b.io` cookie — and the `SESSION_SECRET` that verified it — are
+retired; nothing here reads them. Setup, in order:
 
-1. **The secret first:** `npx wrangler secret put SESSION_SECRET`, using the
-   same value as the www.32b.io Pages secret (a copy lives in
-   `~/ws/32b/.dev.vars`). Always before the hostname exists — the Worker
-   verifies the `sess` cookie with it (`src/session.ts`, `src/identity.ts`),
-   and a live hostname without the secret is a redirect loop (see below).
-2. Deployed the code, then attached `baby.32b.io` as a Worker **custom
+1. **Register the client at auth.32b.io:** an application `babylog` in
+   tenant `t_32b` (confidential, `redirect_uris` containing exactly
+   `https://baby.32b.io/auth/callback`), via the tenant console at
+   auth.32b.io. Registration mints the client secret. The non-secret half of
+   the registration lives in `wrangler.jsonc` `vars` (`OIDC_ISSUER`,
+   `OIDC_CLIENT_ID`) — deliberately in the file, since `wrangler deploy`
+   overwrites dashboard vars.
+2. **The secrets next**, always before the hostname exists:
+
+   ```bash
+   npx wrangler secret put OIDC_CLIENT_SECRET   # from step 1's registration
+   npx wrangler secret put SESSION_HMAC_SECRET  # per-Worker random, e.g. openssl rand -base64 32
+   ```
+
+   `SESSION_HMAC_SECRET` is shared with nothing and forges only
+   baby.32b.io sessions. It is deliberately **not** named `SESSION_SECRET`:
+   that name means the retired estate-wide forging key, and the two must
+   never be confusable (`src/session.ts` explains).
+3. Deployed the code, then attached `baby.32b.io` as a Worker **custom
    domain** — *not* a `routes` entry in `wrangler.jsonc`:
 
    ```bash
@@ -105,15 +121,15 @@ npm run db:migrate:remote && npm run deploy
 `/welcome` is the self-service onboarding entry (create a household or accept
 a caregiver invite); invites live in the `invites` table (migration 0004).
 
-Both hostnames now reach the same Worker and the same tenancy: identity is
-Access JWT first, then the `sess` cookie (`src/identity.ts`). The `sess`
-cookie is `Domain=32b.io`, so it is never sent to `baby.llera.eu` — the two
-gates cannot shadow each other.
+Both hostnames reach the same Worker and the same tenancy: identity is
+Access JWT first, then `__Host-bsess` (`src/identity.ts`). The session
+cookie is host-only by construction, so the two gates cannot shadow each
+other.
 
-> If `SESSION_SECRET` is unset or differs from the www.32b.io Pages secret
-> while a user holds a valid www session, baby.32b.io/app and the login page
-> redirect each other in a loop — set the secret first, and on any loop check
-> it first.
+> If `OIDC_CLIENT_SECRET` is unset or stale, `/auth/callback` fails the code
+> exchange (auth.32b.io's `/token` rejects the client) — on login failures
+> check that secret first. Rotating `SESSION_HMAC_SECRET` drops every
+> baby.32b.io session; users just sign in again through auth.32b.io.
 
 ## Tests
 
@@ -131,7 +147,7 @@ Both run in CI (`.github/workflows/ci.yml`) on pushes to `main` and on PRs.
   `add_caregiver`, creating a pending row in `invites`. The invitee then logs
   in and accepts on `/welcome`, turning the invite into a `users` row. Which
   door they use decides who may reach `/welcome` at all: on `baby.32b.io` any
-  32b.io magic-link login gets there, so membership is purely DB state; on
+  auth.32b.io login gets there, so membership is purely DB state; on
   `baby.llera.eu` their email must still pass the Access policy first. Point
   invitees at **`baby.32b.io`** — that is the self-service path, and it needs
   no Access edit. Starting a **separate** tenant is direct, not

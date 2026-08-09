@@ -18,9 +18,10 @@ One Worker exposes the data three ways over the same database:
   120 mililitros*", "*cómo vamos hoy*"). → [alexa-skill/](alexa-skill/README.md)
 
 Authentication is dual during the llera.eu → 32b.io transition: `baby.32b.io`
-uses the shared 32b.io magic-link session (self-service — new users create a
-household or accept a caregiver invite at `/welcome`), while `baby.llera.eu`
-stays behind Cloudflare Access (still fronting MCP and Alexa). The Worker
+signs users in through OpenID Connect at `auth.32b.io` and keeps its own
+session (self-service — new users create a household or accept a caregiver
+invite at `/welcome`), while `baby.llera.eu` stays behind Cloudflare Access
+(still fronting MCP and Alexa). The Worker
 verifies whichever credential arrives and scopes all data to the email's
 household. Both hostnames are live (baby.32b.io since 2026-07-30); see
 docs/setup.md for how each is wired.
