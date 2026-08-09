@@ -325,4 +325,26 @@ describe("strict account linking", () => {
     const out = (await res.json()) as { response: { outputSpeech?: { text?: string } } };
     expect(out.response.outputSpeech?.text).toContain("vincula tu cuenta");
   });
+
+  it("a linked user whose household has zero babies gets a graceful spoken error, not a crash", async () => {
+    const tok = await mintLinkToken(
+      { ALEXA_OAUTH_HMAC_SECRET: OAUTH_SECRET }, ACCESS_TYP,
+      { sub: "u_1", email: "ana@example.com" }, 60
+    );
+    // resolveTenant finds the user; getBabies returns an empty household.
+    const emptyHouseholdDb = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => ({ id: 1, email: "ana@example.com", household_id: 7 }),
+          all: async () => ({ results: [] }),
+        }),
+      }),
+    };
+    const res = await handleAlexa(post(envelope({ accessToken: tok })), strictEnv(emptyHouseholdDb));
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as { response: { outputSpeech?: { text?: string } } };
+    // The generic error line, never raw exception text.
+    expect(out.response.outputSpeech?.text).toBeTruthy();
+    expect(out.response.outputSpeech?.text).not.toContain("no babies");
+  });
 });

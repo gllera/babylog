@@ -905,8 +905,23 @@ import { resolveTenant, pickBaby } from "./users";
       },
     });
   }
-  const babyId = pickBaby(tenant.babies).id;
-  const user = tenant.email;
+```
+
+   Then build `ident` and dispatch **inside** the existing try/catch, so that
+   `pickBaby` throwing on a zero-baby household becomes the graceful spoken
+   error (as it did when the call lived in the intent handlers) rather than an
+   uncaught Worker exception:
+
+```ts
+  let reply: AlexaResponseEnvelope;
+  try {
+    const ident: AlexaIdentity = { babyId: pickBaby(tenant.babies).id, user: tenant.email };
+    reply = await route(envelope, env, lang, ident);
+  } catch (e) {
+    console.error("alexa route error:", e);
+    reply = speak(VOICES[lang].errorRecording());
+  }
+  return jsonResponse(reply);
 ```
 
    (`alexaJson` = however the file already serializes `AlexaResponseEnvelope`

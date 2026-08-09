@@ -499,10 +499,13 @@ export async function handleAlexa(
     // No silent provisioning — same invariant as the web and MCP.
     return jsonResponse(speak(v.notInHousehold));
   }
-  const ident: AlexaIdentity = { babyId: pickBaby(tenant.babies).id, user: tenant.email };
-
   let reply: AlexaResponseEnvelope;
   try {
+    // pickBaby throws if the household has zero babies (a reachable state —
+    // removeBaby has no last-baby floor). Build ident INSIDE the try so that
+    // throw becomes the graceful spoken error, as it did when this call lived
+    // in the intent handlers, not an uncaught Worker exception.
+    const ident: AlexaIdentity = { babyId: pickBaby(tenant.babies).id, user: tenant.email };
     reply = await route(envelope, env, lang, ident);
   } catch (e) {
     // Log the detail server-side; never speak raw exception/SQL text back.
