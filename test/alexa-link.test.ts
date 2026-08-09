@@ -80,9 +80,11 @@ describe("link tokens", () => {
   });
 });
 
+const SESS_SECRET = "session-secret-32-bytes-long!!!!!!!!";
+
 const REDIRECT = "https://layla.amazon.com/api/skill/link/V123";
 const authorizeEnv = {
-  SESSION_HMAC_SECRET: "session-secret-32-bytes-long!!!!!!!!",
+  SESSION_HMAC_SECRET: SESS_SECRET,
   ALEXA_OAUTH_HMAC_SECRET: SECRET,
   ALEXA_LINK_CLIENT_ID: "alexa",
   ALEXA_LINK_REDIRECTS: `https://pitangui.amazon.com/api/skill/link/V123,${REDIRECT}`,
@@ -106,7 +108,7 @@ describe("handleAlexaAuthorize", () => {
     for (const bad of [
       authorizeUrl({ client_id: "evil" }),
       authorizeUrl({ redirect_uri: "https://evil.example/cb" }),
-      authorizeUrl({ redirect_uri: REDIRECT + "/" }), // exact match only
+      authorizeUrl({ redirect_uri: REDIRECT + "/" }),
     ]) {
       const res = await handleAlexaAuthorize(new Request(bad), authorizeEnv);
       expect(res.status).toBe(400);
@@ -120,13 +122,14 @@ describe("handleAlexaAuthorize", () => {
       authorizeEnv
     );
     expect(res.status).toBe(302);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
     const loc = new URL(res.headers.get("Location")!);
     expect(loc.origin + loc.pathname).toBe(REDIRECT);
     expect(loc.searchParams.get("error")).toBe("unsupported_response_type");
     expect(loc.searchParams.get("state")).toBe("st-1");
   });
 
-  it("bounces a sessionless browser through /auth/login with next", async () => {
+  it("bounces a sessionless GET through /auth/login with next", async () => {
     const res = await handleAlexaAuthorize(new Request(authorizeUrl()), authorizeEnv);
     expect(res.status).toBe(302);
     const loc = new URL(res.headers.get("Location")!, "https://baby.32b.io");
@@ -136,22 +139,100 @@ describe("handleAlexaAuthorize", () => {
     expect(new URL("https://baby.32b.io" + next).searchParams.get("state")).toBe("st-1");
   });
 
-  it("auto-approves a live session: 302 to Amazon with a redeemable code", async () => {
-    const sess = await mintSession(
-      { SESSION_HMAC_SECRET: (authorizeEnv as { SESSION_HMAC_SECRET: string }).SESSION_HMAC_SECRET },
-      ID
-    );
+  it("shows a confirmation page — not a code — on a GET with a live session", async () => {
+    const sess = await mintSession({ SESSION_HMAC_SECRET: SESS_SECRET }, ID);
     const res = await handleAlexaAuthorize(
       new Request(authorizeUrl(), { headers: { Cookie: `${SESSION_COOKIE}=${sess}` } }),
       authorizeEnv
     );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const html = await res.text();
+    expect(html).toContain(ID.email);
+    expect(html).toContain('method="POST"');
+    expect(html).not.toContain("code=");
+  });
+
+  it("mints a code only on the confirming POST, no-storing the redirect", async () => {
+    const sess = await mintSession({ SESSION_HMAC_SECRET: SESS_SECRET }, ID);
+    const res = await handleAlexaAuthorize(
+      new Request("https://baby.32b.io/auth/alexa/authorize", {
+        method: "POST",
+        headers: {
+          Cookie: `${SESSION_COOKIE}=${sess}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          response_type: "code",
+          client_id: "alexa",
+          redirect_uri: REDIRECT,
+          state: "st-1",
+        }).toString(),
+      }),
+      authorizeEnv
+    );
     expect(res.status).toBe(302);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
     const loc = new URL(res.headers.get("Location")!);
     expect(loc.origin + loc.pathname).toBe(REDIRECT);
     expect(loc.searchParams.get("state")).toBe("st-1");
-    const code = loc.searchParams.get("code")!;
-    const claims = await verifyLinkToken(authorizeEnv, code, CODE_TYP);
+    const claims = await verifyLinkToken(authorizeEnv, loc.searchParams.get("code")!, CODE_TYP);
     expect(claims).toMatchObject({ ...ID, redirect_uri: REDIRECT });
     expect(claims?.jti).toBeTruthy();
+  });
+
+  it("refuses a sessionless POST without minting (bounces to login)", async () => {
+    const res = await handleAlexaAuthorize(
+      new Request("https://baby.32b.io/auth/alexa/authorize", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          response_type: "code",
+          client_id: "alexa",
+          redirect_uri: REDIRECT,
+          state: "st-1",
+        }).toString(),
+      }),
+      authorizeEnv
+    );
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("Location")!, "https://baby.32b.io");
+    expect(loc.pathname).toBe("/auth/login");
+    expect(loc.searchParams.get("code")).toBeNull();
+  });
+
+  it("400s a POST with a forged redirect_uri even with a live session", async () => {
+    const sess = await mintSession({ SESSION_HMAC_SECRET: SESS_SECRET }, ID);
+    const res = await handleAlexaAuthorize(
+      new Request("https://baby.32b.io/auth/alexa/authorize", {
+        method: "POST",
+        headers: {
+          Cookie: `${SESSION_COOKIE}=${sess}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          response_type: "code",
+          client_id: "alexa",
+          redirect_uri: "https://evil.example/cb",
+          state: "st-1",
+        }).toString(),
+      }),
+      authorizeEnv
+    );
+    expect(res.status).toBe(400);
+    expect(res.headers.get("Location")).toBeNull();
+  });
+
+  it("escapes a crafted state in the confirmation page", async () => {
+    const sess = await mintSession({ SESSION_HMAC_SECRET: SESS_SECRET }, ID);
+    const res = await handleAlexaAuthorize(
+      new Request(authorizeUrl({ state: '"><script>x' }), {
+        headers: { Cookie: `${SESSION_COOKIE}=${sess}` },
+      }),
+      authorizeEnv
+    );
+    const html = await res.text();
+    expect(html).not.toContain("<script>x");
+    expect(html).toContain("&quot;&gt;&lt;script&gt;x");
   });
 });

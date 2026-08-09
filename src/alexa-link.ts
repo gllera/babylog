@@ -101,45 +101,106 @@ export async function verifyLinkToken(
 const registeredRedirects = (env: LinkEnv): string[] =>
   (env.ALEXA_LINK_REDIRECTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
-// GET /auth/alexa/authorize — Amazon sends the user's browser here to link.
-// Client and redirect_uri are validated FIRST, against exact strings, and a
-// failure is a 400 with no Location header: redirecting an unvalidated URI is
-// the open-redirect OAuth forbids (RFC 6749 §4.1.2.1). After that, errors go
-// back to Amazon as OAuth error codes. No consent page on purpose: the AS and
-// the product are the same thing, and the IdP's own consent already governed
-// releasing the email to babylog.
-export async function handleAlexaAuthorize(
-  request: Request,
-  env: LinkEnv
-): Promise<Response> {
+// A 302 that, unlike Response.redirect(), carries Cache-Control: no-store — the
+// idiom src/oidc.ts uses for every sensitive redirect. A one-time code sitting
+// in a cacheable Location header is a leak vector.
+const seeOther = (location: string): Response =>
+  new Response(null, { status: 302, headers: { Location: location, "Cache-Control": "no-store" } });
+
+const escapeHtml = (s: string): string =>
+  s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!)
+  );
+
+// The minimal confirmation the user clicks to link. Its POST is what actually
+// mints a code — see the CSRF note on handleAlexaAuthorize. redirect_uri/state
+// are attacker-influenceable and go into HTML attributes, so escape them.
+const confirmPage = (email: string, redirectUri: string, state: string, clientId: string): string =>
+  `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link Alexa · babylog</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:28rem;margin:4rem auto;padding:0 1rem">
+<h1 style="font-size:1.25rem">Link Alexa to babylog</h1>
+<p>Link your 32b.io account <strong>${escapeHtml(email)}</strong> to Alexa? Your Echo devices will be able to log feedings, diapers and routines for your household.</p>
+<form method="POST" action="/auth/alexa/authorize">
+<input type="hidden" name="response_type" value="code">
+<input type="hidden" name="client_id" value="${escapeHtml(clientId)}">
+<input type="hidden" name="redirect_uri" value="${escapeHtml(redirectUri)}">
+<input type="hidden" name="state" value="${escapeHtml(state)}">
+<button type="submit" style="font-size:1rem;padding:.6rem 1.2rem">Link account</button>
+</form>
+</body></html>`;
+
+// GET|POST /auth/alexa/authorize — Amazon sends the user's browser here to
+// link. Client and redirect_uri are validated FIRST, against exact strings, on
+// every request; a failure is a 400 with no Location header (RFC 6749
+// §4.1.2.1 — never redirect an unvalidated URI). A wrong response_type goes
+// back to Amazon as an OAuth error.
+//
+// A code is minted ONLY by the confirming POST, never by a GET. __Host-bsess is
+// SameSite=Lax, still sent on a cross-site top-level GET navigation, so
+// auto-approving on GET would let an attacker send a logged-in victim a crafted
+// authorize link and have the victim's account bound to the attacker's Alexa
+// device (account-linking CSRF). The GET renders a same-origin confirmation the
+// user must POST; a forged cross-site POST carries no Lax cookie, so the click
+// proves intent — no extra CSRF-token machinery. The IdP's consent governs
+// scope (releasing the email), not the grant decision.
+export async function handleAlexaAuthorize(request: Request, env: LinkEnv): Promise<Response> {
   const url = new URL(request.url);
-  const q = url.searchParams;
+  const isPost = request.method === "POST";
+  const params = isPost ? new URLSearchParams(await request.text()) : url.searchParams;
+
+  const clientId = params.get("client_id");
+  const redirectUri = params.get("redirect_uri") ?? "";
+  const state = params.get("state") ?? "";
 
   if (
-    q.get("client_id") !== env.ALEXA_LINK_CLIENT_ID ||
     !env.ALEXA_LINK_CLIENT_ID ||
-    !registeredRedirects(env).includes(q.get("redirect_uri") ?? "")
+    clientId !== env.ALEXA_LINK_CLIENT_ID ||
+    !registeredRedirects(env).includes(redirectUri)
   ) {
-    return new Response("Unknown client or redirect_uri.", { status: 400 });
+    return new Response("Unknown client or redirect_uri.", {
+      status: 400,
+      headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" },
+    });
   }
-  const redirectUri = q.get("redirect_uri")!;
-  const state = q.get("state") ?? "";
 
   const errorBack = (error: string): Response => {
     const to = new URL(redirectUri);
     to.searchParams.set("error", error);
     if (state) to.searchParams.set("state", state);
-    return Response.redirect(to.toString(), 302);
+    return seeOther(to.toString());
   };
 
-  if (q.get("response_type") !== "code") return errorBack("unsupported_response_type");
+  if (params.get("response_type") !== "code") return errorBack("unsupported_response_type");
 
   const session = await readSession(request, env);
   if (!session) {
-    const next = encodeURIComponent(url.pathname + url.search);
-    return Response.redirect(`${url.origin}/auth/login?next=${next}`, 302);
+    // Sessionless GET, or a POST whose session expired mid-link: re-enter as a
+    // top-level GET (login bounce → confirmation). Nothing is minted. Rebuild a
+    // canonical GET URL so a POST's body params survive the round trip.
+    const canonical = new URL(`${url.origin}/auth/alexa/authorize`);
+    canonical.searchParams.set("response_type", "code");
+    canonical.searchParams.set("client_id", clientId!);
+    canonical.searchParams.set("redirect_uri", redirectUri);
+    if (state) canonical.searchParams.set("state", state);
+    const next = encodeURIComponent(canonical.pathname + canonical.search);
+    return seeOther(`${url.origin}/auth/login?next=${next}`);
   }
 
+  if (!isPost) {
+    // Live session, GET: show the confirmation. The user must click to mint.
+    return new Response(confirmPage(session.email, redirectUri, state, clientId!), {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex",
+      },
+    });
+  }
+
+  // Live session, POST: the click happened, params re-validated above. Mint.
   const code = await mintLinkToken(env, CODE_TYP, session, CODE_TTL_S, {
     redirect_uri: redirectUri,
     jti: crypto.randomUUID(),
@@ -147,5 +208,5 @@ export async function handleAlexaAuthorize(
   const to = new URL(redirectUri);
   to.searchParams.set("code", code);
   if (state) to.searchParams.set("state", state);
-  return Response.redirect(to.toString(), 302);
+  return seeOther(to.toString());
 }
