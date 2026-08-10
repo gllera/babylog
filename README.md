@@ -17,14 +17,14 @@ One Worker exposes the data three ways over the same database:
   "*took 120 milliliters*", "*how are we doing*") and Spanish (`es-ES`: "*tomó
   120 mililitros*", "*cómo vamos hoy*"). → [alexa-skill/](alexa-skill/README.md)
 
-Authentication is dual during the llera.eu → 32b.io transition: `baby.32b.io`
-signs users in through OpenID Connect at `auth.32b.io` and keeps its own
-session (self-service — new users create a household or accept a caregiver
-invite at `/welcome`), while `baby.llera.eu` stays behind Cloudflare Access
-(still fronting MCP and Alexa). The Worker
-verifies whichever credential arrives and scopes all data to the email's
-household. Both hostnames are live (baby.32b.io since 2026-07-30); see
-docs/setup.md for how each is wired.
+Authentication is `auth.32b.io`, for every surface. Browsers sign in through
+OpenID Connect and get babylog's own session cookie (self-service — new users
+create a household or accept a caregiver invite at `/welcome`); MCP clients get
+an OAuth 2.1 access token audience-bound to `https://baby.32b.io/mcp`, which
+this Worker verifies itself. Either way the data is scoped to the email's
+household. The second hostname, `baby.llera.eu`, and the Cloudflare Access
+application that used to run the MCP login are retired (2026-08-10); see
+docs/setup.md.
 
 ## Quick start
 
@@ -33,7 +33,7 @@ npm install
 npm run dev      # local Worker; MCP at http://localhost:8787/mcp, app at /app
 ```
 
-Full install, D1 setup, Cloudflare Access config, and deploy steps are in
+Full install, D1 setup, auth wiring, and deploy steps are in
 [docs/setup.md](docs/setup.md).
 
 ## Documentation
@@ -43,7 +43,7 @@ Full install, D1 setup, Cloudflare Access config, and deploy steps are in
 | [docs/architecture.md](docs/architecture.md) | Auth, the household/baby multi-user model, code layout, storage |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | Full MCP tool reference, timestamp semantics, connecting a client |
 | [docs/web-ui.md](docs/web-ui.md) | The `/app` browser UI, tab by tab |
-| [docs/setup.md](docs/setup.md) | Install, D1, Access config, deploy, tests, operational notes |
+| [docs/setup.md](docs/setup.md) | Install, D1, auth wiring, deploy, tests, operational notes |
 | [alexa-skill/README.md](alexa-skill/README.md) | Alexa skill setup |
 
 ## Tests

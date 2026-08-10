@@ -1,10 +1,10 @@
 // -----------------------------------------------------------------------------
-// JSON API for the web app: /api/<entity>[/<id>]. Cloudflare Access fronts
-// baby.llera.eu; the Worker additionally verifies the Access JWT it stamps
-// and reads its email claim — with tenants, identity is load-bearing, so the
-// Worker can't rely on fronting alone. One generic handler serves every
-// entity; the per-entity differences (table, value columns, create schema,
-// extra list filters) live in the ENTITIES config below.
+// JSON API for the web app: /api/<entity>[/<id>]. Every route resolves the
+// caller's identity itself (src/identity.ts) rather than trusting anything in
+// front of it — with tenants, identity is load-bearing, and there is no longer
+// anything in front of it anyway. One generic handler serves every entity; the
+// per-entity differences (table, value columns, create schema, extra list
+// filters) live in the ENTITIES config below.
 // -----------------------------------------------------------------------------
 
 import { z } from "zod";
@@ -675,8 +675,8 @@ export async function handleApi(
   env: Env,
   url: URL
 ): Promise<Response> {
-  // Identity is load-bearing with tenants: an Access JWT (baby.llera.eu) or
-  // a 32b.io sess cookie (baby.32b.io) must name the caller.
+  // Identity is load-bearing with tenants: babylog's own session cookie must
+  // name the caller.
   const email = await getIdentityEmail(request, env);
   if (!email) return jsonError(401, "Unauthorized.");
   const tenant = await resolveTenant(env.DB, email);

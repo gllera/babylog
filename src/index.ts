@@ -47,26 +47,19 @@ export default {
     // header the client discovers everything else from — never a bare 401,
     // which tells a client nothing about where to log in.
     //
-    // The resolved email is the identity every MCP tool scopes its data to.
+    // It does NOT go through getIdentityEmail: that function answers for the
+    // browser surfaces and knows only cookies. A Cloudflare Access JWT used to
+    // be its other answer and used to open this endpoint; both are gone.
+    //
     if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
-      // Handed to the Durable Object via ctx.props. workers-types declares
+      const gate = await authorizeMcp(request, env);
+      if (!gate.ok) return gate.response;
+      // The token's email is the identity every MCP tool scopes its data to,
+      // handed to the Durable Object via ctx.props. workers-types declares
       // ExecutionContext.props readonly; McpAgent reads props from the
       // execution context, so assign through a cast.
-      const serve = (email: string) => {
-        (ctx as { props?: Record<string, unknown> }).props = { email };
-        return MCP_HANDLER.fetch(request, env, ctx);
-      };
-      const gate = await authorizeMcp(request, env);
-      if (gate.ok) return serve(gate.email);
-
-      // TRANSITIONAL: an Access JWT still opens this endpoint too, so
-      // baby.llera.eu keeps working while its Access app is still in front of
-      // it. This fallback and everything reachable from it (src/access.ts, the
-      // branch in src/identity.ts, TEAM_DOMAIN/POLICY_AUD) go in the next
-      // commit, once an MCP client has been verified end to end on baby.32b.io.
-      const legacy = await getIdentityEmail(request, env);
-      if (!legacy) return gate.response;
-      return serve(legacy);
+      (ctx as { props?: Record<string, unknown> }).props = { email: gate.email };
+      return MCP_HANDLER.fetch(request, env, ctx);
     }
 
     // The OIDC client's two legs plus logout. These are the only routes that
@@ -146,9 +139,8 @@ export default {
       });
     }
     // /app and /welcome are the two browser entry points. No identity → the
-    // 32b.io magic-link login (on baby.llera.eu, Access intercepts first, so
-    // this redirect only ever fires on baby.32b.io or in dev). Identity
-    // without a household → /welcome (accept an invite or create one).
+    // auth.32b.io login. Identity without a household → /welcome (accept an
+    // invite or create one).
     if (
       url.pathname === "/app" ||
       url.pathname === "/app/" ||

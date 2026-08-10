@@ -1,13 +1,11 @@
 export type Env = {
   DB: D1Database;
   MCP_OBJECT: DurableObjectNamespace;
-  // Cloudflare Access (Managed OAuth) gates the host; the Worker verifies the
-  // forwarded Access JWT against these and reads its email claim.
-  TEAM_DOMAIN: string;
-  POLICY_AUD: string;
   // --- OIDC client credentials for auth.32b.io (src/oidc.ts) ---------------
   // The ONE URL this client pins. Every endpoint is read from the discovery
   // document beneath it, so the IdP can move an endpoint without a deploy here.
+  // Also the issuer /mcp's access tokens must name, and the authorization
+  // server its RFC 9728 metadata advertises (src/mcp-auth.ts).
   OIDC_ISSUER?: string;
   // What this application is called in the IdP's registry, and what a token's
   // `aud` must name. Public by nature — it travels in the browser's address bar.
@@ -22,8 +20,8 @@ export type Env = {
   SESSION_HMAC_SECRET?: string;
   ALEXA_APPLICATION_ID?: string;
   ALEXA_SKIP_SIGNATURE?: string;
-  // Local dev only (.dev.vars): identity assumed when no Access JWT is
-  // present. Never set in production.
+  // Local dev only (.dev.vars): the identity assumed when no session cookie is
+  // present, and only on a localhost origin. Never set in production.
   DEV_USER_EMAIL?: string;
   // Alexa account linking (src/alexa-link.ts): the mini-AS babylog fronts for
   // Amazon. The HMAC secret is deliberately NOT SESSION_HMAC_SECRET — rotating

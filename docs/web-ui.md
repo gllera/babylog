@@ -5,8 +5,9 @@ has two views — **Today** and **Settings** — toggled by the corner
 button (⚙ opens Settings, ← returns), and lets you record and edit feedings,
 diapers, routines, weights, and heights without an MCP client.
 
-Authentication is the Cloudflare Access login in front of the host — the app
-itself has no login screen. **All times are Europe/Madrid** (the household
+Authentication is the OpenID Connect login at `auth.32b.io`, which `/app`
+redirects to when there is no session — the app itself has no login screen, only
+a **Log out** in Settings. **All times are Europe/Madrid** (the household
 timezone, matching the MCP stats and the Alexa skill), never the device
 timezone.
 
@@ -112,16 +113,21 @@ household's people → app preference.
   invite-by-email form; the at-rest roster mutes while the ledger below
   is the live copy. Backed by `/api/household`, `/api/caregivers`,
   and `/api/babies`; same semantics as the `add_caregiver` /
-  `remove_caregiver` / `add_baby` MCP tools. Inviting only registers the
-  email in the household — it must also be allowed by the Cloudflare
-  Access policy to log in at all.
+  `remove_caregiver` / `add_baby` MCP tools. Inviting creates a pending
+  invite; the invitee signs in through `auth.32b.io` and accepts it on
+  `/welcome`. There is no allowlist to edit anywhere else.
 - **Night** — two time pickers redefining the night window (default
   21:00–07:00): it shades the Today tape and gives the hunger calibration
   its own night reference. Per-device in `localStorage`, like the
   language; equal times mean "no night".
 - **Language** — English / Spanish toggles centered under the last divider
   (persisted in `localStorage`, guessed from the browser on first visit);
-  closes the flyleaf as the least-touched section.
+  the least-touched section.
+- **Session** — the app's only account action: **Log out** ends babylog's
+  session and hands the browser to `auth.32b.io`'s logout page, whose button
+  ends the estate session too. It used to be hidden on every host but
+  `baby.32b.io`, because the Access-fronted `baby.llera.eu` had no babylog
+  session to end; that hostname is gone and so is the gate.
 
 ## Multi-baby & platform
 

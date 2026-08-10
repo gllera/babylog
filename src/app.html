@@ -1677,12 +1677,9 @@
         </div>
       </div>
 
-      <!-- Session: the app's only account action. Shown on baby.32b.io, where
-           the session is babylog's own OIDC cookie and /auth/logout ends it
-           (then hands off to auth.32b.io's logout). Hidden by default and
-           unhidden per-host in initSettingsSession — on other origins there is
-           no babylog session to end here. -->
-      <div class="sect" id="settings-session" hidden>
+      <!-- Session: the app's only account action. /auth/logout ends babylog's
+           own OIDC session and then hands off to auth.32b.io's logout. -->
+      <div class="sect" id="settings-session">
         <div class="sect-title"><span data-i18n="Session">Session</span></div>
         <div class="lang-options">
           <button type="button" id="logout-btn" data-i18n="Log out">Log out</button>
@@ -1956,21 +1953,18 @@
       });
     }
 
-    // Log out lives in Settings, but only where there is a babylog session to
-    // end: baby.32b.io, whose auth is this Worker's own OIDC cookie. On any
-    // other origin (a dev host, or the Access-gated baby.llera.eu) /auth/logout
-    // is not the way out, so the section stays hidden.
+    // Log out lives in Settings. It used to be gated on
+    // `location.hostname === "baby.32b.io"`, because the other hostname —
+    // Access-fronted baby.llera.eu — had no babylog session for /auth/logout to
+    // end. That hostname is retired, and every origin this shell is served from
+    // now reaches the app through the same OIDC session, so there is nothing
+    // left to gate on.
     function initSettingsSession() {
-      var el = document.getElementById("settings-session");
-      if (!el) return;
-      if (location.hostname !== "baby.32b.io") return;
-      el.hidden = false;
       var btn = document.getElementById("logout-btn");
-      if (btn) {
-        btn.addEventListener("click", function() {
-          location.assign("/auth/logout");
-        });
-      }
+      if (!btn) return;
+      btn.addEventListener("click", function() {
+        location.assign("/auth/logout");
+      });
     }
 
     // Night window in Settings. No re-render here: the tape and gauge
@@ -2208,15 +2202,14 @@
     }
 
     // Standard error toast. Unauthorized stays silent on purpose — the 401
-    // path already reloads into the Access login (see gotoLogin).
+    // path already reloads into the login (see gotoLogin).
     function toastErr(err, key) {
       if (err.message !== "Unauthorized") toast(i18n(key || "Error: {e}", { e: err.message }), true);
     }
 
     // A 401 means the session expired (the app itself has no login). A full
-    // reload triggers a top-level navigation: on baby.llera.eu Access
-    // intercepts it to re-run its login, and on baby.32b.io the /app gate
-    // 302s to the 32b.io magic-link login — either way we return here.
+    // reload triggers a top-level navigation, and the /app gate 302s to the
+    // auth.32b.io login, which returns here.
     function gotoLogin() {
       location.reload();
     }

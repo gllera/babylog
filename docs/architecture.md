@@ -12,29 +12,27 @@ voice shows up in the web app and is queryable over MCP.
 
 ## Authentication
 
-Two identity sources feed one `getIdentityEmail()` (`src/identity.ts`), tried
-in order — during the llera.eu → 32b.io transition both stay live at once:
+Every surface authenticates against `auth.32b.io`, since **2026-08-10**. Three
+identity sources, one per interface — they do not overlap, and there is no
+precedence between them:
 
-1. **Cloudflare Access JWT** — `baby.llera.eu`. Access runs the entire OAuth
-   2.1 flow for MCP clients (discovery, dynamic client registration, IdP
-   login); browsers get the normal Access login. The Worker verifies the
-   `Cf-Access-Jwt-Assertion` header Access stamps (team JWKS + issuer + AUD,
-   `src/access.ts`) — `workers_dev: false` keeps the unfronted
-   `*.workers.dev` origin closed — and reads the JWT's `email` claim.
-2. **babylog's own session cookie** — `baby.32b.io`. `__Host-bsess`, HS256,
-   minted by this Worker (`src/session.ts`) after it completes an OpenID
-   Connect authorization-code flow against `auth.32b.io` (`src/oidc.ts`). A
-   completed login is taken as email-ownership proof.
+1. **babylog's own session cookie** — the browser (`/app`, `/welcome`,
+   `/api`). `__Host-bsess`, HS256, minted by this Worker (`src/session.ts`)
+   after it completes an OpenID Connect authorization-code flow against
+   `auth.32b.io` (`src/oidc.ts`). `getIdentityEmail()` (`src/identity.ts`)
+   reads it, and a completed login is taken as email-ownership proof.
+2. **An OAuth 2.1 access token** — `/mcp` only, verified by `src/mcp-auth.ts`
+   (below). `getIdentityEmail()` is not involved: a bearer token is not a
+   cookie, and a refusal has to carry a `WWW-Authenticate` challenge.
 
-The Alexa endpoint has its own third identity source, handled in `src/alexa.ts`
-rather than through `getIdentityEmail()`:
+The Alexa endpoint has its own third source, handled in `src/alexa.ts`:
 
 3. **Alexa link token** — `/alexa` only. A babylog-minted HS256 JWT
    (`typ: alexatk+jwt`) that the Echo carries in every request's
    `accessToken`, verified locally (`verifyLinkToken`, `src/alexa-link.ts`) —
    no network hop, so voice latency is unchanged. The token is issued by
    babylog's Alexa account-linking mini-AS (`/auth/alexa/{authorize,token}`),
-   whose own identity comes from the same `auth.32b.io` OIDC login as source 2.
+   whose own identity comes from the same `auth.32b.io` OIDC login as source 1.
    Since 2026-08-09 Alexa is **strict**: a request without a valid link token
    is answered with a LinkAccount card, and there is no fixed-household
    fallback.
@@ -91,10 +89,63 @@ shared cookie. babylog was one of three. So the assertion that a well-formed
 Tenant `t_32b` has `subject_type: public`, so the `sub` in an id_token is the
 same `u_<ULID>` account id the shared cookie carried. No data moved.
 
-If neither is present, `DEV_USER_EMAIL` (`.dev.vars` only, never a production
-var) supplies identity for `wrangler dev` — but only when the request's host
-is `localhost`/`127.0.0.1`, so a stray `DEV_USER_EMAIL` can never authenticate
-anyone in production.
+If no session cookie is present, `DEV_USER_EMAIL` (`.dev.vars` only, never a
+production var) supplies identity for `wrangler dev` — but only when the
+request's host is `localhost`/`127.0.0.1`, so a stray `DEV_USER_EMAIL` can never
+authenticate anyone in production.
+
+### `/mcp` as a protected resource (2026-08-10)
+
+`/mcp` verifies its own OAuth 2.1 access tokens (`src/mcp-auth.ts`). Until this
+change it was the last surface whose login was **Cloudflare Access**: an Access
+application with Managed OAuth fronted `baby.llera.eu` and ran the entire flow
+for an MCP client — discovery, dynamic client registration, IdP login — while
+this Worker only checked the `Cf-Access-Jwt-Assertion` header Access stamped.
+Two authorization servers in front of one Worker, and the llera.eu one could not
+be deleted while it was the only thing that could log an MCP client in.
+
+- **Resource identifier:** `https://baby.32b.io/mcp` — the canonical server URL,
+  what a client sends as `resource` at `/authorize`, and what arrives as `aud`.
+- **Metadata (RFC 9728):** the same document at
+  `/.well-known/oauth-protected-resource` **and**
+  `/.well-known/oauth-protected-resource/mcp`. MCP clients derive the second
+  from the server URL's path; generic OAuth code asks for the first. A 404 at
+  either is a client that never finds the authorization server.
+- **No token → `401`** with
+  `WWW-Authenticate: Bearer resource_metadata="https://baby.32b.io/.well-known/oauth-protected-resource"`.
+  That header is the whole discovery path: nothing about the flow is configured
+  in the client. A token that fails verification gets the same header plus
+  `error="invalid_token"` (RFC 6750 §3), which is what tells a client to
+  **refresh** rather than register itself all over again.
+- **Five checks, all mandatory:** the signature against the keys auth publishes
+  (`jwks_uri` from its discovery document — the same per-isolate caches
+  `src/oidc.ts` fills for the browser login), `iss` exactly `OIDC_ISSUER`, `aud`
+  exactly the resource identifier, the `typ` header `at+jwt` (RFC 9068), and a
+  current `exp`/`iat`.
+- **The `aud` check is the point.** auth's own access tokens — the kind
+  `/userinfo` accepts — carry the same issuer, the same subject and the same
+  signature, and are refused here; `/userinfo` performs the mirror check, so
+  neither token opens the other's door. `typ` covers what a signature cannot
+  say: *which kind* of token it just verified. Both walls are tests
+  (`test/mcp-auth.test.ts`) precisely so that "simplify this to signed-by-auth"
+  fails the build.
+- **A valid token with no `email` claim is `403 insufficient_scope`**, not 401
+  and never an anonymous session: nothing is wrong with the token, it is
+  babylog that has no other name for a person (households key on the address).
+  The user-visible consequence is intended — decline the `email` scope at auth's
+  consent screen and the MCP server is closed to you.
+
+`workers_dev: false` keeps the `*.workers.dev` origin shut: a token audienced to
+`https://baby.32b.io/mcp` would be refused there anyway, but a second door with
+its own name is worth not having.
+
+**What went with it:** `src/access.ts`, the Access branch of `src/identity.ts`,
+the `TEAM_DOMAIN`/`POLICY_AUD` vars, and the host gate on the web app's Log out
+button. Outside this repo and left to the operator, in order and only after an
+MCP client is verified on `baby.32b.io`: the `baby-mcp` Access application, the
+`baby.llera.eu` custom domain, its DNS record (docs/setup.md). The
+`baby-alexa` Access application is **not** part of that: it is path-scoped to
+`baby.32b.io/alexa` and is still the whole gate in front of `/alexa` (below).
 
 The Alexa endpoint has no Access *identity* (it is reached through an AWS Lambda,
 not a browser). Since **2026-08-09** it derives a per-user identity from the link
@@ -167,8 +218,8 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 .
 ├── src/
 │   ├── index.ts                    # Router; resolves identity, threads it, /app + /welcome gating
-│   ├── identity.ts                 # getIdentityEmail(): Access JWT → own session → DEV_USER_EMAIL
-│   ├── access.ts                   # Access JWT verification
+│   ├── identity.ts                 # getIdentityEmail(): own session → DEV_USER_EMAIL
+│   ├── mcp-auth.ts                 # /mcp's access-token gate + RFC 9728 metadata
 │   ├── oidc.ts                     # OIDC client: /auth/login, /auth/callback, /auth/logout
 │   ├── session.ts                  # babylog's own session cookie (__Host-bsess, HS256)
 │   ├── onboard.ts                  # /welcome: accept/decline invite, create household
@@ -191,6 +242,7 @@ timezone — consistent across the MCP tools, the web UI, and the Alexa skill.
 │   ├── identity.test.ts            # Unit tests for getIdentityEmail()
 │   ├── session.test.ts             # Unit tests for the session cookie
 │   ├── oidc.test.ts                # The code+PKCE flow against a stubbed IdP
+│   ├── mcp-auth.test.ts            # /mcp's audience + typ walls, its 401/403, its metadata
 │   ├── growth.test.ts              # Unit tests for growth-based targets
 │   ├── app-i18n.test.ts            # Cross-checks app.html's i18n keys against the ES dictionary
 │   ├── belly-calib.test.ts         # Unit tests for the belly ring's calibration backtest
