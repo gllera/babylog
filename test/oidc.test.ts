@@ -457,3 +457,70 @@ describe("asking the IdP to re-authenticate", () => {
     expect(cleared).toContain("Max-Age=0");
   });
 });
+
+// -----------------------------------------------------------------------------
+// Resuming a login whose flow cookie did not survive.
+//
+// The failure this covers had a shape worth naming: Alexa account linking bounces
+// a sessionless user through /auth/login, and when the flow cookie lapsed the
+// error page offered "Try again" pointing at a bare /auth/login. That signs the
+// user in and lands them on /app — so the linking they were in the middle of
+// could never complete, however many times they retried. `next` rides in `state`
+// so the retry can resume; it is recovered for that link and nothing else.
+describe("a login that lost its flow cookie", () => {
+  const LINK = "/auth/alexa/authorize?response_type=code&client_id=alexa";
+
+  const retryHref = (html: string): string =>
+    /<a href="([^"]*)">Try again<\/a>/.exec(html)![1];
+
+  it("offers a retry that resumes where the login was headed", async () => {
+    const idp = await stubIdp();
+    const { state } = await start(idp, LINK);
+    const res = await callback(idp, "", `code=abc&state=${encodeURIComponent(state)}`);
+
+    expect(res.status).toBe(400);
+    expect(await sessionOf(res, idp.env)).toBeNull();
+    const href = retryHref(await res.text());
+    expect(href.startsWith("/auth/login?next=")).toBe(true);
+    expect(decodeURIComponent(href.slice("/auth/login?next=".length))).toBe(LINK);
+  });
+
+  it("falls back to a bare retry when there is nothing to resume", async () => {
+    const idp = await stubIdp();
+    const { state } = await start(idp);
+    const res = await callback(idp, "", `code=abc&state=${encodeURIComponent(state)}`);
+    expect(retryHref(await res.text())).toBe("/auth/login");
+  });
+
+  // The recovered value comes off a URL anybody can craft, so it is bounded by
+  // safeNext exactly like the query parameter is. An off-origin destination in
+  // `state` must not become an off-origin link on our own error page.
+  it("will not resume to an off-origin destination a stranger put in state", async () => {
+    const idp = await stubIdp();
+    for (const hostile of ["https://evil.example/x", "//evil.example/x", "/\\evil.example"]) {
+      const state = `abcdef.${Buffer.from(hostile).toString("base64url")}`;
+      const res = await callback(idp, "", `code=abc&state=${encodeURIComponent(state)}`);
+      expect(retryHref(await res.text())).toBe("/auth/login");
+    }
+  });
+
+  it("does not let the rider in state stand in for a matching state", async () => {
+    const idp = await stubIdp();
+    const { cookie } = await start(idp, LINK);
+    // Same `next` rider, different random half: still refused, because the
+    // comparison is against the cookie's copy whole.
+    const forged = `zzzzzzzzzzzzzzzzzzzzzz.${Buffer.from(LINK).toString("base64url")}`;
+    const res = await callback(idp, cookie, `code=abc&state=${encodeURIComponent(forged)}`);
+    expect(res.status).toBe(400);
+    expect(await sessionOf(res, idp.env)).toBeNull();
+  });
+
+  it("still completes a login whose cookie did survive", async () => {
+    const idp = await stubIdp();
+    const { cookie, state } = await start(idp, LINK);
+    const res = await callback(idp, cookie, `code=abc&state=${encodeURIComponent(state)}`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(LINK);
+    expect(await sessionOf(res, idp.env)).not.toBeNull();
+  });
+});

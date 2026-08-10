@@ -32,7 +32,22 @@ const FLOW_COOKIE = "__Host-blogin";
 
 // Long enough for a first-time login that goes and reads an email, short enough
 // that an abandoned one does not sit in the jar for a day.
-const FLOW_MAX_AGE_S = 15 * 60;
+//
+// AN HOUR, RAISED FROM FIFTEEN MINUTES, and Alexa account linking is what
+// bought the change. That flow runs inside the Alexa app's webview: the bounce
+// to the IdP sends a magic link, the user leaves for a mail app, and comes back
+// — and fifteen minutes is a plausible amount of time for that to take. When it
+// lapses, the callback arrives with no flow cookie and the login dies as
+// `no_flow`, which reads to the user as "linking is broken" rather than "you
+// were too slow".
+//
+// The cookie carries no authority, so widening the window concedes nothing that
+// bounds the login: the exchange still needs the PKCE verifier inside it, the
+// `state` still has to match, the IdP's own authorization code still lives
+// sixty seconds, and its session rules are unchanged. What an hour costs is an
+// abandoned flow sitting in the jar four times longer, holding one nonce
+// nobody will ever present.
+const FLOW_MAX_AGE_S = 60 * 60;
 
 // -----------------------------------------------------------------------------
 // The "somebody just signed out here" marker.
@@ -192,6 +207,53 @@ export function safeNext(raw: string | null): string {
   return raw;
 }
 
+// -----------------------------------------------------------------------------
+// `next`, carried where the flow cookie cannot reach.
+//
+// THE BUG THIS EXISTS FOR. When the callback arrives with no flow cookie the
+// login dies as `no_flow`, and the error page offered "Try again" pointing at a
+// bare /auth/login — which drops `next` on the floor. For an ordinary sign-in
+// that is invisible, because `next` was going to be /app anyway. For Alexa
+// account linking it was the whole failure: the link the user clicked signed
+// them in and landed them on /app, so the linking they were in the middle of
+// could never complete no matter how many times they retried. A transient
+// timeout presented as a permanently broken feature.
+//
+// So `next` rides in `state` as well as in the cookie. The IdP treats `state` as
+// opaque and echoes it back verbatim, which makes it the one thing we are
+// guaranteed to have on the callback whether or not the cookie survived.
+//
+// IT IS NOT TRUSTED, and nothing about the security of the flow moves onto it.
+// Anyone can hand this endpoint a callback URL with a `state` of their choosing,
+// so the recovered value is run through safeNext (same-origin absolute path,
+// nothing a browser could read as a host) and then only ever used to build the
+// href of a link the USER has to click. The cookie's copy is still what the
+// completed login redirects to; the exchange still needs the verifier that only
+// the cookie carries; and `state` equality is still compared against the cookie,
+// not parsed for meaning. This recovers a destination, never an authorization.
+const b64uText = (s: string): string => b64u(new TextEncoder().encode(s));
+
+const fromB64uText = (s: string): string | null => {
+  try {
+    return new TextDecoder().decode(
+      Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))
+    );
+  } catch {
+    return null;
+  }
+};
+
+// `<random>.<b64url(next)>`. The random half is what makes state unguessable and
+// is the only half the equality check cares about; the suffix is a passenger.
+const stateFor = (next: string): string => `${random(16)}.${b64uText(next)}`;
+
+const nextFromState = (state: string | null): string => {
+  if (!state) return "/app";
+  const dot = state.indexOf(".");
+  if (dot === -1) return "/app";
+  return safeNext(fromB64uText(state.slice(dot + 1)));
+};
+
 // --------------------------------------------------------------- leg one ----
 
 // The redirect URI must match the registered string EXACTLY — the IdP compares
@@ -202,13 +264,16 @@ const redirectUri = (request: Request): string => `${new URL(request.url).origin
 
 export async function beginLogin(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const next = safeNext(url.searchParams.get("next"));
   const flow: Flow = {
-    state: random(16),
+    // Carries `next` as a passenger so a callback that arrives without the
+    // cookie can still offer a retry that resumes what the user was doing.
+    state: stateFor(next),
     nonce: random(16),
     // RFC 7636 wants 43-128 characters of unreserved ASCII; 32 random bytes
     // base64url is 43.
     verifier: random(32),
-    next: safeNext(url.searchParams.get("next")),
+    next,
   };
 
   // Two ways to demand a fresh authentication, and the difference is only who
@@ -261,10 +326,16 @@ const REASONS: Record<string, string> = {
   token: "Could not verify the sign-in. Please try again.",
 };
 
-const fail = (reason: keyof typeof REASONS): Response =>
+// `next` is where a retry should resume. Percent-encoded into the href rather
+// than escaped by hand: encodeURIComponent turns `"`, `<` and `&` into their
+// escapes, so a path that survived safeNext still cannot break out of the
+// attribute it lands in.
+const fail = (reason: keyof typeof REASONS, next = "/app"): Response =>
   new Response(
     `<!doctype html><meta charset="utf-8"><title>Sign-in</title>` +
-      `<p>${REASONS[reason]}</p><p><a href="/auth/login">Try again</a></p>`,
+      `<p>${REASONS[reason]}</p><p><a href="${
+        next === "/app" ? "/auth/login" : `/auth/login?next=${encodeURIComponent(next)}`
+      }">Try again</a></p>`,
     {
       status: 400,
       headers: {
@@ -281,18 +352,25 @@ const fail = (reason: keyof typeof REASONS): Response =>
 export async function handleCallback(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const flow = unpackFlow(request);
-  if (!flow) return fail("no_flow");
+  // The cookie is gone, so the only thing left that knows where this login was
+  // headed is the `state` the IdP echoed back. Recovered for the retry link
+  // alone — see nextFromState.
+  if (!flow) return fail("no_flow", nextFromState(url.searchParams.get("state")));
 
   // The IdP reports failures by redirecting here with `error`; there is no code
   // to exchange and nothing to look up.
-  if (url.searchParams.get("error")) return fail("denied");
+  if (url.searchParams.get("error")) return fail("denied", flow.next);
 
   // Before anything is spent. This is what makes the callback belong to the
   // login this browser started rather than to one an attacker started.
-  if (url.searchParams.get("state") !== flow.state) return fail("state");
+  //
+  // Compared against the COOKIE'S copy, whole and by equality. The `next` rider
+  // inside it is not parsed here and gets no vote: a state that does not match
+  // is refused, whatever it decodes to.
+  if (url.searchParams.get("state") !== flow.state) return fail("state", flow.next);
 
   const code = url.searchParams.get("code");
-  if (!code) return fail("state");
+  if (!code) return fail("state", flow.next);
 
   const doc = await discover(env.OIDC_ISSUER!);
 
@@ -319,12 +397,12 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
       },
       body: body.toString(),
     });
-    if (!res.ok) return fail("exchange");
+    if (!res.ok) return fail("exchange", flow.next);
     const json = (await res.json()) as { id_token?: string };
-    if (!json.id_token) return fail("exchange");
+    if (!json.id_token) return fail("exchange", flow.next);
     idToken = json.id_token;
   } catch {
-    return fail("exchange");
+    return fail("exchange", flow.next);
   }
 
   // Verified against the keys the IdP PUBLISHES, fetched from the jwks_uri in
@@ -339,16 +417,16 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
       requiredClaims: ["iss", "aud", "sub", "exp", "iat", "nonce"],
     }));
   } catch {
-    return fail("token");
+    return fail("token", flow.next);
   }
 
   // OIDC Core §3.1.3.7 step 11. The nonce is what ties this id_token to the
   // authorization request this browser made; without it a token replayed from
   // another login verifies perfectly.
-  if (claims.nonce !== flow.nonce) return fail("token");
+  if (claims.nonce !== flow.nonce) return fail("token", flow.next);
 
   const email = typeof claims.email === "string" ? claims.email.toLowerCase() : "";
-  if (!claims.sub || !email) return fail("token");
+  if (!claims.sub || !email) return fail("token", flow.next);
 
   const session = await mintSession(env, { sub: String(claims.sub), email });
   const headers = new Headers({ Location: flow.next, "Cache-Control": "no-store" });
