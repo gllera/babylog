@@ -1,12 +1,18 @@
 // -----------------------------------------------------------------------------
 // Web layer: the browser app shell (src/app.html) and its static assets.
-// Authentication is handled entirely by Cloudflare Access in front of
-// baby.llera.eu — the Worker no longer runs its own /app login.
+// Authentication happens before any of this is served: src/index.ts gates /app
+// on getIdentityEmail, which is babylog's own session cookie, minted after an
+// OIDC login at auth.32b.io (src/oidc.ts, src/identity.ts).
 // -----------------------------------------------------------------------------
 
 import appHtmlRaw from "./app.html";
 
-export const SERVER_ORIGIN = "https://baby.llera.eu";
+// This Worker's one public origin, read by src/tools.ts for the MCP server's
+// advertised icon and website. It was baby.llera.eu until 2026-08-10, when /mcp
+// started verifying its own access tokens and that Access-fronted hostname
+// began being retired — leaving it here would advertise an icon URL that stops
+// resolving the moment the operator deletes the DNS record.
+export const SERVER_ORIGIN = "https://baby.32b.io";
 
 export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <rect x="18" y="20" width="28" height="38" rx="6" fill="#fff" stroke="#0070f3" stroke-width="3"/>

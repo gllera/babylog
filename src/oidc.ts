@@ -106,10 +106,17 @@ type Discovery = {
 // Cached for the life of the isolate, keyed by issuer. The document changes
 // about as often as the service is redeployed, and a cold isolate paying one
 // extra fetch on its first login is the whole cost of not hardcoding endpoints.
+//
+// Both halves are exported because /mcp verifies auth's access tokens against
+// the same published keys (src/mcp-auth.ts) and there must be ONE cache: a
+// second copy would double the cold-start fetches and, worse, could be looking
+// at a different generation of the key set during a rotation — one endpoint
+// accepting what the other refuses is the kind of half-failure nobody
+// reproduces.
 const discoveryCache = new Map<string, Promise<Discovery>>();
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
-function discover(issuer: string): Promise<Discovery> {
+export function discover(issuer: string): Promise<Discovery> {
   let hit = discoveryCache.get(issuer);
   if (!hit) {
     hit = fetch(`${issuer}/.well-known/openid-configuration`)
@@ -128,7 +135,7 @@ function discover(issuer: string): Promise<Discovery> {
   return hit;
 }
 
-const jwks = (uri: string) => {
+export const jwks = (uri: string) => {
   let hit = jwksCache.get(uri);
   if (!hit) {
     hit = createRemoteJWKSet(new URL(uri));

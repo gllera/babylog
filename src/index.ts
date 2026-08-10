@@ -7,6 +7,7 @@ import { getIdentityEmail } from "./identity";
 import { resolveTenant } from "./users";
 import { handleWelcome, loginRedirect } from "./onboard";
 import { beginLogin, handleCallback, logout } from "./oidc";
+import { authorizeMcp, protectedResourceMetadata } from "./mcp-auth";
 import { handleAlexaAuthorize, handleAlexaToken } from "./alexa-link";
 import {
   ICON_SVG,
@@ -21,8 +22,8 @@ export { BabyFeedingMCP };
 const methodNotAllowed = (allow: string): Response =>
   new Response("Method not allowed", { status: 405, headers: { Allow: allow } });
 
-// The MCP transport handler. Authorization is handled upstream by Cloudflare
-// Access (Managed OAuth) + the Access-JWT check below, not by the Worker.
+// The MCP transport handler. Authorization is the gate below, not the
+// transport's: nothing reaches this without a verified access token.
 const MCP_HANDLER = BabyFeedingMCP.serve("/mcp", { binding: "MCP_OBJECT" });
 
 export default {
@@ -33,20 +34,31 @@ export default {
   ): Promise<Response> {
     const url = new URL(request.url);
 
-    // /mcp is fronted by a Cloudflare Access app with Managed OAuth, which runs
-    // the entire OAuth 2.1 flow for the MCP client (discovery, dynamic client
-    // registration, login). Access only forwards a request once it passes the
-    // policy, stamping `Cf-Access-Jwt-Assertion`. The Worker resolves identity
-    // itself (Access JWT or 32b.io sess cookie — see identity.ts), so the
-    // endpoint stays closed on any origin Access doesn't front; the resolved
-    // email is the identity every MCP tool scopes its data to, handed to the
-    // Durable Object via ctx.props.
+    // Where an MCP client's whole login starts: RFC 9728 metadata, ahead of
+    // every gate because it is what an UNAUTHENTICATED client reads to find out
+    // which authorization server to go to. Two paths, one document — see
+    // src/mcp-auth.ts for why both must answer.
+    const metadata = protectedResourceMetadata(url, env);
+    if (metadata) return metadata;
+
+    // /mcp verifies its own OAuth 2.1 access tokens: minted by auth.32b.io,
+    // audience-bound to this resource, checked in src/mcp-auth.ts. A refusal is
+    // the 401 (or 403) that module builds, carrying the `WWW-Authenticate`
+    // header the client discovers everything else from — never a bare 401,
+    // which tells a client nothing about where to log in.
+    //
+    // It does NOT go through getIdentityEmail: that function answers for the
+    // browser surfaces and knows only cookies. A Cloudflare Access JWT used to
+    // be its other answer and used to open this endpoint; both are gone.
+    //
     if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
-      const email = await getIdentityEmail(request, env);
-      if (!email) return new Response("Unauthorized", { status: 401 });
-      // workers-types declares ExecutionContext.props readonly; McpAgent
-      // reads props from the execution context, so assign through a cast.
-      (ctx as { props?: Record<string, unknown> }).props = { email };
+      const gate = await authorizeMcp(request, env);
+      if (!gate.ok) return gate.response;
+      // The token's email is the identity every MCP tool scopes its data to,
+      // handed to the Durable Object via ctx.props. workers-types declares
+      // ExecutionContext.props readonly; McpAgent reads props from the
+      // execution context, so assign through a cast.
+      (ctx as { props?: Record<string, unknown> }).props = { email: gate.email };
       return MCP_HANDLER.fetch(request, env, ctx);
     }
 
@@ -127,9 +139,8 @@ export default {
       });
     }
     // /app and /welcome are the two browser entry points. No identity → the
-    // 32b.io magic-link login (on baby.llera.eu, Access intercepts first, so
-    // this redirect only ever fires on baby.32b.io or in dev). Identity
-    // without a household → /welcome (accept an invite or create one).
+    // auth.32b.io login. Identity without a household → /welcome (accept an
+    // invite or create one).
     if (
       url.pathname === "/app" ||
       url.pathname === "/app/" ||

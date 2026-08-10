@@ -1,19 +1,24 @@
 // -----------------------------------------------------------------------------
-// Request identity. Two production auth paths, on two hostnames:
-//   1. Cloudflare Access JWT — baby.llera.eu, stamped by the Access app, which
-//      still fronts /mcp and the legacy origin.
-//   2. babylog's own session cookie — baby.32b.io. Minted by this Worker after
-//      the OIDC code exchange against auth.32b.io (src/oidc.ts), replacing the
-//      estate-wide `sess` cookie this file used to read.
+// Request identity for the browser surfaces (/app, /welcome, /api): babylog's
+// own session cookie, minted by this Worker after the OIDC code exchange
+// against auth.32b.io (src/oidc.ts, src/session.ts).
 //
-// The order matters and did not change: Access is the outer gate on the host it
-// fronts, so its assertion wins where it exists.
+// There used to be two, tried in order, and the first was a Cloudflare Access
+// JWT: Access fronted baby.llera.eu, ran the whole OAuth 2.1 flow for MCP
+// clients, and stamped `Cf-Access-Jwt-Assertion` on everything it let past.
+// /mcp verifies its own access tokens now (src/mcp-auth.ts), which is what let
+// that hostname and its Access app be retired — so the header is read by
+// nothing and src/access.ts is deleted rather than left dormant. There is no
+// precedence question left, and no outer gate for a header to win against.
+//
+// /mcp does NOT come through here: a bearer token is not a cookie, and its
+// refusals carry a `WWW-Authenticate` challenge this function has no way to
+// build. See src/mcp-auth.ts.
 //
 // Dev fallback: DEV_USER_EMAIL (.dev.vars only — never a production var) so
-// `wrangler dev` works with neither in front.
+// `wrangler dev` works with no IdP in front.
 // -----------------------------------------------------------------------------
 
-import { verifyAccessJwt } from "./access";
 import { getSessionEmail } from "./session";
 import type { Env } from "./types";
 
@@ -21,13 +26,6 @@ export async function getIdentityEmail(
   request: Request,
   env: Env
 ): Promise<string | null> {
-  const jwt = request.headers.get("Cf-Access-Jwt-Assertion");
-  if (jwt) {
-    const payload = await verifyAccessJwt(jwt, env);
-    if (typeof payload?.email === "string" && payload.email) {
-      return payload.email.toLowerCase();
-    }
-  }
   // getSessionEmail answers null when the secret is unconfigured, so there is
   // nothing to guard on here.
   const email = await getSessionEmail(request, env);

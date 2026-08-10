@@ -49,14 +49,22 @@ timezone — consistent with the Alexa skill's daily summary.
 
 ## Connect from Claude
 
+The server URL is **`https://baby.32b.io/mcp`**, and it is an OAuth 2.1
+protected resource: a client with no token gets a `401` naming the metadata URL
+(`/.well-known/oauth-protected-resource`), reads `auth.32b.io` out of it,
+registers itself there, and comes back with a token audienced to this server.
+Nothing is configured in the client — no client id, no secret, no endpoints.
+The account it signs in as must already be a caregiver in a household (`/app` →
+Settings → invite, or `/welcome` to create one); a token whose email is not
+registered reaches the tools and is told so by every one of them.
+
 **claude.ai** → Connectors → add a custom connector with the `/mcp` URL — the
-browser runs the Access login on first connect (dynamic client registration, no
-client id/secret).
+browser runs the auth.32b.io login on first connect.
 
 **Claude Code:**
 
 ```bash
-claude mcp add --transport http baby https://<your-host>/mcp
+claude mcp add --transport http baby https://baby.32b.io/mcp
 ```
 
 Then try:
