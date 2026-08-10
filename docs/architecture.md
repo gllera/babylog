@@ -39,7 +39,7 @@ The Alexa endpoint has its own third source, handled in `src/alexa.ts`:
 
 ### The OIDC client (2026-08-01)
 
-babylog is a **confidential client** of `https://auth.32b.io/t/t_32b`: code +
+babylog is a **confidential client** of `https://auth.32b.io/t/32b`: code +
 PKCE (S256), exchanged server-side once, after which this Worker mints the
 session above and does not talk to the IdP again until it expires. There are no
 refresh tokens and no token store — that is the client shape stage 3 of
@@ -86,7 +86,7 @@ shared cookie. babylog was one of three. So the assertion that a well-formed
 `sess` cookie now buys *nothing* here is a test rather than a remark
 (`test/session.test.ts`, `test/identity.test.ts`).
 
-Tenant `t_32b` has `subject_type: public`, so the `sub` in an id_token is the
+Tenant `32b` has `subject_type: public`, so the `sub` in an id_token is the
 same `u_<ULID>` account id the shared cookie carried. No data moved.
 
 If no session cookie is present, `DEV_USER_EMAIL` (`.dev.vars` only, never a

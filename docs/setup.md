@@ -115,13 +115,13 @@ npm run db:migrate:remote && npm run deploy
 
 **Hostname live since 2026-07-30; OIDC client since 2026-08-01.**
 `baby.32b.io` runs an OpenID Connect authorization-code + PKCE flow against
-`https://auth.32b.io/t/t_32b` (`src/oidc.ts`) and mints its own
+`https://auth.32b.io/t/32b` (`src/oidc.ts`) and mints its own
 `__Host-bsess` session cookie (`src/session.ts`). The estate's shared
 `Domain=32b.io` cookie — and the `SESSION_SECRET` that verified it — are
 retired; nothing here reads them. Setup, in order:
 
 1. **Register the client at auth.32b.io:** an application `babylog` in
-   tenant `t_32b` (confidential, `redirect_uris` containing exactly
+   tenant `32b` (confidential, `redirect_uris` containing exactly
    `https://baby.32b.io/auth/callback`), via the tenant console at
    auth.32b.io. Registration mints the client secret. The non-secret half of
    the registration lives in `wrangler.jsonc` `vars` (`OIDC_ISSUER`,

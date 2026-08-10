@@ -178,7 +178,12 @@ export function protectedResourceMetadata(url: URL, env: Env): Response | null {
       // that is not a compile error — clients are sent to an authorization
       // server whose tokens are then refused here, with nothing in either half
       // looking wrong on its own.
-      authorization_servers: [env.OIDC_ISSUER!],
+      // An empty list rather than a `!`: the binding is optional in Env, and a
+      // document naming `null` as an authorization server is one a client
+      // parses, believes, and fails on somewhere further in. Empty says the
+      // true thing — this deploy has no authorization server configured — and
+      // matches authorizeMcp, which refuses every token in that state.
+      authorization_servers: env.OIDC_ISSUER ? [env.OIDC_ISSUER] : [],
       // Header only. See the note in authorizeMcp.
       bearer_methods_supported: ["header"],
       // `offline_access` is what a client asks for to be given a refresh token,
