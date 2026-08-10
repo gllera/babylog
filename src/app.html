@@ -1676,6 +1676,18 @@
           <button type="button" data-lang="es">Espa&ntilde;ol</button>
         </div>
       </div>
+
+      <!-- Session: the app's only account action. Shown on baby.32b.io, where
+           the session is babylog's own OIDC cookie and /auth/logout ends it
+           (then hands off to auth.32b.io's logout). Hidden by default and
+           unhidden per-host in initSettingsSession — on other origins there is
+           no babylog session to end here. -->
+      <div class="sect" id="settings-session" hidden>
+        <div class="sect-title"><span data-i18n="Session">Session</span></div>
+        <div class="lang-options">
+          <button type="button" id="logout-btn" data-i18n="Log out">Log out</button>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -1749,6 +1761,8 @@
         "Weight": "Peso",
         "Height": "Talla",
         "Back to Today": "Volver a Hoy",
+        "Session": "Sesión",
+        "Log out": "Cerrar sesión",
         // Dashboard (Today tab)
         "Loading…": "Cargando…",
         // Composer annotation block (quick-add picker / record editor)
@@ -1940,6 +1954,23 @@
         try { localStorage.setItem("lang", lang); } catch (_) {}
         location.reload();
       });
+    }
+
+    // Log out lives in Settings, but only where there is a babylog session to
+    // end: baby.32b.io, whose auth is this Worker's own OIDC cookie. On any
+    // other origin (a dev host, or the Access-gated baby.llera.eu) /auth/logout
+    // is not the way out, so the section stays hidden.
+    function initSettingsSession() {
+      var el = document.getElementById("settings-session");
+      if (!el) return;
+      if (location.hostname !== "baby.32b.io") return;
+      el.hidden = false;
+      var btn = document.getElementById("logout-btn");
+      if (btn) {
+        btn.addEventListener("click", function() {
+          location.assign("/auth/logout");
+        });
+      }
     }
 
     // Night window in Settings. No re-render here: the tape and gauge
@@ -5364,6 +5395,7 @@
 
     applyStaticI18n();
     initSettingsLang();
+    initSettingsSession();
     initSettingsNight();
     showTab("today");
 
